@@ -9,6 +9,11 @@ export type CartItem = {
 
 const KEY = "afrofood_cart_v1";
 
+function isDip(id: string) {
+  return id.startsWith("dip-");
+}
+
+
 function read(): CartItem[] {
   if (typeof window === "undefined") return [];
   try {
@@ -63,11 +68,22 @@ export function addToCart(payload: Omit<CartItem, "qty">) {
 
 
 export function cartTotal(cart: CartItem[]): number {
-  // extras sauce rouge (si un jour tu actives +1€)
-  const extras = cart.reduce((sum, it) => sum + it.extraRedSauceQty * 1, 0);
+  // base
   const base = cart.reduce((sum, it) => sum + it.price * it.qty, 0);
-  return base + extras;
+
+  // extras sauce rouge (si activé chez toi)
+  const redExtras = cart.reduce((sum, it) => sum + it.extraRedSauceQty * 1, 0);
+
+  // ✅ dips : 1er gratuit, puis +1€ par dip supplémentaire
+  const dipQtyTotal = cart
+    .filter((it) => isDip(it.id))
+    .reduce((sum, it) => sum + it.qty, 0);
+
+  const dipExtra = Math.max(0, dipQtyTotal - 1) * 1;
+
+  return base + redExtras + dipExtra;
 }
+
 export function incrementItem(id: string) {
   const cart = getCart();
   const next = cart.map((it) => (it.id === id ? { ...it, qty: it.qty + 1 } : it));

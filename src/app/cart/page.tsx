@@ -21,6 +21,13 @@ export default function CartPage() {
 
   const total = cartTotal(cart);
 
+  const dipQtyTotal = cart
+    .filter((it) => it.id.startsWith("dip-"))
+    .reduce((sum, it) => sum + it.qty, 0);
+
+  const dipExtra = Math.max(0, dipQtyTotal - 1) * 1;
+
+
   return (
     <main style={{ padding: 40, fontFamily: "Arial, sans-serif", maxWidth: 900 }}>
       <a href="/menu" style={{ textDecoration: "none" }}>
@@ -65,7 +72,20 @@ export default function CartPage() {
     −
   </button>
 
-  <div style={{ minWidth: 90 }}>−  Quantité  +  🗑️</div>
+<div
+  style={{
+    minWidth: 90,
+    textAlign: "center",
+    fontWeight: 800,
+    padding: "4px 10px",
+    borderRadius: 999,
+    border: "1px solid #ddd",
+    background: "#f7f7f7",
+  }}
+>
+  x{it.qty}
+</div>
+
 
   <button
     onClick={() => {
@@ -104,13 +124,27 @@ export default function CartPage() {
                 </div>
 
                 <div style={{ fontSize: 18, fontWeight: 800, whiteSpace: "nowrap" }}>
-                  {(it.price * it.qty).toFixed(2)} €
-                </div>
+  {it.id.startsWith("dip-")
+    ? (
+        // Prix dynamique des dips
+        Math.max(0, it.qty - 1) * 1
+      ).toFixed(2)
+    : (it.price * it.qty).toFixed(2)
+  } €
+</div>
+
               </div>
             ))}
           </div>
 
+          {dipExtra > 0 && (
+            <div style={{ marginTop: 10, fontSize: 16 }}>
+             Zuschlag für Dips: <b>{dipExtra.toFixed(2)} €</b> (ab dem 2. Dip)
+            </div>
+          )}
+
           <h2 style={{ marginTop: 24 }}>Total : {total.toFixed(2)} €</h2>
+
 
           <button
             onClick={() => {
