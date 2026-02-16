@@ -2,6 +2,8 @@
 
 import React from "react";
 import { addToCart, getCart } from "@/lib/cart";
+import { translations, type Lang } from "@/lib/translations";
+
 
 const BRAND = {
   orange: "#F28C28",     // proche du logo
@@ -280,6 +282,22 @@ function Tag({ label }: { label: string }) {
 
 export default function MenuPage() {
   const [cartCount, setCartCount] = React.useState(0);
+
+const [lang, setLang] = React.useState<Lang>("de");
+
+React.useEffect(() => {
+  const saved = (localStorage.getItem("af_lang") as Lang) || "de";
+  setLang(saved);
+}, []);
+
+function setLanguage(next: Lang) {
+  setLang(next);
+  localStorage.setItem("af_lang", next);
+}
+
+const t = translations[lang];
+
+
 React.useEffect(() => {
   const cart = getCart();
   const count = cart.reduce((sum, it) => sum + it.qty, 0);
@@ -292,6 +310,28 @@ React.useEffect(() => {
      <div style={UI.container} className="af-container">
 
     <div style={UI.topbar} className="af-topbar">
+
+<div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+  {(["de", "fr", "en"] as Lang[]).map((L) => (
+    <button
+      key={L}
+      onClick={() => setLanguage(L)}
+      style={{
+        padding: "8px 10px",
+        borderRadius: 999,
+        border: "1px solid #ddd",
+        background: lang === L ? "#111" : "white",
+        color: lang === L ? "white" : "#111",
+        cursor: "pointer",
+        fontWeight: 900,
+      }}
+    >
+      {L.toUpperCase()}
+    </button>
+  ))}
+</div>
+
+
 
         <a href="/" style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}>
            ← Accueil
@@ -319,7 +359,7 @@ React.useEffect(() => {
     e.currentTarget.style.boxShadow = "0 10px 26px rgba(17,17,17,0.06)";
   }}
 >
-  🛒 Panier <span style={{ opacity: 0.8 }}>({cartCount})</span>
+  🛒 {t.cart}  <span style={{ opacity: 0.8 }}>({cartCount})</span>
 </a>
 
 
@@ -338,7 +378,7 @@ React.useEffect(() => {
 
 
       <p style={{ marginTop: 6 }}>
-  <b>Legende:</b> (1) Enthält Gluten • (2) Enthält Sellerie
+  <b>{t.legend}:</b> (1) Enthält Gluten • (2) Enthält Sellerie
 </p>
 
 
@@ -387,7 +427,8 @@ onMouseLeave={(e) => {
 }}
 
 >
-  Ajouter
+  {t.add}
+
 </button>
 
                 </div>

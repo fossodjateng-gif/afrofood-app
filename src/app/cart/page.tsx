@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { translations, type Lang, getSavedLang, saveLang } from "@/lib/translations";
+
 import {
   getCart,
   cartTotal,
@@ -14,6 +16,15 @@ import {
 
 export default function CartPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
+const [lang, setLang] = useState<Lang>("de");
+
+useEffect(() => {
+  setLang(getSavedLang());
+}, []);
+
+const t = translations[lang];
+
+
 
   useEffect(() => {
     setCart(getCart());
@@ -30,14 +41,82 @@ export default function CartPage() {
 
   return (
     <main  className="af-page" style={{ padding: 40, fontFamily: "Arial, sans-serif", maxWidth: 900 }}>
-      <a href="/menu" style={{ textDecoration: "none" }}>
-        ← Retour au menu
-      </a>
+      <div
+  style={{
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+    marginBottom: 12,
+  }}
+>
+  <a href="/menu" style={{ textDecoration: "none", fontWeight: 800 }}>
+    {t.cart_back}
+  </a>
 
-      <h1 style={{ marginTop: 12 }}>🛒 Panier</h1>
+  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+    <button
+      onClick={() => {
+        setLang("de");
+        saveLang("de");
+      }}
+      style={{
+        padding: "6px 10px",
+        borderRadius: 10,
+        border: "1px solid #111",
+        background: lang === "de" ? "#111" : "white",
+        color: lang === "de" ? "white" : "#111",
+        cursor: "pointer",
+        fontWeight: 800,
+      }}
+    >
+      DE
+    </button>
+
+    <button
+      onClick={() => {
+        setLang("fr");
+        saveLang("fr");
+      }}
+      style={{
+        padding: "6px 10px",
+        borderRadius: 10,
+        border: "1px solid #111",
+        background: lang === "fr" ? "#111" : "white",
+        color: lang === "fr" ? "white" : "#111",
+        cursor: "pointer",
+        fontWeight: 800,
+      }}
+    >
+      FR
+    </button>
+
+    <button
+      onClick={() => {
+        setLang("en");
+        saveLang("en");
+      }}
+      style={{
+        padding: "6px 10px",
+        borderRadius: 10,
+        border: "1px solid #111",
+        background: lang === "en" ? "#111" : "white",
+        color: lang === "en" ? "white" : "#111",
+        cursor: "pointer",
+        fontWeight: 800,
+      }}
+    >
+      EN
+    </button>
+  </div>
+
+  <h1 style={{ margin: 0, width: "100%" }}>{t.cart_title}</h1>
+</div>
+
 
       {cart.length === 0 ? (
-        <p>Ton panier est vide.</p>
+        <p>{t.cart_title}</p>
       ) : (
         <>
           <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
@@ -143,11 +222,11 @@ export default function CartPage() {
 
           {dipExtra > 0 && (
             <div style={{ marginTop: 10, fontSize: 16 }}>
-             Zuschlag für Dips: <b>{dipExtra.toFixed(2)} €</b> (ab dem 2. Dip)
+             {t.cart_dips_extra}: <b>{dipExtra.toFixed(2)} €</b> {t.cart_dips_extra}
             </div>
           )}
 
-          <h2 style={{ marginTop: 24 }}>Total : {total.toFixed(2)} €</h2>
+          <h2 style={{ marginTop: 24 }}>{t.cart_total}: {total.toFixed(2)} €</h2>
 
 
           <button
@@ -165,7 +244,7 @@ export default function CartPage() {
               cursor: "pointer",
             }}
           >
-            Vider le panier
+           {t.cart_clear}
           </button>
         </>
       )}
