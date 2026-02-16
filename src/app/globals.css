@@ -40,3 +40,70 @@ a {
     color-scheme: dark;
   }
 }
+
+/* ===========================
+   AfroFood Responsive Premium
+   =========================== */
+
+@media (max-width: 720px) {
+  .af-page {
+    padding: 14px !important;
+  }
+
+  .af-topbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  .af-topbar a {
+    align-self: flex-start;
+  }
+
+  .af-brand {
+    justify-content: center !important;
+  }
+
+  .af-subtitle {
+    display: none !important; /* cache "Commande digitale..." sur mobile */
+  }
+
+  .af-pill {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  .af-section {
+    padding: 12px !important;
+  }
+
+  .af-card {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .af-price {
+    text-align: right !important;
+    margin-top: 8px !important;
+    font-size: 16px !important;
+  }
+
+  .af-btn {
+    width: 100% !important;
+    padding: 10px 12px !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .af-title {
+    font-size: 18px !important;
+  }
+
+  .af-section-title {
+    font-size: 16px !important;
+  }
+
+  .af-desc {
+    font-size: 12.5px !important;
+  }
+}

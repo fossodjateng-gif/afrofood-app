@@ -29,7 +29,7 @@ export default function CartPage() {
 
 
   return (
-    <main style={{ padding: 40, fontFamily: "Arial, sans-serif", maxWidth: 900 }}>
+    <main  className="af-page" style={{ padding: 40, fontFamily: "Arial, sans-serif", maxWidth: 900 }}>
       <a href="/menu" style={{ textDecoration: "none" }}>
         ← Retour au menu
       </a>
@@ -44,6 +44,7 @@ export default function CartPage() {
             {cart.map((it) => (
               <div
                 key={it.id}
+                className="af-card"
                 style={{
                   border: "1px solid #ddd",
                   borderRadius: 12,
@@ -57,6 +58,7 @@ export default function CartPage() {
                   <div style={{ fontSize: 18, fontWeight: 700 }}>{it.name}</div>
                   <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
   <button
+   className="af-btn"
     onClick={() => {
       decrementItem(it.id);
       setCart(getCart());
@@ -88,6 +90,7 @@ export default function CartPage() {
 
 
   <button
+   className="af-btn"
     onClick={() => {
       incrementItem(it.id);
       setCart(getCart());
@@ -104,7 +107,8 @@ export default function CartPage() {
   </button>
 
   <button
-    onClick={() => {
+   className="af-btn"
+   onClick={() => { 
       removeItem(it.id);
       setCart(getCart());
     }}
@@ -123,7 +127,7 @@ export default function CartPage() {
 
                 </div>
 
-                <div style={{ fontSize: 18, fontWeight: 800, whiteSpace: "nowrap" }}>
+                <div className="af-price"  style={{ fontSize: 18, fontWeight: 800, whiteSpace: "nowrap" }}>
   {it.id.startsWith("dip-")
     ? (
         // Prix dynamique des dips
@@ -147,6 +151,7 @@ export default function CartPage() {
 
 
           <button
+           className="af-btn"
             onClick={() => {
               clearCart();
               setCart([]);

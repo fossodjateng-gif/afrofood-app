@@ -68,17 +68,20 @@ const UI = {
   } as React.CSSProperties,
 
   pill: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "8px 12px",
-    borderRadius: 999,
-    border: `1px solid ${BRAND.black}`,
-    color: BRAND.black,
-    background: "white",
-    textDecoration: "none",
-    fontWeight: 800,
-  } as React.CSSProperties,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  padding: "10px 16px",
+  borderRadius: 999,
+  border: "none",
+  background: "linear-gradient(135deg, #ff7a00, #ff3c00)",
+  color: "white",
+  textDecoration: "none",
+  fontWeight: 900,
+  boxShadow: "0 10px 26px rgba(17,17,17,0.06)", // base
+  transition: "all 0.2s ease",                  // important
+} as React.CSSProperties,
+
 
   note: {
     marginTop: 14,
@@ -285,38 +288,40 @@ React.useEffect(() => {
 
 
   return (
-    <main style={UI.page}>
-     <div style={UI.container}>
+    <main style={UI.page} className="af-page">
+     <div style={UI.container} className="af-container">
 
-    <div style={UI.topbar}>
+    <div style={UI.topbar} className="af-topbar">
+
         <a href="/" style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}>
            ← Accueil
         </a>
 
-       <div style={UI.brand}>
+       <div style={UI.brand} className="af-brand">
+
               <div style={{ fontSize: 22 }}>🧡</div>
           <div style={{ minWidth: 0 }}>
-              <h1 style={UI.title}>AfroFood – Menu 2026</h1>
-                <div style={UI.subtitle}>Commande digitale (DE • FR • EN)</div>
+              <h1 style={UI.title} className="af-title">AfroFood – Menu 2026</h1>
+<div style={UI.subtitle} className="af-subtitle">Commande digitale (DE • FR • EN)</div>
+
           </div>
        </div>
 
 <a
   href="/cart"
-  style={UI.pill}
-onMouseEnter={(e) => {
-  e.currentTarget.style.transform = "translateY(-3px)";
-  e.currentTarget.style.boxShadow = "0 16px 34px rgba(242,140,40,0.18)";
-}}
-onMouseLeave={(e) => {
-  e.currentTarget.style.transform = "translateY(0)";
-  e.currentTarget.style.boxShadow = "0 10px 26px rgba(17,17,17,0.06)";
-}}
-
-
+  style={UI.pill} className="af-pill"
+  onMouseEnter={(e) => {
+    e.currentTarget.style.transform = "translateY(-3px)";
+    e.currentTarget.style.boxShadow = "0 16px 34px rgba(242,140,40,0.18)";
+  }}
+  onMouseLeave={(e) => {
+    e.currentTarget.style.transform = "translateY(0)";
+    e.currentTarget.style.boxShadow = "0 10px 26px rgba(17,17,17,0.06)";
+  }}
 >
-  🛒 Panier <span style={{ opacity: 0.7 }}>({cartCount})</span>
+  🛒 Panier <span style={{ opacity: 0.8 }}>({cartCount})</span>
 </a>
+
 
 </div>
 
@@ -338,13 +343,13 @@ onMouseLeave={(e) => {
 
 
       {sections.map((sec) => (
-        <section key={sec.title} style={UI.section}>
-  <h2 style={UI.sectionTitle}>{sec.title}</h2>
+        <section key={sec.title} style={UI.section} className="af-section">
+  <h2 style={UI.sectionTitle} className="af-section-title">{sec.title}</h2>
 
   <div style={UI.grid}>
 
             {sec.items.map((it) => (
-              <div key={it.name} style={UI.card}>
+              <div key={it.name} style={UI.card} className="af-card">
 
                 <div>
                   <div style={UI.name}>
@@ -354,7 +359,7 @@ onMouseLeave={(e) => {
                     ))}
                   </div>
 
-                  {it.desc && <div style={UI.desc}>{it.desc}</div>}
+                  {it.desc && <div style={UI.desc} className="af-desc">{it.desc}</div>}
 
                    
                   <button
@@ -371,7 +376,7 @@ onMouseLeave={(e) => {
     const count = cart.reduce((sum, it) => sum + it.qty, 0);
     setCartCount(count);
   }}
-  style={UI.btn}
+  style={UI.btn} className="af-btn"
 onMouseEnter={(e) => {
   e.currentTarget.style.background = BRAND.orange;
   e.currentTarget.style.borderColor = BRAND.orange;
@@ -387,7 +392,7 @@ onMouseLeave={(e) => {
 
                 </div>
 
-                <div style={UI.price}>
+                <div style={UI.price} className="af-price">
 
                   {it.price.toFixed(2)} €
                 </div>
