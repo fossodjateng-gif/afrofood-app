@@ -4,14 +4,12 @@ import React from "react";
 import { addToCart, getCart } from "@/lib/cart";
 import { translations, type Lang } from "@/lib/translations";
 
-
 const BRAND = {
-  orange: "#F28C28",     // proche du logo
-  orangeSoft: "#FFF3E6", // fond chaud très clair
+  orange: "#F28C28",
+  orangeSoft: "#FFF3E6",
   black: "#111111",
   border: "#F1D7C8",
 };
-
 
 const UI = {
   page: {
@@ -19,7 +17,6 @@ const UI = {
     fontFamily:
       "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
     background: BRAND.orangeSoft,
-
     minHeight: "100vh",
   } as React.CSSProperties,
 
@@ -69,31 +66,6 @@ const UI = {
     maxWidth: 420,
   } as React.CSSProperties,
 
-  pill: {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 8,
-  padding: "10px 16px",
-  borderRadius: 999,
-  border: "none",
-  background: "linear-gradient(135deg, #ff7a00, #ff3c00)",
-  color: "white",
-  textDecoration: "none",
-  fontWeight: 900,
-  boxShadow: "0 10px 26px rgba(17,17,17,0.06)", // base
-  transition: "all 0.2s ease",                  // important
-} as React.CSSProperties,
-
-
-  note: {
-    marginTop: 14,
-    padding: "12px 14px",
-    borderRadius: 14,
-    border: "1px solid #eee",
-    background: "white",
-    color: "#333",
-  } as React.CSSProperties,
-
   section: {
     marginTop: 22,
     padding: "14px 16px",
@@ -117,21 +89,22 @@ const UI = {
     marginTop: 12,
   } as React.CSSProperties,
 
-card: {
-  border: `1px solid ${BRAND.border}`,
-  borderRadius: 16,
-  padding: 14,
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 16,
-  background: "white",
-  boxShadow: "0 10px 26px rgba(17,17,17,0.06)",
-  transition: "all 0.2s ease",
-} as React.CSSProperties,
+  card: {
+    border: `1px solid ${BRAND.border}`,
+    borderRadius: 16,
+    padding: 14,
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 16,
+    background: "white",
+    boxShadow: "0 10px 26px rgba(17,17,17,0.06)",
+    transition: "all 0.2s ease",
+  } as React.CSSProperties,
 
   name: {
     fontSize: 16,
     fontWeight: 900,
+    color: BRAND.black,
   } as React.CSSProperties,
 
   desc: {
@@ -145,34 +118,41 @@ card: {
     fontSize: 18,
     fontWeight: 900,
     whiteSpace: "nowrap",
+    color: BRAND.black,
   } as React.CSSProperties,
 
-btn: {
-  marginTop: 10,
-  padding: "10px 14px",
-  borderRadius: 14,
-  border: `1px solid ${BRAND.black}`,
-  background: BRAND.black,
-  color: "white",
-  cursor: "pointer",
-  fontWeight: 900,
-  transition: "all 0.2s ease",
-} as React.CSSProperties,
-
-
-  checkboxRow: {
-    display: "flex",
-    gap: 10,
+  btn: {
     marginTop: 10,
+    padding: "10px 14px",
+    borderRadius: 14,
+    border: `1px solid ${BRAND.black}`,
+    background: BRAND.black,
+    color: "white",
+    cursor: "pointer",
+    fontWeight: 900,
+    transition: "all 0.2s ease",
+  } as React.CSSProperties,
+
+  // bouton panier en bas (orange premium)
+  bottomCartBtn: {
+    display: "inline-flex",
     alignItems: "center",
-    color: "#333",
-    fontSize: 13,
+    justifyContent: "center",
+    gap: 8,
+    width: "100%",
+    padding: "12px 16px",
+    borderRadius: 999,
+    border: "none",
+    background: "linear-gradient(135deg, #ff7a00, #ff3c00)",
+    color: "white",
+    textDecoration: "none",
+    fontWeight: 900,
+    boxShadow: "0 14px 30px rgba(242,140,40,0.28)",
   } as React.CSSProperties,
 };
 
-
 type MenuItem = {
-  id?: string; // <-- ajouté
+  id?: string;
   name: string;
   price: number;
   desc?: string;
@@ -185,32 +165,53 @@ type Section = {
 };
 
 const sections: Section[] = [
- 
- {
-  title: "🥣 Dips",
-  items: [
-    { id: "dip-green", name: "Grüne Sauce (nicht scharf)", price: 0, desc: "1. Dip kostenlos, ab dem 2. Dip +1€" },
-    { id: "dip-chili", name: "Chili Sauce (HOT)", price: 0, desc: "1. Dip kostenlos, ab dem 2. Dip +1€" },
-  ],
-},
-
- 
+  {
+    title: "🥣 Dips",
+    items: [
+      {
+        id: "dip-green",
+        name: "Grüne Sauce (nicht scharf)",
+        price: 0,
+        desc: "1. Dip kostenlos, ab dem 2. Dip +1€",
+      },
+      {
+        id: "dip-chili",
+        name: "Chili Sauce (HOT)",
+        price: 0,
+        desc: "1. Dip kostenlos, ab dem 2. Dip +1€",
+      },
+    ],
+  },
   {
     title: "🥤 Immunstärkende Getränke",
     items: [
       { name: "Ingwersaft", price: 5, desc: "Ein scharf-würziger Frischekick" },
-      { name: "Hibiskussaft", price: 5, desc: "Erfrischend und reich an Antioxidantien" },
+      {
+        name: "Hibiskussaft",
+        price: 5,
+        desc: "Erfrischend und reich an Antioxidantien",
+      },
     ],
   },
   {
     title: "🍩 Finger Food",
     items: [
-      { name: "Puff-puff (1)", price: 5, desc: "Goldbraune Hefebällchen – außen knusprig, innen fluffig", tags: ["VEGAN"], },
-      { name: "Plantain Chips", price: 5, desc: "Knusprig frittierte Kochbananenscheiben", tags: ["VEGAN"], },
+      {
+        name: "Puff-puff (1)",
+        price: 5,
+        desc: "Goldbraune Hefebällchen – außen knusprig, innen fluffig",
+        tags: ["VEGAN"],
+      },
+      {
+        name: "Plantain Chips",
+        price: 5,
+        desc: "Knusprig frittierte Kochbananenscheiben",
+        tags: ["VEGAN"],
+      },
     ],
   },
   {
-    title: "🌍 Afrika besuchen ",
+    title: "🌍 Afrika besuchen",
     items: [
       {
         name: "BHB (1)(2) (Kamerun) – Veganer Teller",
@@ -227,7 +228,7 @@ const sections: Section[] = [
       {
         name: "Batbout mit Hähnchenfüllung (2) (Marokko)",
         price: 15,
-        desc: " Marokkanische Fladenbroten mit gegrilltem Pollo Fino, serviert mit Tomaten und Salat",
+        desc: "Marokkanische Fladenbroten mit gegrilltem Pollo Fino, serviert mit Tomaten und Salat",
         tags: ["CHICKEN"],
       },
     ],
@@ -261,19 +262,18 @@ function Tag({ label }: { label: string }) {
   const bg = label === "VEGAN" ? "#0A7A3D" : BRAND.orange;
   return (
     <span
- style={{
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "3px 10px",
-  borderRadius: 999,
-  color: "white",
-  background: bg,
-  fontSize: 11,
-  marginLeft: 8,
-  fontWeight: 900,
-  letterSpacing: 0.3,
-}}
-
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "3px 10px",
+        borderRadius: 999,
+        color: "white",
+        background: bg,
+        fontSize: 11,
+        marginLeft: 8,
+        fontWeight: 900,
+        letterSpacing: 0.3,
+      }}
     >
       {label}
     </span>
@@ -282,167 +282,158 @@ function Tag({ label }: { label: string }) {
 
 export default function MenuPage() {
   const [cartCount, setCartCount] = React.useState(0);
+  const [lang, setLang] = React.useState<Lang>("de");
 
-const [lang, setLang] = React.useState<Lang>("de");
+  React.useEffect(() => {
+    const saved = (localStorage.getItem("af_lang") as Lang) || "de";
+    setLang(saved);
+  }, []);
 
-React.useEffect(() => {
-  const saved = (localStorage.getItem("af_lang") as Lang) || "de";
-  setLang(saved);
-}, []);
+  function setLanguage(next: Lang) {
+    setLang(next);
+    localStorage.setItem("af_lang", next);
+  }
 
-function setLanguage(next: Lang) {
-  setLang(next);
-  localStorage.setItem("af_lang", next);
-}
+  const t = translations[lang];
 
-const t = translations[lang];
-
-
-React.useEffect(() => {
-  const cart = getCart();
-  const count = cart.reduce((sum, it) => sum + it.qty, 0);
-  setCartCount(count);
-}, []);
-
-
-  return (
-    <main style={UI.page} className="af-page">
-     <div style={UI.container} className="af-container">
-
-    <div style={UI.topbar} className="af-topbar">
-
-<div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-  {(["de", "fr", "en"] as Lang[]).map((L) => (
-    <button
-      key={L}
-      onClick={() => setLanguage(L)}
-      style={{
-        padding: "8px 10px",
-        borderRadius: 999,
-        border: "1px solid #ddd",
-        background: lang === L ? "#111" : "white",
-        color: lang === L ? "white" : "#111",
-        cursor: "pointer",
-        fontWeight: 900,
-      }}
-    >
-      {L.toUpperCase()}
-    </button>
-  ))}
-</div>
-
-
-
-        <a href="/" style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}>
-           ← Accueil
-        </a>
-
-       <div style={UI.brand} className="af-brand">
-
-              <div style={{ fontSize: 22 }}>🧡</div>
-          <div style={{ minWidth: 0 }}>
-              <h1 style={UI.title} className="af-title">AfroFood – Menu 2026</h1>
-<div style={UI.subtitle} className="af-subtitle">Commande digitale (DE • FR • EN)</div>
-
-          </div>
-       </div>
-
-<a
-  href="/cart"
-  style={UI.pill} className="af-pill"
-  onMouseEnter={(e) => {
-    e.currentTarget.style.transform = "translateY(-3px)";
-    e.currentTarget.style.boxShadow = "0 16px 34px rgba(242,140,40,0.18)";
-  }}
-  onMouseLeave={(e) => {
-    e.currentTarget.style.transform = "translateY(0)";
-    e.currentTarget.style.boxShadow = "0 10px 26px rgba(17,17,17,0.06)";
-  }}
->
-  🛒 {t.cart}  <span style={{ opacity: 0.8 }}>({cartCount})</span>
-</a>
-
-
-</div>
-
-<div
-  style={{
-    height: 6,
-    borderRadius: 999,
-    marginTop: 12,
-    background:
-      "repeating-linear-gradient(90deg, #111 0 10px, #F28C28 10px 20px, #111 20px 30px, #fff 30px 40px)",
-    opacity: 0.9,
-  }}
-/>
-
-
-      <p style={{ marginTop: 6 }}>
-  <b>{t.legend}:</b> (1) Enthält Gluten • (2) Enthält Sellerie
-</p>
-
-
-      {sections.map((sec) => (
-        <section key={sec.title} style={UI.section} className="af-section">
-  <h2 style={UI.sectionTitle} className="af-section-title">{sec.title}</h2>
-
-  <div style={UI.grid}>
-
-            {sec.items.map((it) => (
-              <div key={it.name} style={UI.card} className="af-card">
-
-                <div>
-                  <div style={UI.name}>
-                    {it.name}
-                    {it.tags?.map((t) => (
-                      <Tag key={t} label={t} />
-                    ))}
-                  </div>
-
-                  {it.desc && <div style={UI.desc} className="af-desc">{it.desc}</div>}
-
-                   
-                  <button
-  onClick={() => {
-    addToCart({
-      id: it.id ?? it.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-      name: it.name,
-      price: it.price,
-      redSauce: false,
-      extraRedSauceQty: 0,
-    });
-
+  React.useEffect(() => {
     const cart = getCart();
     const count = cart.reduce((sum, it) => sum + it.qty, 0);
     setCartCount(count);
-  }}
-  style={UI.btn} className="af-btn"
-onMouseEnter={(e) => {
-  e.currentTarget.style.background = BRAND.orange;
-  e.currentTarget.style.borderColor = BRAND.orange;
-}}
-onMouseLeave={(e) => {
-  e.currentTarget.style.background = BRAND.black;
-  e.currentTarget.style.borderColor = BRAND.black;
-}}
+  }, []);
 
->
-  {t.add}
+  return (
+    <main style={UI.page} className="af-page">
+      <div style={UI.container} className="af-container">
+        {/* TOPBAR */}
+        <div style={UI.topbar} className="af-topbar">
+          {/* gauche */}
+          <a
+            href="/"
+            className="af-back"
+            style={{ textDecoration: "none", fontWeight: 900, color: BRAND.black }}
+          >
+            ← {t.home ?? "Accueil"}
+          </a>
 
-</button>
-
-                </div>
-
-                <div style={UI.price} className="af-price">
-
-                  {it.price.toFixed(2)} €
-                </div>
+          {/* centre */}
+          <div style={UI.brand} className="af-brand">
+            <div style={{ fontSize: 22 }}>🧡</div>
+            <div style={{ minWidth: 0 }}>
+              <h1 style={UI.title} className="af-title">
+                AfroFood – Menu 2026
+              </h1>
+              <div style={UI.subtitle} className="af-subtitle">
+                {t.subtitle ?? "Commande digitale (DE • FR • EN)"}
               </div>
-            ))}
+            </div>
           </div>
-        </section>
-      ))}
+
+          {/* droite : langues */}
+          <div className="af-actions">
+            <div className="af-lang">
+              {(["de", "fr", "en"] as Lang[]).map((L) => (
+                <button
+                  key={L}
+                  type="button"
+                  onClick={() => setLanguage(L)}
+                  className={`af-lang-btn ${lang === L ? "is-active" : ""}`}
+                >
+                  {L.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* motif / ligne (EN DEHORS du topbar) */}
+        <div
+          style={{
+            height: 6,
+            borderRadius: 999,
+            marginTop: 12,
+            background:
+              "repeating-linear-gradient(90deg, #111 0 10px, #F28C28 10px 20px, #111 20px 30px, #fff 30px 40px)",
+            opacity: 0.9,
+          }}
+        />
+
+        {/* légende */}
+        <p style={{ marginTop: 10 }}>
+          <b>{t.legend ?? "Legende"}:</b> (1) Enthält Gluten • (2) Enthält Sellerie
+        </p>
+
+        {/* sections */}
+        {sections.map((sec) => (
+          <section key={sec.title} style={UI.section} className="af-section">
+            <h2 style={UI.sectionTitle} className="af-section-title">
+              {sec.title}
+            </h2>
+
+            <div style={UI.grid}>
+              {sec.items.map((it) => (
+                <div key={it.name} style={UI.card} className="af-card">
+                  <div>
+                    <div style={UI.name}>
+                      {it.name}
+                      {it.tags?.map((tg) => (
+                        <Tag key={tg} label={tg} />
+                      ))}
+                    </div>
+
+                    {it.desc && (
+                      <div style={UI.desc} className="af-desc">
+                        {it.desc}
+                      </div>
+                    )}
+
+                    <button
+                      className="af-btn"
+                      style={UI.btn}
+                      onClick={() => {
+                        addToCart({
+                          id:
+                            it.id ??
+                            it.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+                          name: it.name,
+                          price: it.price,
+                          redSauce: false,
+                          extraRedSauceQty: 0,
+                        });
+
+                        const cart = getCart();
+                        const count = cart.reduce((sum, x) => sum + x.qty, 0);
+                        setCartCount(count);
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = BRAND.orange;
+                        e.currentTarget.style.borderColor = BRAND.orange;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = BRAND.black;
+                        e.currentTarget.style.borderColor = BRAND.black;
+                      }}
+                    >
+                      {t.add ?? "Hinzufügen"}
+                    </button>
+                  </div>
+
+                  <div style={UI.price} className="af-price">
+                    {it.price.toFixed(2)} €
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ))}
       </div>
-</main>
+
+      {/* BARRE PANIER EN BAS (seule) */}
+      <div className="af-mobile-cartbar">
+        <a href="/cart" className="af-mobile-cartbtn" style={UI.bottomCartBtn}>
+          🛒 {t.cart ?? "Warenkorb"} ({cartCount})
+        </a>
+      </div>
+    </main>
   );
 }

@@ -45,19 +45,49 @@ a {
    AfroFood Responsive Premium
    =========================== */
 
+
+
+.af-lang-btn {
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid #111;
+  background: white;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease, background .15s ease, color .15s ease;
+}
+
+.af-lang-btn.is-active {
+  border: none;
+  color: white;
+  background: linear-gradient(135deg, #ff7a00, #ff3c00);
+  box-shadow: 0 10px 22px rgba(255, 80, 0, 0.25);
+}
+
+/* ===========================
+   AfroFood Mobile Ultra Premium
+   =========================== */
+
 @media (max-width: 720px) {
   .af-page {
     padding: 14px !important;
   }
 
+  .af-container {
+    width: 100% !important;
+  }
+
+  /* Topbar devient une colonne */
   .af-topbar {
     flex-direction: column !important;
     align-items: stretch !important;
     gap: 10px !important;
+    padding: 12px 12px !important;
   }
 
-  .af-topbar a {
-    align-self: flex-start;
+  /* Ligne du haut : Accueil + langues */
+  .af-topbar > a {
+    align-self: flex-start !important;
   }
 
   .af-brand {
@@ -65,32 +95,40 @@ a {
   }
 
   .af-subtitle {
-    display: none !important; /* cache "Commande digitale..." sur mobile */
+    display: none !important;
   }
 
+  /* Bouton panier full width */
   .af-pill {
     width: 100% !important;
     justify-content: center !important;
   }
 
+  /* Sections plus compactes */
   .af-section {
     padding: 12px !important;
+    border-radius: 16px !important;
   }
 
+  /* Cards: stack en colonne */
   .af-card {
     flex-direction: column !important;
     align-items: stretch !important;
+    gap: 12px !important;
+    border-radius: 16px !important;
   }
 
+  /* Prix passe en bas à droite */
   .af-price {
     text-align: right !important;
-    margin-top: 8px !important;
+    margin-top: 4px !important;
     font-size: 16px !important;
   }
 
+  /* Boutons plus “touch-friendly” */
   .af-btn {
-    width: 100% !important;
-    padding: 10px 12px !important;
+    padding: 12px 14px !important;
+    border-radius: 14px !important;
   }
 }
 
@@ -107,3 +145,101 @@ a {
     font-size: 12.5px !important;
   }
 }
+/* =========================
+   AfroFood Mobile Cart Bar
+   ========================= */
+
+.af-mobile-cartbar {
+  display: none;
+}
+
+@media (max-width: 720px) {
+
+  /* Topbar responsive propre */
+  .af-topbar {
+    flex-wrap: wrap;
+    gap: 8px !important;
+  }
+
+  /* Ligne 1 : back + langues */
+  .af-topbar .af-back {
+    order: 1;
+  }
+
+  .af-topbar .af-actions {
+    order: 2;
+    margin-left: auto;
+  }
+
+  /* Ligne 2 : marque centrée */
+  .af-topbar .af-brand {
+    order: 3;
+    width: 100%;
+    justify-content: center !important;
+    text-align: center;
+  }
+
+  .af-topbar .af-title {
+    font-size: 18px !important;
+  }
+
+  .af-topbar .af-subtitle {
+    font-size: 12px !important;
+  }
+
+  /* Cartbar bottom */
+  .af-mobile-cartbar {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    right: 16px;
+    z-index: 50;
+    display: flex;
+    justify-content: center;
+  }
+
+}
+
+  .af-mobile-cartbtn {
+    width: 100%;
+    padding: 14px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #ff7a00, #ff3c00);
+    color: white;
+    font-weight: 900;
+    text-align: center;
+    text-decoration: none;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+  }
+
+.af-mobile-cartbar {
+  position: fixed;
+  bottom: 16px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 100;
+}
+
+.af-mobile-cartbtn {
+  background: linear-gradient(135deg, #ff7a00, #ff3c00);
+  color: white;
+  padding: 14px 22px;
+  border-radius: 999px;
+  font-weight: 900;
+  text-decoration: none;
+  box-shadow: 0 14px 34px rgba(242, 140, 40, 0.35);
+  transition: all 0.25s ease;
+}
+
+.af-mobile-cartbtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 40px rgba(242, 140, 40, 0.45);
+}
+
+.af-page {
+  padding-bottom: 120px;
+}
+
+

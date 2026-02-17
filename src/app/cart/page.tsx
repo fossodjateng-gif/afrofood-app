@@ -40,7 +40,18 @@ const t = translations[lang];
 
 
   return (
-    <main  className="af-page" style={{ padding: 40, fontFamily: "Arial, sans-serif", maxWidth: 900 }}>
+    <main
+  className="af-page"
+  style={{
+    padding: 40,
+    fontFamily: "Arial, sans-serif",
+    maxWidth: 1000,
+    margin: "0 auto",
+    background: "linear-gradient(180deg, #fff5ec 0%, #ffe9dc 100%)",
+    minHeight: "100vh",
+  }}
+>
+
       <div
   style={{
     display: "flex",
@@ -125,13 +136,17 @@ const t = translations[lang];
                 key={it.id}
                 className="af-card"
                 style={{
-                  border: "1px solid #ddd",
-                  borderRadius: 12,
-                  padding: 14,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: 16,
-                }}
+  border: "1px solid #ffd2b8",
+  borderRadius: 18,
+  padding: 18,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 16,
+  background: "white",
+  boxShadow: "0 12px 30px rgba(255, 120, 0, 0.08)",
+  transition: "all 0.2s ease",
+}}
+
               >
                 <div>
                   <div style={{ fontSize: 18, fontWeight: 700 }}>{it.name}</div>
@@ -206,7 +221,16 @@ const t = translations[lang];
 
                 </div>
 
-                <div className="af-price"  style={{ fontSize: 18, fontWeight: 800, whiteSpace: "nowrap" }}>
+                <div
+  className="af-price"
+  style={{
+    fontSize: 20,
+    fontWeight: 900,
+    color: "#ff4d00",
+    whiteSpace: "nowrap",
+  }}
+>
+
   {it.id.startsWith("dip-")
     ? (
         // Prix dynamique des dips
@@ -221,12 +245,35 @@ const t = translations[lang];
           </div>
 
           {dipExtra > 0 && (
-            <div style={{ marginTop: 10, fontSize: 16 }}>
-             {t.cart_dips_extra}: <b>{dipExtra.toFixed(2)} €</b> {t.cart_dips_extra}
-            </div>
+            <div
+  style={{
+    marginTop: 14,
+    padding: "12px 16px",
+    borderRadius: 14,
+    background: "#fff3e8",
+    border: "1px solid #ffd2b8",
+    fontWeight: 600,
+  }}
+>
+  {t.cart_dips_extra}: <b>{dipExtra.toFixed(2)} €</b> {t.cart_dips_note}
+</div>
+
           )}
 
-          <h2 style={{ marginTop: 24 }}>{t.cart_total}: {total.toFixed(2)} €</h2>
+          <h2
+  style={{
+    marginTop: 28,
+    fontSize: 28,
+    fontWeight: 900,
+    color: "#111",
+  }}
+>
+  {t.cart_total}: 
+  <span style={{ color: "#ff4d00" }}>
+    {" "} {total.toFixed(2)} €
+  </span>
+</h2>
+
 
 
           <button
@@ -235,14 +282,18 @@ const t = translations[lang];
               clearCart();
               setCart([]);
             }}
-            style={{
-              marginTop: 12,
-              padding: "10px 16px",
-              borderRadius: 10,
-              border: "1px solid #000",
-              background: "white",
-              cursor: "pointer",
-            }}
+        style={{
+  marginTop: 16,
+  padding: "12px 20px",
+  borderRadius: 999,
+  border: "none",
+  background: "linear-gradient(135deg, #ff7a00, #ff3c00)",
+  color: "white",
+  fontWeight: 800,
+  cursor: "pointer",
+  boxShadow: "0 8px 20px rgba(255,80,0,0.35)",
+}}
+
           >
            {t.cart_clear}
           </button>
