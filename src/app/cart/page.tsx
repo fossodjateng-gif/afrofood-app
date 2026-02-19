@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { translations, type Lang, getSavedLang, saveLang } from "@/lib/translations";
+import { cartToTicketItems, makeOrderId, type PaymentMethod, type Order } from "@/lib/order";
 
 import {
   getCart,
@@ -16,7 +17,19 @@ import {
 
 export default function CartPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
-const [lang, setLang] = useState<Lang>("de");
+  const [lang, setLang] = useState<Lang>("de");
+
+  // ✅ NOUVEAUX STATES
+  const [payment, setPayment] = useState<PaymentMethod>("cash");
+  const [customerName, setCustomerName] = useState("");
+  const [order, setOrder] = useState<Order | null>(null);
+
+  // ✅ ENV VARIABLES
+  const PAYPAL_EMAIL = process.env.NEXT_PUBLIC_PAYPAL_EMAIL || "";
+  const BANK_IBAN = process.env.NEXT_PUBLIC_BANK_IBAN || "";
+  const BANK_NAME = process.env.NEXT_PUBLIC_BANK_NAME || "";
+  const PAYEE_NAME = process.env.NEXT_PUBLIC_PAYEE_NAME || "";
+
 
 useEffect(() => {
   setLang(getSavedLang());
@@ -38,6 +51,27 @@ const t = translations[lang];
 
   const dipExtra = Math.max(0, dipQtyTotal - 1) * 1;
 
+  // ✅ AJOUTE ICI ↓↓↓
+
+function createOrder(pay: PaymentMethod) {
+  const newOrder: Order = {
+    id: makeOrderId(),
+    createdAt: new Date().toISOString(),
+    customerName: customerName.trim()
+      ? customerName.trim()
+      : undefined,
+    items: cartToTicketItems(getCart()),
+    payment: pay,
+  };
+
+  setOrder(newOrder);
+}
+
+function printTicket() {
+  window.print();
+}
+
+// ✅ FIN AJOUT
 
   return (
     <main
@@ -273,9 +307,227 @@ const t = translations[lang];
     {" "} {total.toFixed(2)} €
   </span>
 </h2>
+// ✅ debut Paiement
+<hr style={{ margin: "18px 0", border: "none", borderTop: "1px solid #eee" }} />
 
+<h2 style={{ marginTop: 6 }}>Zahlung</h2>
 
+<div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+  <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
+    <input
+      type="radio"
+      name="pay"
+      checked={payment === "cash"}
+      onChange={() => setPayment("cash")}
+    />
+    Barzahlung (Cash)
+  </label>
 
+  <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
+    <input
+      type="radio"
+      name="pay"
+      checked={payment === "paypal"}
+      onChange={() => setPayment("paypal")}
+    />
+    PayPal
+  </label>
+
+  <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
+    <input
+      type="radio"
+      name="pay"
+      checked={payment === "card"}
+      onChange={() => setPayment("card")}
+    />
+    EC/Kreditkarte (vor Ort) / Banküberweisung
+  </label>
+</div>
+
+<div style={{ marginTop: 12 }}>
+  <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>
+    Name (optional)
+  </label>
+  <input
+    value={customerName}
+    onChange={(e) => setCustomerName(e.target.value)}
+    placeholder="z.B. Anaclet"
+    style={{
+      width: "100%",
+      padding: "10px 12px",
+      borderRadius: 12,
+      border: "1px solid #ddd",
+    }}
+  />
+</div>
+
+{/* Actions selon paiement */}
+<div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
+  {payment === "cash" && (
+    <button
+      className="af-btn"
+      onClick={() => createOrder("cash")}
+      style={{
+        padding: "10px 14px",
+        borderRadius: 12,
+        border: "1px solid #111",
+        background: "#111",
+        color: "white",
+        fontWeight: 900,
+        cursor: "pointer",
+      }}
+    >
+      ✅ Bestellung bestätigen (Cash) + Ticket
+    </button>
+  )}
+
+  {payment === "paypal" && (
+    <>
+      <a
+        className="af-btn"
+        href={
+          PAYPAL_EMAIL
+            ? `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(
+                PAYPAL_EMAIL
+              )}&item_name=${encodeURIComponent("AfroFood Bestellung")}&currency_code=EUR&amount=${encodeURIComponent(
+                total.toFixed(2)
+              )}`
+            : "#"
+        }
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          padding: "10px 14px",
+          borderRadius: 12,
+          border: "1px solid #111",
+          background: "#F28C28",
+          color: "#111",
+          fontWeight: 900,
+          cursor: "pointer",
+          textDecoration: "none",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+        onClick={(e) => {
+          if (!PAYPAL_EMAIL) {
+            e.preventDefault();
+            alert("PayPal Email fehlt (ENV).");
+          }
+        }}
+      >
+        💸 PayPal öffnen ({total.toFixed(2)} €)
+      </a>
+
+      <button
+        className="af-btn"
+        onClick={() => createOrder("paypal")}
+        style={{
+          padding: "10px 14px",
+          borderRadius: 12,
+          border: "1px solid #111",
+          background: "#111",
+          color: "white",
+          fontWeight: 900,
+          cursor: "pointer",
+        }}
+      >
+        ✅ Ich habe bezahlt → Ticket
+      </button>
+    </>
+  )}
+
+  {payment === "card" && (
+    <button
+      className="af-btn"
+      onClick={() => createOrder("card")}
+      style={{
+        padding: "10px 14px",
+        borderRadius: 12,
+        border: "1px solid #111",
+        background: "#111",
+        color: "white",
+        fontWeight: 900,
+        cursor: "pointer",
+      }}
+    >
+      ✅ Bestellung bestätigen (Karte/Virement) + Ticket
+    </button>
+  )}
+</div>
+
+{/* Infos carte/virement */}
+{payment === "card" && (
+  <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: "1px solid #eee", background: "white" }}>
+    <div style={{ fontWeight: 900, marginBottom: 6 }}>Hinweis</div>
+    <div style={{ opacity: 0.9 }}>
+      ✅ Kartenzahlung erfolgt vor Ort am Terminal (EC/Kreditkarte).<br />
+      Optional: Banküberweisung möglich (für Catering / Vorauszahlung).<br />
+      {BANK_IBAN ? (
+        <>
+          <div style={{ marginTop: 8 }}>
+            <b>Empfänger:</b> {PAYEE_NAME || "AfroFood"}<br />
+            <b>Bank:</b> {BANK_NAME || "—"}<br />
+            <b>IBAN:</b> {BANK_IBAN}
+          </div>
+        </>
+      ) : (
+        <div style={{ marginTop: 8, color: "#b00" }}>
+          IBAN fehlt (ENV).
+        </div>
+      )}
+    </div>
+  </div>
+)}
+// ✅ FIN paiement
+// ✅ debut Ticket
+
+{order && (
+  <div className="af-ticket-wrap">
+    <div className="af-ticket">
+
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+      <div>
+        <div style={{ fontWeight: 900, fontSize: 18 }}>🧾 Ticket Client</div>
+        <div style={{ opacity: 0.8, marginTop: 4 }}>
+          <b>Bestellnummer:</b> {order.id}
+          {order.customerName ? <> • <b>Name:</b> {order.customerName}</> : null}
+        </div>
+      </div>
+
+      <button
+        onClick={printTicket}
+        style={{
+          padding: "10px 12px",
+          borderRadius: 12,
+          border: "1px solid #111",
+          background: "#111",
+          color: "white",
+          fontWeight: 900,
+          cursor: "pointer",
+        }}
+      >
+        🖨️ Drucken
+      </button>
+    </div>
+
+    <div style={{ marginTop: 12 }}>
+      {order.items.map((it, idx) => (
+        <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px dashed #eee" }}>
+          <div style={{ fontWeight: 800 }}>{it.name}</div>
+          <div style={{ fontWeight: 900 }}>x{it.qty}</div>
+        </div>
+      ))}
+    </div>
+
+    <div style={{ marginTop: 10, opacity: 0.85 }}>
+      Zahlung: <b>{order.payment === "cash" ? "Cash" : order.payment === "paypal" ? "PayPal" : "Karte/Virement"}</b>
+    </div>
+  </div> 
+  </div>
+)}
+
+// ✅ FIN Ticket
           <button
            className="af-btn"
             onClick={() => {

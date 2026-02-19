@@ -242,4 +242,41 @@ a {
   padding-bottom: 120px;
 }
 
+/* ===============================
+   Ticket 80mm thermique
+================================= */
 
+.af-ticket-wrap {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.af-ticket {
+  width: 320px; /* ≈ 80mm */
+  background: white;
+  padding: 12px;
+  border: 1px solid #ddd;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+/* Impression */
+@media print {
+
+  body * {
+    visibility: hidden;
+  }
+
+  .af-ticket,
+  .af-ticket * {
+    visibility: visible;
+  }
+
+  .af-ticket {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+  }
+}
