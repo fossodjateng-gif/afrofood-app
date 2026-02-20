@@ -280,3 +280,132 @@ a {
     width: 80mm;
   }
 }
+/* ===== Ticket 80mm ===== */
+.af-ticket-area{
+  margin-top: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.af-ticket{
+  width: 80mm;
+  background: white;
+  color: #111;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.af-ticket-head{
+  text-align: center;
+  border-bottom: 1px dashed #bbb;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+.af-ticket-logo{
+  width: 60mm;
+  max-width: 100%;
+  opacity: 0.95;
+  margin: 0 auto 6px;
+  display: block;
+}
+
+.af-ticket-title{
+  font-weight: 900;
+  font-size: 16px;
+}
+
+.af-ticket-sub{
+  opacity: 0.75;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.af-ticket-meta{
+  font-size: 12px;
+  display: grid;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+
+.af-ticket-items{
+  margin-top: 6px;
+  border-top: 1px dashed #bbb;
+  padding-top: 8px;
+}
+
+.af-ticket-row{
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dotted #eee;
+}
+
+.af-ticket-name{
+  flex: 1;
+}
+
+.af-ticket-qty{
+  white-space: nowrap;
+}
+
+.af-ticket-qr{
+  margin-top: 10px;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.af-ticket-qrtext{
+  font-size: 11px;
+  opacity: 0.75;
+  text-align: center;
+}
+
+.af-ticket-foot{
+  margin-top: 10px;
+  text-align: center;
+  font-size: 12px;
+  opacity: 0.8;
+  border-top: 1px dashed #bbb;
+  padding-top: 8px;
+}
+
+/* ===== PRINT MODE ===== */
+@media print {
+  /* cache tout par défaut */
+  body * { visibility: hidden !important; }
+
+  /* affiche seulement les tickets */
+  .af-ticket-area,
+  .af-ticket-area * {
+    visibility: visible !important;
+  }
+
+  /* place en haut à gauche */
+  .af-ticket-area{
+    position: absolute;
+    left: 0;
+    top: 0;
+    margin: 0 !important;
+    gap: 10mm;
+  }
+
+  /* modes */
+  body[data-print="customer"] .af-ticket-kitchen { display: none !important; }
+  body[data-print="kitchen"] .af-ticket-customer { display: none !important; }
+
+  /* enlève bordures écran */
+  .af-ticket{
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  @page {
+    size: 80mm auto;
+    margin: 5mm;
+  }
+}
