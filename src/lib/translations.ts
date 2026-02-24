@@ -17,6 +17,7 @@ export function saveLang(lang: Lang) {
 
 export const translations = {
   de: {
+    home: "Startseite",   // 👈 AJOUTE CETTE LIGNE
     menu: "Menü",
     cart: "Warenkorb",
     add: "Hinzufügen",
@@ -35,6 +36,7 @@ export const translations = {
   },
 
   fr: {
+    home: "Accueil",
     menu: "Menu",
     cart: "Panier",
     add: "Ajouter",
@@ -54,6 +56,7 @@ export const translations = {
   },
 
   en: {
+    home: "Home",
     menu: "Menu",
     cart: "Cart",
     add: "Add",
