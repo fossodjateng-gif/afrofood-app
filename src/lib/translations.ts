@@ -18,6 +18,7 @@ export function saveLang(lang: Lang) {
 export const translations = {
   de: {
     home: "Startseite",   // 👈 AJOUTE CETTE LIGNE
+    subtitle: "Digitale Bestellung (DE • FR • EN)",
     menu: "Menü",
     cart: "Warenkorb",
     add: "Hinzufügen",
@@ -37,6 +38,7 @@ export const translations = {
 
   fr: {
     home: "Accueil",
+    subtitle: "Commande digitale (DE • FR • EN)",
     menu: "Menu",
     cart: "Panier",
     add: "Ajouter",
@@ -57,6 +59,7 @@ export const translations = {
 
   en: {
     home: "Home",
+    subtitle: "Digital ordering (DE • FR • EN)",
     menu: "Menu",
     cart: "Cart",
     add: "Add",
