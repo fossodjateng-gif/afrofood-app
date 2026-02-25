@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
+import { calculateOrderTotalCents } from "@/lib/pricing";
 
-type PaymentMethod = "cash" | "paypal" | "card";
+type PaymentMethod = "cash" | "card";
 type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE";
 
-const VALID_PAYMENTS = new Set<PaymentMethod>(["cash", "paypal", "card"]);
+const VALID_PAYMENTS = new Set<PaymentMethod>(["cash", "card"]);
 const VALID_STATUSES = new Set<OrderStatus>([
   "PENDING_PAYMENT",
   "NEW",
@@ -61,14 +62,14 @@ export async function GET(req: Request) {
       }
 
       rows = await sql`
-        SELECT id, created_at, customer_name, payment, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
         FROM orders
         WHERE id = ${idParam} AND UPPER(status) = ${statusParam}
         ORDER BY created_at DESC
       `;
     } else if (idParam) {
       rows = await sql`
-        SELECT id, created_at, customer_name, payment, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
         FROM orders
         WHERE id = ${idParam}
         ORDER BY created_at DESC
@@ -79,14 +80,14 @@ export async function GET(req: Request) {
       }
 
       rows = await sql`
-        SELECT id, created_at, customer_name, payment, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
         FROM orders
         WHERE UPPER(status) = ${statusParam}
         ORDER BY created_at DESC
       `;
     } else {
       rows = await sql`
-        SELECT id, created_at, customer_name, payment, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
         FROM orders
         ORDER BY created_at DESC
       `;
@@ -122,10 +123,11 @@ export async function POST(req: Request) {
     }
 
     const id = await makeNextOrderId();
+    const amountCents = calculateOrderTotalCents(items);
 
     await sql`
-      INSERT INTO orders (id, created_at, customer_name, payment, status, items)
-      VALUES (${id}, ${createdAt}::timestamptz, ${customerName}, ${payment}, 'PENDING_PAYMENT', ${JSON.stringify(items)}::jsonb)
+      INSERT INTO orders (id, created_at, customer_name, payment, payment_provider, amount_cents, currency, status, items)
+      VALUES (${id}, ${createdAt}::timestamptz, ${customerName}, ${payment}, NULL, ${amountCents}, 'eur', 'PENDING_PAYMENT', ${JSON.stringify(items)}::jsonb)
     `;
 
     publishOrderEvent({

@@ -121,7 +121,6 @@ export default function CartPage() {
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  const PAYPAL_EMAIL = process.env.NEXT_PUBLIC_PAYPAL_EMAIL || "";
   const BANK_IBAN = process.env.NEXT_PUBLIC_BANK_IBAN || "";
   const BANK_NAME = process.env.NEXT_PUBLIC_BANK_NAME || "";
   const PAYEE_NAME = process.env.NEXT_PUBLIC_PAYEE_NAME || "";
@@ -367,7 +366,6 @@ export default function CartPage() {
 
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             <label style={{ display: "flex", gap: 10, alignItems: "center" }}><input type="radio" name="pay" checked={payment === "cash"} onChange={() => setPayment("cash")} />{t.cart_payment_cash}</label>
-            <label style={{ display: "flex", gap: 10, alignItems: "center" }}><input type="radio" name="pay" checked={payment === "paypal"} onChange={() => setPayment("paypal")} />{t.cart_payment_paypal}</label>
             <label style={{ display: "flex", gap: 10, alignItems: "center" }}><input type="radio" name="pay" checked={payment === "card"} onChange={() => setPayment("card")} />{t.cart_payment_card}</label>
           </div>
 
@@ -382,28 +380,6 @@ export default function CartPage() {
           </div>
 
           <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {payment === "paypal" ? (
-              <a
-                className="af-btn"
-                href={
-                  PAYPAL_EMAIL
-                    ? `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(PAYPAL_EMAIL)}&item_name=${encodeURIComponent(t.cart_paypal_item_name)}&currency_code=EUR&amount=${encodeURIComponent(total.toFixed(2))}`
-                    : "#"
-                }
-                target="_blank"
-                rel="noreferrer"
-                style={{ padding: "10px 14px", borderRadius: 12, border: "1px solid #111", background: "#F28C28", color: "#111", fontWeight: 900, textDecoration: "none" }}
-                onClick={(e) => {
-                  if (!PAYPAL_EMAIL) {
-                    e.preventDefault();
-                    alert(t.cart_missing_paypal);
-                  }
-                }}
-              >
-                {t.cart_open_paypal} ({total.toFixed(2)} EUR)
-              </a>
-            ) : null}
-
             <button className="af-btn" onClick={() => createOrderInDb(payment)} disabled={isCreating} style={confirmButtonStyle} type="button">
               {isCreating
                 ? t.cart_creating

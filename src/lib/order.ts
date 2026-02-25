@@ -1,8 +1,6 @@
-import type { CartItem } from "@/lib/cart";
-
 // src/lib/order.ts
 
-export type PaymentMethod = "cash" | "paypal" | "card";
+export type PaymentMethod = "cash" | "card";
 
 export type TicketItem = {
   id?: string;

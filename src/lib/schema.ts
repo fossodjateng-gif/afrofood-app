@@ -4,7 +4,7 @@ export type OrderStatus =
   | "IN_PROGRESS"
   | "READY"
   | "DONE";
-export type PaymentMethod = "cash" | "paypal" | "card";
+export type PaymentMethod = "cash" | "card";
 
 export type OrderItem = {
   id?: string;
@@ -18,6 +18,12 @@ export type OrderRow = {
   created_at: string;        // ISO
   customer_name: string | null;
   payment: PaymentMethod;
+  payment_provider?: string | null;
+  stripe_payment_intent_id?: string | null;
+  amount_cents?: number | null;
+  currency?: string | null;
+  paid_at?: string | null;
+  payment_error?: string | null;
   status: OrderStatus;
   items: OrderItem[];        // JSON
 };
