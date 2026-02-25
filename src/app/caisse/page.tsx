@@ -32,6 +32,10 @@ const UI_TEXT: Record<
     payment: string;
     validating: string;
     validatePayment: string;
+    initTapToPay: string;
+    creatingTapToPay: string;
+    tapToPayReady: string;
+    tapToPayStatus: string;
     validated: string;
     total: string;
     ticketTitle: string;
@@ -61,6 +65,10 @@ const UI_TEXT: Record<
     payment: "Zahlung",
     validating: "Validierung...",
     validatePayment: "Zahlung validieren",
+    initTapToPay: "Stripe Tap to Pay starten",
+    creatingTapToPay: "Stripe wird gestartet...",
+    tapToPayReady: "PaymentIntent erstellt",
+    tapToPayStatus: "Stripe Status",
     validated: "Validiert",
     total: "Gesamt",
     ticketTitle: "Kundenbeleg",
@@ -89,6 +97,10 @@ const UI_TEXT: Record<
     payment: "Paiement",
     validating: "Validation...",
     validatePayment: "Valider paiement",
+    initTapToPay: "Demarrer Stripe Tap to Pay",
+    creatingTapToPay: "Demarrage Stripe...",
+    tapToPayReady: "PaymentIntent cree",
+    tapToPayStatus: "Statut Stripe",
     validated: "Validee",
     total: "Total",
     ticketTitle: "Ticket Client",
@@ -117,6 +129,10 @@ const UI_TEXT: Record<
     payment: "Payment",
     validating: "Validating...",
     validatePayment: "Validate payment",
+    initTapToPay: "Start Stripe Tap to Pay",
+    creatingTapToPay: "Starting Stripe...",
+    tapToPayReady: "PaymentIntent created",
+    tapToPayStatus: "Stripe status",
     validated: "Validated",
     total: "Total",
     ticketTitle: "Customer ticket",
@@ -223,8 +239,10 @@ export default function CaissePage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [justRefreshed, setJustRefreshed] = useState(false);
   const [validatingId, setValidatingId] = useState<string | null>(null);
+  const [startingTapToPayId, setStartingTapToPayId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [ticketOrder, setTicketOrder] = useState<OrderRow | null>(null);
+  const [tapToPayInfo, setTapToPayInfo] = useState<Record<string, { paymentIntentId: string; status: string }>>({});
 
   const t = UI_TEXT[lang];
 
@@ -333,6 +351,38 @@ export default function CaissePage() {
       setActionError(e instanceof Error ? e.message : t.unknownError);
     } finally {
       setValidatingId(null);
+    }
+  }
+
+  async function initTapToPay(order: OrderRow) {
+    try {
+      setActionError(null);
+      setStartingTapToPayId(order.id);
+
+      const res = await fetch("/api/stripe/terminal/payment-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id }),
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || t.unknownError);
+      }
+
+      setTapToPayInfo((prev) => ({
+        ...prev,
+        [order.id]: {
+          paymentIntentId: String(data.paymentIntentId || ""),
+          status: String(data.status || ""),
+        },
+      }));
+
+      refresh();
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : t.unknownError);
+    } finally {
+      setStartingTapToPayId(null);
     }
   }
 
@@ -477,25 +527,66 @@ export default function CaissePage() {
                 </div>
 
                 {isPending ? (
-                  <button
-                    onClick={() => markPaymentValidated(o)}
-                    disabled={validatingId === o.id}
-                    style={{
-                      padding: "10px 14px",
-                      borderRadius: 12,
-                      border: "none",
-                      background:
-                        validatingId === o.id
-                          ? "linear-gradient(135deg,#f59e0b,#d97706)"
-                          : "linear-gradient(135deg,#08a045,#0d8f3f)",
-                      color: "white",
-                      fontWeight: 900,
-                      cursor: validatingId === o.id ? "not-allowed" : "pointer",
-                      opacity: validatingId === o.id ? 0.8 : 1,
-                    }}
-                  >
-                    {validatingId === o.id ? t.validating : t.validatePayment}
-                  </button>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {o.payment === "card" ? (
+                      <button
+                        onClick={() => initTapToPay(o)}
+                        disabled={startingTapToPayId === o.id}
+                        style={{
+                          padding: "10px 14px",
+                          borderRadius: 12,
+                          border: "none",
+                          background:
+                            startingTapToPayId === o.id
+                              ? "linear-gradient(135deg,#f59e0b,#d97706)"
+                              : "linear-gradient(135deg,#2563eb,#1d4ed8)",
+                          color: "white",
+                          fontWeight: 900,
+                          cursor: startingTapToPayId === o.id ? "not-allowed" : "pointer",
+                          opacity: startingTapToPayId === o.id ? 0.8 : 1,
+                        }}
+                      >
+                        {startingTapToPayId === o.id ? t.creatingTapToPay : t.initTapToPay}
+                      </button>
+                    ) : null}
+
+                    <button
+                      onClick={() => markPaymentValidated(o)}
+                      disabled={validatingId === o.id}
+                      style={{
+                        padding: "10px 14px",
+                        borderRadius: 12,
+                        border: "none",
+                        background:
+                          validatingId === o.id
+                            ? "linear-gradient(135deg,#f59e0b,#d97706)"
+                            : "linear-gradient(135deg,#08a045,#0d8f3f)",
+                        color: "white",
+                        fontWeight: 900,
+                        cursor: validatingId === o.id ? "not-allowed" : "pointer",
+                        opacity: validatingId === o.id ? 0.8 : 1,
+                      }}
+                    >
+                      {validatingId === o.id ? t.validating : t.validatePayment}
+                    </button>
+
+                    {o.payment === "card" && tapToPayInfo[o.id]?.paymentIntentId ? (
+                      <div
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 10,
+                          border: "1px solid #93c5fd",
+                          background: "rgba(59,130,246,0.12)",
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {t.tapToPayReady}: {tapToPayInfo[o.id].paymentIntentId}
+                        <br />
+                        {t.tapToPayStatus}: {tapToPayInfo[o.id].status}
+                      </div>
+                    ) : null}
+                  </div>
                 ) : (
                   <div
                     style={{
