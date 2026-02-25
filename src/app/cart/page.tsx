@@ -121,9 +121,6 @@ export default function CartPage() {
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  const BANK_IBAN = process.env.NEXT_PUBLIC_BANK_IBAN || "";
-  const BANK_NAME = process.env.NEXT_PUBLIC_BANK_NAME || "";
-  const PAYEE_NAME = process.env.NEXT_PUBLIC_PAYEE_NAME || "";
 
   useEffect(() => {
     setLang(getSavedLang());
@@ -427,18 +424,6 @@ export default function CartPage() {
               <div style={{ fontWeight: 900, marginBottom: 6 }}>{t.cart_card_hint_title}</div>
               <div style={{ opacity: 0.9 }}>
                 {t.cart_card_hint_text}
-                <br />
-                {BANK_IBAN ? (
-                  <div style={{ marginTop: 8 }}>
-                    <b>{t.cart_beneficiary}:</b> {PAYEE_NAME || "AfroFood"}
-                    <br />
-                    <b>{t.cart_bank}:</b> {BANK_NAME || "-"}
-                    <br />
-                    <b>IBAN:</b> {BANK_IBAN}
-                  </div>
-                ) : (
-                  <div style={{ marginTop: 8, color: "#b00" }}>{t.cart_missing_iban}</div>
-                )}
               </div>
             </div>
           ) : null}

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
 import { calculateOrderTotalCents } from "@/lib/pricing";
+import { ensureOrdersSchema } from "@/lib/orders-schema";
 
 type PaymentMethod = "cash" | "card";
 type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE";
@@ -51,6 +52,7 @@ async function makeNextOrderId() {
 
 export async function GET(req: Request) {
   try {
+    await ensureOrdersSchema();
     const { searchParams } = new URL(req.url);
     const statusParam = (searchParams.get("status") || "").toUpperCase();
     const idParam = String(searchParams.get("id") || "").trim();
@@ -104,6 +106,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    await ensureOrdersSchema();
     const body = await req.json();
 
     const createdAt = String(body.createdAt || new Date().toISOString());

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { calculateOrderTotalCents } from "@/lib/pricing";
 import { stripePost } from "@/lib/stripe-server";
+import { ensureOrdersSchema } from "@/lib/orders-schema";
 
 type PaymentIntentResponse = {
   id: string;
@@ -20,6 +21,7 @@ type OrderLike = {
 
 export async function POST(req: Request) {
   try {
+    await ensureOrdersSchema();
     const body = await req.json().catch(() => ({}));
     const orderId = String(body?.orderId || "").trim();
 

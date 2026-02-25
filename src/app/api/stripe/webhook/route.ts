@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
+import { ensureOrdersSchema } from "@/lib/orders-schema";
 
 type StripeEvent = {
   id: string;
@@ -44,6 +45,7 @@ async function findOrderIdFromPaymentIntent(piId: string) {
 
 export async function POST(req: Request) {
   try {
+    await ensureOrdersSchema();
     const payload = await req.text();
     const signature = req.headers.get("stripe-signature") || "";
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
