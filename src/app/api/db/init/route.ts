@@ -8,7 +8,7 @@ export async function GET() {
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       customer_name TEXT,
       payment TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'new',
+      status TEXT NOT NULL DEFAULT 'PENDING_PAYMENT',
       items JSONB NOT NULL
     );
   `;

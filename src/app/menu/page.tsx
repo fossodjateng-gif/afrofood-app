@@ -1,6 +1,7 @@
-"use client";
+﻿"use client";
 
 import React from "react";
+import Link from "next/link";
 import { addToCart, getCart } from "@/lib/cart";
 import { translations, type Lang } from "@/lib/translations";
 
@@ -16,7 +17,12 @@ const UI = {
     padding: 24,
     fontFamily:
       "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
-    background: BRAND.orangeSoft,
+    backgroundColor: BRAND.orangeSoft,
+    backgroundImage:
+      "linear-gradient(180deg, rgba(255,243,230,0.82) 0%, rgba(255,243,230,0.9) 100%), url('/logo-afrofood.png')",
+    backgroundRepeat: "no-repeat",
+    backgroundPosition: "center",
+    backgroundSize: "cover, min(64vw, 420px)",
     minHeight: "100vh",
   } as React.CSSProperties,
 
@@ -166,26 +172,26 @@ type Section = {
 
 const sections: Section[] = [
   {
-    title: "🥣 Dips",
+    title: "Dips",
     items: [
       {
         id: "dip-green",
-        name: "Grüne Sauce (nicht scharf)",
+        name: "Grune Sauce (nicht scharf)",
         price: 0,
-        desc: "1. Dip kostenlos, ab dem 2. Dip +1€",
+        desc: "1. Dip kostenlos, ab dem 2. Dip +1 EUR",
       },
       {
         id: "dip-chili",
         name: "Chili Sauce (HOT)",
         price: 0,
-        desc: "1. Dip kostenlos, ab dem 2. Dip +1€",
+        desc: "1. Dip kostenlos, ab dem 2. Dip +1 EUR",
       },
     ],
   },
   {
-    title: "🥤 Immunstärkende Getränke",
+    title: "Immunstarkende Getranke",
     items: [
-      { name: "Ingwersaft", price: 5, desc: "Ein scharf-würziger Frischekick" },
+      { name: "Ingwersaft", price: 5, desc: "Ein scharf-wurziger Frischekick" },
       {
         name: "Hibiskussaft",
         price: 5,
@@ -194,12 +200,12 @@ const sections: Section[] = [
     ],
   },
   {
-    title: "🍩 Finger Food",
+    title: "Finger Food",
     items: [
       {
         name: "Puff-puff (1)",
         price: 5,
-        desc: "Goldbraune Hefebällchen – außen knusprig, innen fluffig",
+        desc: "Goldbraune Hefeballchen - aussen knusprig, innen fluffig",
         tags: ["VEGAN"],
       },
       {
@@ -211,22 +217,22 @@ const sections: Section[] = [
     ],
   },
   {
-    title: "🌍 Afrika besuchen",
+    title: "Afrika besuchen",
     items: [
       {
-        name: "BHB (1)(2) (Kamerun) – Veganer Teller",
+        name: "BHB (1)(2) (Kamerun) - Veganer Teller",
         price: 15,
-        desc: "Gewürzter Bohneneintopf, serviert mit Maisbrei und frittierte Hefebällchen",
+        desc: "Gewurzter Bohneneintopf, serviert mit Maisbrei und frittierte Hefeballchen",
         tags: ["VEGAN"],
       },
       {
-        name: "Attiéké Poulet (2) (Elfenbeinküste)",
+        name: "Attieke Poulet (2) (Elfenbeinkuste)",
         price: 15,
         desc: "Lockerer Maniok-Semole mit gegrilltem Pollo Fino, serviert mit frischen Tomaten-Gurken-Zwiebel-Salat",
         tags: ["CHICKEN"],
       },
       {
-        name: "Batbout mit Hähnchenfüllung (2) (Marokko)",
+        name: "Batbout mit Hahnchenfullung (2) (Marokko)",
         price: 15,
         desc: "Marokkanische Fladenbroten mit gegrilltem Pollo Fino, serviert mit Tomaten und Salat",
         tags: ["CHICKEN"],
@@ -234,24 +240,24 @@ const sections: Section[] = [
     ],
   },
   {
-    title: "🔥 Fusion",
+    title: "Fusion",
     items: [
       {
         name: "Pollo Fino (2)",
         price: 10,
-        desc: "Zart gegrilltes Hähnchenfleisch serviert mit frittierte Kochbananenscheiben und Hefebällchen",
+        desc: "Zart gegrilltes Hahnchenfleisch serviert mit frittierte Kochbananenscheiben und Hefeballchen",
         tags: ["CHICKEN"],
       },
       {
         name: "BH (1)(2)",
         price: 10,
-        desc: "Gewürzter Bohneneintopf, serviert mit frittierten Hefebällchen und Kochbananenscheiben",
+        desc: "Gewurzter Bohneneintopf, serviert mit frittierten Hefeballchen und Kochbananenscheiben",
         tags: ["VEGAN"],
       },
       {
-        name: "Batbout mit Bohnenfüllung (2)",
+        name: "Batbout mit Bohnenfullung (2)",
         price: 10,
-        desc: "Marokkanische Fladenbroten mit gewürzten Bohneneintopf, serviert mit Tomaten und Salat",
+        desc: "Marokkanische Fladenbroten mit gewurzten Bohneneintopf, serviert mit Tomaten und Salat",
         tags: ["VEGAN"],
       },
     ],
@@ -308,23 +314,22 @@ export default function MenuPage() {
         {/* TOPBAR */}
         <div style={UI.topbar} className="af-topbar">
           {/* gauche */}
-          <a
+          <Link
             href="/"
             className="af-back"
             style={{ textDecoration: "none", fontWeight: 900, color: BRAND.black }}
           >
-            ← {t.home ?? "Accueil"}
-          </a>
+            {t.home ?? "Accueil"}
+          </Link>
 
           {/* centre */}
           <div style={UI.brand} className="af-brand">
-            <div style={{ fontSize: 22 }}>🧡</div>
             <div style={{ minWidth: 0 }}>
               <h1 style={UI.title} className="af-title">
-                AfroFood – Menu 2026
+                AfroFood - Menu 2026
               </h1>
               <div style={UI.subtitle} className="af-subtitle">
-                {t.subtitle ?? "Commande digitale (DE • FR • EN)"}
+                {t.subtitle ?? "Commande digitale (DE / FR / EN)"}
               </div>
             </div>
           </div>
@@ -358,9 +363,9 @@ export default function MenuPage() {
           }}
         />
 
-        {/* légende */}
+        {/* legende */}
         <p style={{ marginTop: 10 }}>
-          <b>{t.legend ?? "Legende"}:</b> (1) Enthält Gluten • (2) Enthält Sellerie
+          <b>{t.legend ?? "Legende"}:</b> (1) Enthalt Gluten - (2) Enthalt Sellerie
         </p>
 
         {/* sections */}
@@ -414,12 +419,12 @@ export default function MenuPage() {
                         e.currentTarget.style.borderColor = BRAND.black;
                       }}
                     >
-                      {t.add ?? "Hinzufügen"}
+                      {t.add ?? "Hinzufugen"}
                     </button>
                   </div>
 
                   <div style={UI.price} className="af-price">
-                    {it.price.toFixed(2)} €
+                    {it.price.toFixed(2)} EUR
                   </div>
                 </div>
               ))}
@@ -430,10 +435,12 @@ export default function MenuPage() {
 
       {/* BARRE PANIER EN BAS (seule) */}
       <div className="af-mobile-cartbar">
-        <a href="/cart" className="af-mobile-cartbtn" style={UI.bottomCartBtn}>
-          🛒 {t.cart ?? "Warenkorb"} ({cartCount})
-        </a>
+        <Link href="/cart" className="af-mobile-cartbtn" style={UI.bottomCartBtn}>
+          {t.cart ?? "Warenkorb"} ({cartCount})
+        </Link>
       </div>
     </main>
   );
 }
+
+

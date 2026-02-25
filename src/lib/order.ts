@@ -5,8 +5,10 @@ import type { CartItem } from "@/lib/cart";
 export type PaymentMethod = "cash" | "paypal" | "card";
 
 export type TicketItem = {
+  id?: string;
   name: string;
   qty: number;
+  price?: number;
 };
 
 export type Order = {
@@ -43,9 +45,9 @@ export function makeOrderId() {
   return `${todayKey()}-${pad3(seq)}`; // 20260219-003
 }
 
-export function cartToTicketItems(cart: Array<{ name: string; qty: number }>): TicketItem[] {
+export function cartToTicketItems(cart: Array<{ id?: string; name: string; qty: number; price?: number }>): TicketItem[] {
   // simplifie si ton cart a plus de champs
-  return cart.map((it) => ({ name: it.name, qty: it.qty }));
+  return cart.map((it) => ({ id: it.id, name: it.name, qty: it.qty, price: it.price }));
 }
 
 export function makeQrPayload(order: Order) {

@@ -17,23 +17,22 @@ export default function Home() {
         position: "relative",
         overflow: "hidden",
         backgroundColor: "#FFF3E6",
+        color: "#111",
       }}
     >
-      {/* Background Logo */}
       <div
         style={{
           position: "absolute",
           inset: 0,
-          backgroundImage: "url('/logo-afrofood.png')",
+          backgroundImage:
+            "linear-gradient(180deg, rgba(255,243,230,0.82) 0%, rgba(255,243,230,0.9) 100%), url('/logo-afrofood.png')",
           backgroundRepeat: "no-repeat",
           backgroundPosition: "center",
-          backgroundSize: "70%",
-          opacity: 0.08,
+          backgroundSize: "cover, min(64vw, 420px)",
           pointerEvents: "none",
         }}
       />
 
-      {/* Content */}
       <div style={{ position: "relative", zIndex: 2, maxWidth: 600 }}>
         <h1
           style={{
@@ -53,37 +52,51 @@ export default function Home() {
             marginBottom: 30,
           }}
         >
-          Commande digitale (DE • FR • EN)
+          Commande digitale (DE - FR - EN)
         </p>
 
-        <a
-          href="/menu"
+        <div
           style={{
-            display: "inline-block",
-            padding: "14px 28px",
-            borderRadius: 999,
-            textDecoration: "none",
-            fontWeight: 900,
-            fontSize: 16,
-            color: "white",
-            background:
-              "linear-gradient(135deg, #ff7a00, #ff3c00)",
-            boxShadow: "0 14px 35px rgba(242,140,40,0.3)",
-            transition: "all 0.25s ease",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "translateY(-4px)";
-            e.currentTarget.style.boxShadow =
-              "0 20px 45px rgba(242,140,40,0.4)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "translateY(0)";
-            e.currentTarget.style.boxShadow =
-              "0 14px 35px rgba(242,140,40,0.3)";
+            marginTop: 14,
+            display: "flex",
+            gap: 12,
+            justifyContent: "center",
+            flexWrap: "wrap",
           }}
         >
-          🍽️ Zum Menü
-        </a>
+          <a
+            href="/menu"
+            style={{
+              display: "inline-block",
+              padding: "14px 28px",
+              borderRadius: 999,
+              textDecoration: "none",
+              fontWeight: 900,
+              fontSize: 16,
+              color: "white",
+              background: "linear-gradient(135deg, #ff7a00, #ff3c00)",
+              boxShadow: "0 14px 35px rgba(242,140,40,0.3)",
+            }}
+          >
+            Menu
+          </a>
+          <a
+            href="/staff"
+            style={{
+              display: "inline-block",
+              padding: "14px 28px",
+              borderRadius: 999,
+              textDecoration: "none",
+              fontWeight: 900,
+              fontSize: 16,
+              color: "#0f172a",
+              background: "white",
+              border: "1px solid #cbd5e1",
+            }}
+          >
+            Staff
+          </a>
+        </div>
       </div>
     </main>
   );

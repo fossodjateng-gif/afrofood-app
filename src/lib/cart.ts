@@ -13,11 +13,43 @@ function isDip(id: string) {
   return id.startsWith("dip-");
 }
 
+function cleanText(value: string) {
+  return value
+    .replaceAll("GrÃ¼ne", "Grune")
+    .replaceAll("AttiÃ©kÃ©", "Attieke")
+    .replaceAll("HÃ¤hnchenfÃ¼llung", "Hahnchenfullung")
+    .replaceAll("Ã¼", "u")
+    .replaceAll("Ã¤", "a")
+    .replaceAll("Ã¶", "o")
+    .replaceAll("â€“", "-")
+    .replaceAll("â€¢", "-")
+    .replaceAll("â‚¬", "EUR");
+}
+
+function sanitizeItem(raw: any): CartItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const id = String(raw.id || "").trim();
+  const name = cleanText(String(raw.name || "").trim());
+  const price = Number(raw.price || 0);
+  const qty = Number(raw.qty || 0);
+  if (!id || !name || !Number.isFinite(price) || !Number.isFinite(qty) || qty <= 0) return null;
+  return {
+    id,
+    name,
+    price,
+    qty,
+    redSauce: Boolean(raw.redSauce),
+    extraRedSauceQty: Number.isFinite(Number(raw.extraRedSauceQty)) ? Number(raw.extraRedSauceQty) : 0,
+  };
+}
 
 function read(): CartItem[] {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(localStorage.getItem(KEY) || "[]");
+    const parsed = JSON.parse(localStorage.getItem(KEY) || "[]");
+    const items = Array.isArray(parsed) ? parsed.map(sanitizeItem).filter(Boolean) as CartItem[] : [];
+    localStorage.setItem(KEY, JSON.stringify(items));
+    return items;
   } catch {
     return [];
   }
