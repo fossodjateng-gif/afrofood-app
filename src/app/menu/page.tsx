@@ -145,7 +145,7 @@ const UI = {
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    width: "100%",
+    width: "min(320px, 100%)",
     padding: "12px 16px",
     borderRadius: 999,
     border: "none",
@@ -157,115 +157,213 @@ const UI = {
   } as React.CSSProperties,
 };
 
+type LocalizedText = Record<Lang, string>;
+
 type MenuItem = {
-  id?: string;
-  name: string;
+  id: string;
+  name: LocalizedText;
   price: number;
-  desc?: string;
-  tags?: string[];
+  desc?: LocalizedText;
+  tags?: Array<"VEGAN" | "CHICKEN">;
 };
 
 type Section = {
-  title: string;
+  id: string;
+  title: LocalizedText;
   items: MenuItem[];
 };
 
 const sections: Section[] = [
   {
-    title: "Dips",
+    id: "dips",
+    title: { de: "Dips", fr: "Dips", en: "Dips" },
     items: [
       {
         id: "dip-green",
-        name: "Grune Sauce (nicht scharf)",
+        name: {
+          de: "Grune Sauce (nicht scharf)",
+          fr: "Sauce verte (douce)",
+          en: "Green sauce (mild)",
+        },
         price: 0,
-        desc: "1. Dip kostenlos, ab dem 2. Dip +1 EUR",
+        desc: {
+          de: "1. Dip kostenlos, ab dem 2. Dip +1 EUR",
+          fr: "1er dip gratuit, a partir du 2e dip +1 EUR",
+          en: "1st dip free, from the 2nd dip +1 EUR",
+        },
       },
       {
         id: "dip-chili",
-        name: "Chili Sauce (HOT)",
+        name: {
+          de: "Chili Sauce (scharf)",
+          fr: "Sauce chili (piquante)",
+          en: "Chili sauce (hot)",
+        },
         price: 0,
-        desc: "1. Dip kostenlos, ab dem 2. Dip +1 EUR",
+        desc: {
+          de: "1. Dip kostenlos, ab dem 2. Dip +1 EUR",
+          fr: "1er dip gratuit, a partir du 2e dip +1 EUR",
+          en: "1st dip free, from the 2nd dip +1 EUR",
+        },
       },
     ],
   },
   {
-    title: "Immunstarkende Getranke",
+    id: "drinks",
+    title: { de: "Immungetranke", fr: "Boissons bien-etre", en: "Wellness drinks" },
     items: [
-      { name: "Ingwersaft", price: 5, desc: "Ein scharf-wurziger Frischekick" },
       {
-        name: "Hibiskussaft",
+        id: "ingwersaft",
+        name: { de: "Ingwersaft", fr: "Jus de gingembre", en: "Ginger juice" },
         price: 5,
-        desc: "Erfrischend und reich an Antioxidantien",
+        desc: {
+          de: "Scharf-wurziger Frischekick",
+          fr: "Boisson vive et epicee au gingembre",
+          en: "Fresh and spicy ginger boost",
+        },
+      },
+      {
+        id: "hibiskussaft",
+        name: { de: "Hibiskussaft", fr: "Jus d'hibiscus", en: "Hibiscus juice" },
+        price: 5,
+        desc: {
+          de: "Erfrischend und reich an Antioxidantien",
+          fr: "Rafraichissant et riche en antioxydants",
+          en: "Refreshing and rich in antioxidants",
+        },
       },
     ],
   },
   {
-    title: "Finger Food",
+    id: "finger-food",
+    title: { de: "Fingerfood", fr: "Finger food", en: "Finger food" },
     items: [
       {
-        name: "Puff-puff (1)",
+        id: "puff-puff-1",
+        name: { de: "Puff-puff (1)", fr: "Puff-puff (1)", en: "Puff-puff (1)" },
         price: 5,
-        desc: "Goldbraune Hefeballchen - aussen knusprig, innen fluffig",
+        desc: {
+          de: "Goldbraune Hefeballchen, aussen knusprig und innen fluffig",
+          fr: "Beignets dores, croustillants dehors et moelleux dedans",
+          en: "Golden dough balls, crispy outside and fluffy inside",
+        },
         tags: ["VEGAN"],
       },
       {
-        name: "Plantain Chips",
+        id: "plantain-chips",
+        name: { de: "Plantain Chips", fr: "Chips de plantain", en: "Plantain chips" },
         price: 5,
-        desc: "Knusprig frittierte Kochbananenscheiben",
+        desc: {
+          de: "Knusprig frittierte Kochbananenscheiben",
+          fr: "Tranches de plantain frites et croustillantes",
+          en: "Crispy fried plantain slices",
+        },
         tags: ["VEGAN"],
       },
     ],
   },
   {
-    title: "Afrika besuchen",
+    id: "africa-tour",
+    title: { de: "Afrika entdecken", fr: "Voyage en Afrique", en: "Taste of Africa" },
     items: [
       {
-        name: "BHB (1)(2) (Kamerun) - Veganer Teller",
+        id: "bhb-1-2-kamerun-veganer-teller",
+        name: {
+          de: "BHB (1)(2) (Kamerun) - Veganer Teller",
+          fr: "BHB (1)(2) (Cameroun) - Assiette vegane",
+          en: "BHB (1)(2) (Cameroon) - Vegan plate",
+        },
         price: 15,
-        desc: "Gewurzter Bohneneintopf, serviert mit Maisbrei und frittierte Hefeballchen",
+        desc: {
+          de: "Gewurzter Bohneneintopf mit Maisbrei und Puff-puff",
+          fr: "Haricot epice avec Bouillie de mais et puff-puff",
+          en: "Spiced bean stew with corn mash and puff-puff",
+        },
         tags: ["VEGAN"],
       },
       {
-        name: "Attieke Poulet (2) (Elfenbeinkuste)",
+        id: "attieke-poulet-2-elfenbeinkuste",
+        name: {
+          de: "Attieke Poulet (2) (Elfenbeinkuste)",
+          fr: "Attieke Poulet (2) (Cote d'Ivoire)",
+          en: "Attieke Chicken (2) (Ivory Coast)",
+        },
         price: 15,
-        desc: "Lockerer Maniok-Semole mit gegrilltem Pollo Fino, serviert mit frischen Tomaten-Gurken-Zwiebel-Salat",
+        desc: {
+          de: "Maniok-Semola mit gegrilltem Pollo Fino und Tomaten-Zwiebel-Gurken Salat",
+          fr: "Semoule de manioc avec pollo fino grille et Salade de tomates, oignons et concombres",
+          en: "Cassava semolina with grilled pollo fino and Tomato, onion and cucumber salad",
+        },
         tags: ["CHICKEN"],
       },
       {
-        name: "Batbout mit Hahnchenfullung (2) (Marokko)",
+        id: "batbout-mit-hahnchenfullung-2-marokko",
+        name: {
+          de: "Batbout mit Hahnchenfullung (2) (Marokko)",
+          fr: "Batbout au poulet (2) (Maroc)",
+          en: "Batbout with chicken filling (2) (Morocco)",
+        },
         price: 15,
-        desc: "Marokkanische Fladenbroten mit gegrilltem Pollo Fino, serviert mit Tomaten und Salat",
+        desc: {
+          de: "Marokkanisches Fladenbrot mit gegrilltem Pollo Fino, Tomaten und Salat",
+          fr: "Pain marocain garni de pollo fino grille, tomates et salade",
+          en: "Moroccan flatbread with grilled pollo fino, tomatoes and salad",
+        },
         tags: ["CHICKEN"],
       },
     ],
   },
   {
-    title: "Fusion",
+    id: "fusion",
+    title: { de: "Fusion", fr: "Fusion", en: "Fusion" },
     items: [
       {
-        name: "Pollo Fino (2)",
+        id: "pollo-fino-2",
+        name: { de: "Pollo Fino (2)", fr: "Pollo Fino (2)", en: "Pollo Fino (2)" },
         price: 10,
-        desc: "Zart gegrilltes Hahnchenfleisch serviert mit frittierte Kochbananenscheiben und Hefeballchen",
+        desc: {
+          de: "Gegrilltes Hahnchen mit Plantain Chips und Puff-puff",
+          fr: "Poulet grille avec chips de plantain et puff-puff",
+          en: "Grilled chicken with plantain chips and puff-puff",
+        },
         tags: ["CHICKEN"],
       },
       {
-        name: "BH (1)(2)",
+        id: "bh-1-2",
+        name: { de: "BH (1)(2)", fr: "BH (1)(2)", en: "BH (1)(2)" },
         price: 10,
-        desc: "Gewurzter Bohneneintopf, serviert mit frittierten Hefeballchen und Kochbananenscheiben",
+        desc: {
+          de: "Gewurzter Bohneneintopf mit Puff-puff und Plantain Chips",
+          fr: "Haricot epice avec puff-puff et chips de plantain",
+          en: "Spiced bean stew with puff-puff and plantain chips",
+        },
         tags: ["VEGAN"],
       },
       {
-        name: "Batbout mit Bohnenfullung (2)",
+        id: "batbout-mit-bohnenfullung-2",
+        name: {
+          de: "Batbout mit Bohnenfullung (2)",
+          fr: "Batbout aux haricots (2)",
+          en: "Batbout with bean filling (2)",
+        },
         price: 10,
-        desc: "Marokkanische Fladenbroten mit gewurzten Bohneneintopf, serviert mit Tomaten und Salat",
+        desc: {
+          de: "Marokkanisches Fladenbrot mit gewurzten Bohnen, Tomaten und Salat",
+          fr: "Pain marocain garni de haricot epice, tomates et salade",
+          en: "Moroccan flatbread with spiced bean stew, tomatoes and salad",
+        },
         tags: ["VEGAN"],
       },
     ],
   },
 ];
 
-function Tag({ label }: { label: string }) {
+function Tag({ label, lang }: { label: "VEGAN" | "CHICKEN"; lang: Lang }) {
   const bg = label === "VEGAN" ? "#0A7A3D" : BRAND.orange;
+  const text =
+    label === "VEGAN"
+      ? { de: "VEGAN", fr: "VEGAN", en: "VEGAN" }[lang]
+      : { de: "HUHN", fr: "POULET", en: "CHICKEN" }[lang];
   return (
     <span
       style={{
@@ -281,7 +379,7 @@ function Tag({ label }: { label: string }) {
         letterSpacing: 0.3,
       }}
     >
-      {label}
+      {text}
     </span>
   );
 }
@@ -369,25 +467,25 @@ export default function MenuPage() {
 
         {/* sections */}
         {sections.map((sec) => (
-          <section key={sec.title} style={UI.section} className="af-section">
+          <section key={sec.id} style={UI.section} className="af-section">
             <h2 style={UI.sectionTitle} className="af-section-title">
-              {sec.title}
+              {sec.title[lang]}
             </h2>
 
             <div style={UI.grid}>
               {sec.items.map((it) => (
-                <div key={it.name} style={UI.card} className="af-card">
+                <div key={it.id} style={UI.card} className="af-card">
                   <div>
                     <div style={UI.name}>
-                      {it.name}
+                      {it.name[lang]}
                       {it.tags?.map((tg) => (
-                        <Tag key={tg} label={tg} />
+                        <Tag key={tg} label={tg} lang={lang} />
                       ))}
                     </div>
 
                     {it.desc && (
                       <div style={UI.desc} className="af-desc">
-                        {it.desc}
+                        {it.desc[lang]}
                       </div>
                     )}
 
@@ -396,10 +494,8 @@ export default function MenuPage() {
                       style={UI.btn}
                       onClick={() => {
                         addToCart({
-                          id:
-                            it.id ??
-                            it.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-                          name: it.name,
+                          id: it.id,
+                          name: it.name[lang],
                           price: it.price,
                           redSauce: false,
                           extraRedSauceQty: 0,

@@ -250,7 +250,8 @@ export default function CartPage() {
       className="af-page"
       style={{
         padding: 24,
-        fontFamily: "Arial, sans-serif",
+        fontFamily:
+          "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
         maxWidth: 1000,
         margin: "0 auto",
         backgroundColor: "#FFF3E6",
@@ -263,20 +264,26 @@ export default function CartPage() {
       }}
     >
       <div
+        className="af-topbar"
         style={{
           display: "flex",
-          justifyContent: "space-between",
           alignItems: "center",
+          justifyContent: "space-between",
           gap: 12,
-          flexWrap: "wrap",
+          padding: "14px 16px",
+          borderRadius: 16,
+          border: "1px solid #F1D7C8",
+          boxShadow: "0 12px 30px rgba(242,140,40,0.18)",
+          background: "white",
           marginBottom: 12,
+          flexWrap: "wrap",
         }}
       >
-        <a href="/menu" style={{ textDecoration: "none", fontWeight: 800 }}>
+        <a href="/menu" className="af-back" style={{ textDecoration: "none", fontWeight: 900, color: "#111" }}>
           {t.cart_back}
         </a>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="af-actions" style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {(["de", "fr", "en"] as Lang[]).map((L) => (
             <button
               key={L}
@@ -284,15 +291,7 @@ export default function CartPage() {
                 setLang(L);
                 saveLang(L);
               }}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 10,
-                border: "1px solid #111",
-                background: lang === L ? "#111" : "white",
-                color: lang === L ? "white" : "#111",
-                cursor: "pointer",
-                fontWeight: 800,
-              }}
+              className={`af-lang-btn ${lang === L ? "is-active" : ""}`}
               type="button"
             >
               {L.toUpperCase()}
@@ -300,7 +299,11 @@ export default function CartPage() {
           ))}
         </div>
 
-        <h1 style={{ margin: 0, width: "100%" }}>{t.cart_title}</h1>
+        <div className="af-brand" style={{ width: "100%", justifyContent: "center", textAlign: "center" }}>
+          <h1 className="af-title" style={{ margin: 0, fontSize: 22, fontWeight: 900 }}>
+            {t.cart_title}
+          </h1>
+        </div>
       </div>
 
       {cart.length === 0 ? (
@@ -313,14 +316,14 @@ export default function CartPage() {
                 key={it.id}
                 className="af-card"
                 style={{
-                  border: "1px solid #ffd2b8",
-                  borderRadius: 18,
-                  padding: 18,
+                  border: "1px solid #F1D7C8",
+                  borderRadius: 16,
+                  padding: 14,
                   display: "flex",
                   justifyContent: "space-between",
                   gap: 16,
                   background: "white",
-                  boxShadow: "0 12px 30px rgba(255, 120, 0, 0.08)",
+                  boxShadow: "0 10px 26px rgba(17,17,17,0.06)",
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
