@@ -1,13 +1,68 @@
 "use client";
 
 import { useState } from "react";
+import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 
 const STAFF_PASSWORD = "0603";
+const UI_TEXT: Record<
+  Lang,
+  {
+    secureTitle: string;
+    enterPassword: string;
+    passwordPlaceholder: string;
+    wrongPassword: string;
+    enter: string;
+    staff: string;
+    workspace: string;
+    cashier: string;
+    kitchen: string;
+    readyOrders: string;
+  }
+> = {
+  de: {
+    secureTitle: "Geschutzter Teamzugang",
+    enterPassword: "Passwort eingeben",
+    passwordPlaceholder: "Passwort",
+    wrongPassword: "Falsches Passwort",
+    enter: "Einloggen",
+    staff: "Team",
+    workspace: "Arbeitsbereich auswahlen",
+    cashier: "Kasse",
+    kitchen: "Kuche",
+    readyOrders: "Fertige Bestellungen",
+  },
+  fr: {
+    secureTitle: "Staff securise",
+    enterPassword: "Entrer le mot de passe",
+    passwordPlaceholder: "Mot de passe",
+    wrongPassword: "Mot de passe incorrect",
+    enter: "Entrer",
+    staff: "Staff",
+    workspace: "Choisir un espace de travail",
+    cashier: "Caisse",
+    kitchen: "Cuisine",
+    readyOrders: "Commandes pretes",
+  },
+  en: {
+    secureTitle: "Secured staff access",
+    enterPassword: "Enter password",
+    passwordPlaceholder: "Password",
+    wrongPassword: "Incorrect password",
+    enter: "Enter",
+    staff: "Staff",
+    workspace: "Choose a workspace",
+    cashier: "Cashier",
+    kitchen: "Kitchen",
+    readyOrders: "Ready orders",
+  },
+};
 
 export default function StaffPage() {
+  const [lang, setLang] = useState<Lang>(() => getSavedLang());
   const [password, setPassword] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const t = UI_TEXT[lang];
 
   if (!isUnlocked) {
     return (
@@ -38,13 +93,36 @@ export default function StaffPage() {
             color: "white",
           }}
         >
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900 }}>Staff securise</h1>
-          <p style={{ marginTop: 8, opacity: 0.8 }}>Entrer le mot de passe</p>
+          <div style={{ display: "flex", gap: 8 }}>
+            {(["de", "fr", "en"] as Lang[]).map((L) => (
+              <button
+                key={L}
+                type="button"
+                onClick={() => {
+                  setLang(L);
+                  saveLang(L);
+                }}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 10,
+                  border: "1px solid #475569",
+                  background: lang === L ? "#111" : "white",
+                  color: lang === L ? "white" : "#111",
+                  cursor: "pointer",
+                  fontWeight: 800,
+                }}
+              >
+                {L.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <h1 style={{ margin: "10px 0 0 0", fontSize: 24, fontWeight: 900 }}>{t.secureTitle}</h1>
+          <p style={{ marginTop: 8, opacity: 0.8 }}>{t.enterPassword}</p>
           <input
             value={password}
             onChange={(e) => setPassword(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
             inputMode="numeric"
-            placeholder="Mot de passe"
+            placeholder={t.passwordPlaceholder}
             style={{
               marginTop: 10,
               width: "100%",
@@ -63,7 +141,7 @@ export default function StaffPage() {
                 setAuthError(null);
                 setIsUnlocked(true);
               } else {
-                setAuthError("Mot de passe incorrect");
+                setAuthError(t.wrongPassword);
               }
             }}
             style={{
@@ -78,7 +156,7 @@ export default function StaffPage() {
               cursor: "pointer",
             }}
           >
-            Entrer
+            {t.enter}
           </button>
         </div>
       </main>
@@ -103,8 +181,8 @@ export default function StaffPage() {
       }}
     >
       <div style={{ textAlign: "center", width: "100%", maxWidth: 640 }}>
-        <h1 style={{ margin: 0, fontSize: 34, fontWeight: 900 }}>Staff</h1>
-        <p style={{ marginTop: 8, opacity: 0.8 }}>Choisir un espace de travail</p>
+        <h1 style={{ margin: 0, fontSize: 34, fontWeight: 900 }}>{t.staff}</h1>
+        <p style={{ marginTop: 8, opacity: 0.8 }}>{t.workspace}</p>
 
         <div style={{ marginTop: 18, display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
           <a
@@ -119,7 +197,7 @@ export default function StaffPage() {
               boxShadow: "0 12px 26px rgba(255,122,0,0.25)",
             }}
           >
-            Caisse
+            {t.cashier}
           </a>
           <a
             href="/kitchen"
@@ -133,7 +211,7 @@ export default function StaffPage() {
               boxShadow: "0 12px 26px rgba(37,99,235,0.25)",
             }}
           >
-            Cuisine
+            {t.kitchen}
           </a>
           <a
             href="/screen"
@@ -147,7 +225,7 @@ export default function StaffPage() {
               boxShadow: "0 12px 26px rgba(22,163,74,0.25)",
             }}
           >
-            Commandes pretes
+            {t.readyOrders}
           </a>
         </div>
       </div>

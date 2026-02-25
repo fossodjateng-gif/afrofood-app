@@ -3,12 +3,76 @@
 import { useEffect, useMemo, useState } from "react";
 import type { OrderRow } from "@/lib/schema";
 import { subscribeOrderSync } from "@/lib/order-sync";
+import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
+
+const UI_TEXT: Record<
+  Lang,
+  {
+    title: string;
+    subtitle: string;
+    refreshing: string;
+    refreshed: string;
+    refresh: string;
+    loading: string;
+    noOrders: string;
+    name: string;
+    unnamed: string;
+    ready: string;
+    done: string;
+    noItems: string;
+  }
+> = {
+  de: {
+    title: "Kuche - Bestellungen",
+    subtitle: "Orange: in Vorbereitung, Grun: abholbereit",
+    refreshing: "Aktualisierung...",
+    refreshed: "Aktualisiert",
+    refresh: "Aktualisieren",
+    loading: "Laden...",
+    noOrders: "Keine Kuchenbestellung.",
+    name: "Name",
+    unnamed: "Ohne Name",
+    ready: "Fertig",
+    done: "Guten Appetit",
+    noItems: "Keine Artikeldetails",
+  },
+  fr: {
+    title: "Cuisine - Commandes",
+    subtitle: "Orange: en preparation, Vert: pret a retirer",
+    refreshing: "Actualisation...",
+    refreshed: "Actualise",
+    refresh: "Actualiser",
+    loading: "Chargement...",
+    noOrders: "Aucune commande cuisine.",
+    name: "Nom",
+    unnamed: "Sans nom",
+    ready: "Pret",
+    done: "Bon appetit",
+    noItems: "Aucun detail article",
+  },
+  en: {
+    title: "Kitchen - Orders",
+    subtitle: "Orange: preparing, Green: ready for pickup",
+    refreshing: "Refreshing...",
+    refreshed: "Refreshed",
+    refresh: "Refresh",
+    loading: "Loading...",
+    noOrders: "No kitchen orders.",
+    name: "Name",
+    unnamed: "No name",
+    ready: "Ready",
+    done: "Done",
+    noItems: "No item details",
+  },
+};
 
 export default function KitchenPage() {
+  const [lang, setLang] = useState<Lang>("de");
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [justRefreshed, setJustRefreshed] = useState(false);
+  const t = UI_TEXT[lang];
 
   const sortedOrders = useMemo(() => {
     return [...orders].sort((a, b) => {
@@ -45,6 +109,7 @@ export default function KitchenPage() {
   }
 
   useEffect(() => {
+    setLang(getSavedLang());
     refresh();
   }, []);
 
@@ -84,8 +149,31 @@ export default function KitchenPage() {
         color: "#111",
       }}
     >
-      <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>Cuisine - Commandes</h1>
-      <p style={{ opacity: 0.75 }}>Orange: en preparation, Vert: pret a retirer</p>
+      <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+        {(["de", "fr", "en"] as Lang[]).map((L) => (
+          <button
+            key={L}
+            type="button"
+            onClick={() => {
+              setLang(L);
+              saveLang(L);
+            }}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 10,
+              border: "1px solid #111",
+              background: lang === L ? "#111" : "white",
+              color: lang === L ? "white" : "#111",
+              cursor: "pointer",
+              fontWeight: 800,
+            }}
+          >
+            {L.toUpperCase()}
+          </button>
+        ))}
+      </div>
+      <h1 style={{ margin: "10px 0 0 0", fontSize: 28, fontWeight: 900 }}>{t.title}</h1>
+      <p style={{ opacity: 0.75 }}>{t.subtitle}</p>
       <button
         onClick={refresh}
         disabled={isRefreshing}
@@ -105,11 +193,11 @@ export default function KitchenPage() {
           opacity: isRefreshing ? 0.85 : 1,
         }}
       >
-        {isRefreshing ? "Actualisation..." : justRefreshed ? "Actualise" : "Actualiser"}
+        {isRefreshing ? t.refreshing : justRefreshed ? t.refreshed : t.refresh}
       </button>
 
-      {loading ? <p style={{ marginTop: 12 }}>Chargement...</p> : null}
-      {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>Aucune commande cuisine.</p> : null}
+      {loading ? <p style={{ marginTop: 12 }}>{t.loading}</p> : null}
+      {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>{t.noOrders}</p> : null}
 
       <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
         {sortedOrders.map((o) => {
@@ -129,7 +217,7 @@ export default function KitchenPage() {
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 900 }}>{o.id}</div>
                   <div style={{ opacity: 0.9, marginTop: 2 }}>
-                    {o.customer_name ? `Nom: ${o.customer_name}` : "Sans nom"}
+                    {o.customer_name ? `${t.name}: ${o.customer_name}` : t.unnamed}
                   </div>
                 </div>
 
@@ -146,7 +234,7 @@ export default function KitchenPage() {
                       cursor: "pointer",
                     }}
                   >
-                    Pret
+                    {t.ready}
                   </button>
                 ) : (
                   <button
@@ -161,7 +249,7 @@ export default function KitchenPage() {
                       cursor: "pointer",
                     }}
                   >
-                    Bon appetit
+                    {t.done}
                   </button>
                 )}
               </div>
@@ -175,7 +263,7 @@ export default function KitchenPage() {
                     </div>
                   ))
                 ) : (
-                  <div style={{ opacity: 0.75 }}>Aucun detail article</div>
+                  <div style={{ opacity: 0.75 }}>{t.noItems}</div>
                 )}
               </div>
             </div>

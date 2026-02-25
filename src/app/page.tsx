@@ -1,8 +1,16 @@
 "use client";
 
 import React from "react";
+import { getSavedLang, saveLang, translations, type Lang } from "@/lib/translations";
 
 export default function Home() {
+  const [lang, setLang] = React.useState<Lang>("de");
+  const t = translations[lang];
+
+  React.useEffect(() => {
+    setLang(getSavedLang());
+  }, []);
+
   return (
     <main
       style={{
@@ -34,6 +42,30 @@ export default function Home() {
       />
 
       <div style={{ position: "relative", zIndex: 2, maxWidth: 600 }}>
+        <div style={{ marginBottom: 14, display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+          {(["de", "fr", "en"] as Lang[]).map((L) => (
+            <button
+              key={L}
+              type="button"
+              onClick={() => {
+                setLang(L);
+                saveLang(L);
+              }}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 10,
+                border: "1px solid #111",
+                background: lang === L ? "#111" : "white",
+                color: lang === L ? "white" : "#111",
+                cursor: "pointer",
+                fontWeight: 800,
+              }}
+            >
+              {L.toUpperCase()}
+            </button>
+          ))}
+        </div>
+
         <h1
           style={{
             fontSize: 36,
@@ -42,7 +74,7 @@ export default function Home() {
             color: "#111",
           }}
         >
-          AfroFood Festival 2026
+          {t.home_title}
         </h1>
 
         <p
@@ -52,7 +84,7 @@ export default function Home() {
             marginBottom: 30,
           }}
         >
-          Commande digitale (DE - FR - EN)
+          {t.subtitle}
         </p>
 
         <div
@@ -78,7 +110,7 @@ export default function Home() {
               boxShadow: "0 14px 35px rgba(242,140,40,0.3)",
             }}
           >
-            Menu
+            {t.menu}
           </a>
           <a
             href="/staff"
@@ -94,7 +126,7 @@ export default function Home() {
               border: "1px solid #cbd5e1",
             }}
           >
-            Staff
+            {t.home_staff}
           </a>
         </div>
       </div>

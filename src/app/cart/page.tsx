@@ -29,8 +29,8 @@ const FALLBACK_PRICE_BY_NAME = new Map<string, number>([
   ["batbout mit bohnenfullung 2", 10],
 ]);
 
-function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Erreur inconnue";
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function mapRowToOrder(row: OrderRow): Order {
@@ -165,7 +165,7 @@ export default function CartPage() {
 
       const data = await res.json();
       if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || "Erreur API");
+        throw new Error(data?.error || t.cart_api_error_default);
       }
 
       const created = data.order as Order;
@@ -173,7 +173,7 @@ export default function CartPage() {
       setOrderStatus("PENDING_PAYMENT");
       localStorage.setItem(LAST_ORDER_KEY, created.id);
     } catch (err: unknown) {
-      setApiError(getErrorMessage(err));
+      setApiError(getErrorMessage(err, t.cart_unknown_error));
     } finally {
       setIsCreating(false);
     }
@@ -192,17 +192,17 @@ export default function CartPage() {
 
       const row = Array.isArray(data) && data.length > 0 ? (data[0] as OrderRow) : null;
       if (!row) {
-        throw new Error("Commande introuvable");
+        throw new Error(t.cart_not_found);
       }
 
       setOrder(mapRowToOrder(row));
       setOrderStatus(row.status);
     } catch (err: unknown) {
-      setApiError(getErrorMessage(err));
+      setApiError(getErrorMessage(err, t.cart_unknown_error));
     } finally {
       setIsCheckingStatus(false);
     }
-  }, [order?.id]);
+  }, [order?.id, t.cart_not_found, t.cart_unknown_error]);
 
   useEffect(() => {
     const lastOrderId = localStorage.getItem(LAST_ORDER_KEY);
@@ -337,7 +337,7 @@ export default function CartPage() {
                       +
                     </button>
                     <button type="button" className="af-btn" onClick={() => { removeItem(it.id); refreshCart(); }} style={{ marginLeft: 10, padding: "4px 10px", borderRadius: 8, border: "1px solid #000", background: "white", cursor: "pointer" }}>
-                      Suppr
+                      {t.cart_remove}
                     </button>
                   </div>
                 </div>
@@ -360,20 +360,20 @@ export default function CartPage() {
           </h2>
 
           <hr style={{ margin: "18px 0", border: "none", borderTop: "1px solid #eee" }} />
-          <h2 style={{ marginTop: 6 }}>Zahlung</h2>
+          <h2 style={{ marginTop: 6 }}>{t.cart_payment_title}</h2>
 
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-            <label style={{ display: "flex", gap: 10, alignItems: "center" }}><input type="radio" name="pay" checked={payment === "cash"} onChange={() => setPayment("cash")} />Barzahlung (Cash)</label>
-            <label style={{ display: "flex", gap: 10, alignItems: "center" }}><input type="radio" name="pay" checked={payment === "paypal"} onChange={() => setPayment("paypal")} />PayPal</label>
-            <label style={{ display: "flex", gap: 10, alignItems: "center" }}><input type="radio" name="pay" checked={payment === "card"} onChange={() => setPayment("card")} />EC/Kreditkarte (vor Ort)</label>
+            <label style={{ display: "flex", gap: 10, alignItems: "center" }}><input type="radio" name="pay" checked={payment === "cash"} onChange={() => setPayment("cash")} />{t.cart_payment_cash}</label>
+            <label style={{ display: "flex", gap: 10, alignItems: "center" }}><input type="radio" name="pay" checked={payment === "paypal"} onChange={() => setPayment("paypal")} />{t.cart_payment_paypal}</label>
+            <label style={{ display: "flex", gap: 10, alignItems: "center" }}><input type="radio" name="pay" checked={payment === "card"} onChange={() => setPayment("card")} />{t.cart_payment_card}</label>
           </div>
 
           <div style={{ marginTop: 12 }}>
-            <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>Name (optional)</label>
+            <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>{t.cart_name_label}</label>
             <input
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="z.B. Anaclet"
+              placeholder={t.cart_name_placeholder}
               style={{ width: "100%", padding: "10px 12px", borderRadius: 12, border: "1px solid #ddd" }}
             />
           </div>
@@ -384,7 +384,7 @@ export default function CartPage() {
                 className="af-btn"
                 href={
                   PAYPAL_EMAIL
-                    ? `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(PAYPAL_EMAIL)}&item_name=${encodeURIComponent("AfroFood Bestellung")}&currency_code=EUR&amount=${encodeURIComponent(total.toFixed(2))}`
+                    ? `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(PAYPAL_EMAIL)}&item_name=${encodeURIComponent(t.cart_paypal_item_name)}&currency_code=EUR&amount=${encodeURIComponent(total.toFixed(2))}`
                     : "#"
                 }
                 target="_blank"
@@ -393,22 +393,22 @@ export default function CartPage() {
                 onClick={(e) => {
                   if (!PAYPAL_EMAIL) {
                     e.preventDefault();
-                    alert("PayPal Email fehlt (ENV).");
+                    alert(t.cart_missing_paypal);
                   }
                 }}
               >
-                Ouvrir PayPal ({total.toFixed(2)} EUR)
+                {t.cart_open_paypal} ({total.toFixed(2)} EUR)
               </a>
             ) : null}
 
             <button className="af-btn" onClick={() => createOrderInDb(payment)} disabled={isCreating} style={confirmButtonStyle} type="button">
               {isCreating
-                ? "Enregistrement..."
+                ? t.cart_creating
                 : orderStatus === "NEW" || orderStatus === "READY"
-                ? "Commande validee"
+                ? t.cart_confirmed
                 : orderStatus === "PENDING_PAYMENT"
-                ? "En attente de validation caisse"
-                : "Bestellung bestatigen"}
+                ? t.cart_pending_cashier
+                : t.cart_confirm_action}
             </button>
 
             {order ? (
@@ -426,39 +426,39 @@ export default function CartPage() {
                   cursor: isCheckingStatus ? "not-allowed" : "pointer",
                 }}
               >
-                {isCheckingStatus ? "Verification..." : "Verifier validation caisse"}
+                {isCheckingStatus ? t.cart_checking : t.cart_check_status}
               </button>
             ) : null}
           </div>
 
           {orderStatus === "PENDING_PAYMENT" ? (
             <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: "1px solid #f59e0b", background: "#fff7ed", color: "#9a3412", fontWeight: 700 }}>
-              Commande en attente de validation caisse.
+              {t.cart_pending_message}
             </div>
           ) : null}
 
           {apiError ? (
             <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: "1px solid #f3b6b6", background: "#fff3f3", color: "#9c1f1f", fontWeight: 700 }}>
-              Erreur API: {apiError}
+              {t.cart_api_error}: {apiError}
             </div>
           ) : null}
 
           {payment === "card" ? (
             <div style={{ marginTop: 12, padding: 12, borderRadius: 12, border: "1px solid #eee", background: "white" }}>
-              <div style={{ fontWeight: 900, marginBottom: 6 }}>Hinweis</div>
+              <div style={{ fontWeight: 900, marginBottom: 6 }}>{t.cart_card_hint_title}</div>
               <div style={{ opacity: 0.9 }}>
-                Paiement carte au terminal sur place.
+                {t.cart_card_hint_text}
                 <br />
                 {BANK_IBAN ? (
                   <div style={{ marginTop: 8 }}>
-                    <b>Beneficiaire:</b> {PAYEE_NAME || "AfroFood"}
+                    <b>{t.cart_beneficiary}:</b> {PAYEE_NAME || "AfroFood"}
                     <br />
-                    <b>Bank:</b> {BANK_NAME || "-"}
+                    <b>{t.cart_bank}:</b> {BANK_NAME || "-"}
                     <br />
                     <b>IBAN:</b> {BANK_IBAN}
                   </div>
                 ) : (
-                  <div style={{ marginTop: 8, color: "#b00" }}>IBAN manquant (ENV).</div>
+                  <div style={{ marginTop: 8, color: "#b00" }}>{t.cart_missing_iban}</div>
                 )}
               </div>
             </div>
@@ -469,13 +469,13 @@ export default function CartPage() {
               <div className="af-ticket">
                 <div className="af-ticket-head">
                   <img className="af-ticket-logo" src="/logo-afrofood.png" alt="AfroFood" />
-                  <div className="af-ticket-title">Ticket Client</div>
-                  <div className="af-ticket-sub">Paiement valide en caisse</div>
+                  <div className="af-ticket-title">{t.cart_ticket_title}</div>
+                  <div className="af-ticket-sub">{t.cart_ticket_paid}</div>
                 </div>
 
                 <div className="af-ticket-meta">
-                  <div><b>Commande:</b> {order.id}</div>
-                  <div><b>Nom:</b> {order.customerName || "-"}</div>
+                  <div><b>{t.cart_ticket_order}:</b> {order.id}</div>
+                  <div><b>{t.cart_ticket_name}:</b> {order.customerName || "-"}</div>
                 </div>
 
                 <div className="af-ticket-items">
@@ -497,10 +497,10 @@ export default function CartPage() {
 
                 <div className="af-ticket-qr">
                   <QRCodeCanvas value={makeQrPayload(order)} size={72} />
-                  <div className="af-ticket-qrtext">Commande envoyee en cuisine</div>
+                  <div className="af-ticket-qrtext">{t.cart_ticket_sent}</div>
                 </div>
 
-                <div className="af-ticket-foot">Merci et bon appetit</div>
+                <div className="af-ticket-foot">{t.cart_ticket_thanks}</div>
               </div>
 
               <button
@@ -508,7 +508,7 @@ export default function CartPage() {
                 style={{ padding: "10px 12px", borderRadius: 12, border: "1px solid #111", background: "#111", color: "white", fontWeight: 900, cursor: "pointer" }}
                 type="button"
               >
-                Imprimer ticket
+                {t.cart_print}
               </button>
             </div>
           ) : null}

@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { addToCart, getCart } from "@/lib/cart";
-import { translations, type Lang } from "@/lib/translations";
+import { getSavedLang, saveLang, translations, type Lang } from "@/lib/translations";
 
 const BRAND = {
   orange: "#F28C28",
@@ -291,13 +291,12 @@ export default function MenuPage() {
   const [lang, setLang] = React.useState<Lang>("de");
 
   React.useEffect(() => {
-    const saved = (localStorage.getItem("af_lang") as Lang) || "de";
-    setLang(saved);
+    setLang(getSavedLang());
   }, []);
 
   function setLanguage(next: Lang) {
     setLang(next);
-    localStorage.setItem("af_lang", next);
+    saveLang(next);
   }
 
   const t = translations[lang];
@@ -365,7 +364,7 @@ export default function MenuPage() {
 
         {/* legende */}
         <p style={{ marginTop: 10 }}>
-          <b>{t.legend ?? "Legende"}:</b> (1) Enthalt Gluten - (2) Enthalt Sellerie
+          <b>{t.legend}:</b> {t.legend_details}
         </p>
 
         {/* sections */}

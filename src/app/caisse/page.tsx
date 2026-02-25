@@ -5,10 +5,128 @@ import type { OrderRow } from "@/lib/schema";
 import { QRCodeCanvas } from "qrcode.react";
 import { makeQrPayload } from "@/lib/order";
 import { subscribeOrderSync } from "@/lib/order-sync";
+import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 
 const PIN_CODE = "1955";
 
 type CaisseCard = OrderRow & { isJustValidated?: boolean };
+
+const UI_TEXT: Record<
+  Lang,
+  {
+    unknownError: string;
+    validatePaymentError: string;
+    lockTitle: string;
+    lockSubtitle: string;
+    pinPlaceholder: string;
+    pinWrong: string;
+    validate: string;
+    title: string;
+    subtitle: string;
+    refreshing: string;
+    refreshed: string;
+    refresh: string;
+    loading: string;
+    noOrders: string;
+    name: string;
+    payment: string;
+    validating: string;
+    validatePayment: string;
+    validated: string;
+    total: string;
+    ticketTitle: string;
+    ticketSub: string;
+    order: string;
+    ticketSent: string;
+    thanks: string;
+    reprint: string;
+  }
+> = {
+  de: {
+    unknownError: "Unbekannter Fehler",
+    validatePaymentError: "Fehler bei der Zahlungsfreigabe",
+    lockTitle: "Geschutzte Kasse",
+    lockSubtitle: "4-stelligen Code eingeben",
+    pinPlaceholder: "PIN Code",
+    pinWrong: "Falscher Code",
+    validate: "Bestatigen",
+    title: "Kasse - Zahlungsfreigabe",
+    subtitle: "Manuelle Freigabe und Weiterleitung an die Kuche",
+    refreshing: "Aktualisierung...",
+    refreshed: "Aktualisiert",
+    refresh: "Aktualisieren",
+    loading: "Laden...",
+    noOrders: "Keine Bestellung.",
+    name: "Name",
+    payment: "Zahlung",
+    validating: "Validierung...",
+    validatePayment: "Zahlung validieren",
+    validated: "Validiert",
+    total: "Gesamt",
+    ticketTitle: "Kundenbeleg",
+    ticketSub: "Ausgestellt nach Zahlungsfreigabe",
+    order: "Bestellung",
+    ticketSent: "Bestellung an die Kuche gesendet",
+    thanks: "Danke und guten Appetit",
+    reprint: "Beleg erneut drucken",
+  },
+  fr: {
+    unknownError: "Erreur inconnue",
+    validatePaymentError: "Erreur pendant la validation du paiement",
+    lockTitle: "Caisse securisee",
+    lockSubtitle: "Entrer le code a 4 chiffres",
+    pinPlaceholder: "Code PIN",
+    pinWrong: "Code incorrect",
+    validate: "Valider",
+    title: "Caisse - Validation Paiement",
+    subtitle: "Validation manuelle puis envoi cuisine",
+    refreshing: "Actualisation...",
+    refreshed: "Actualise",
+    refresh: "Actualiser",
+    loading: "Chargement...",
+    noOrders: "Aucune commande.",
+    name: "Nom",
+    payment: "Paiement",
+    validating: "Validation...",
+    validatePayment: "Valider paiement",
+    validated: "Validee",
+    total: "Total",
+    ticketTitle: "Ticket Client",
+    ticketSub: "Emis apres validation paiement",
+    order: "Commande",
+    ticketSent: "Commande envoyee en cuisine",
+    thanks: "Merci et bon appetit",
+    reprint: "Reimprimer ticket",
+  },
+  en: {
+    unknownError: "Unknown error",
+    validatePaymentError: "Error while validating payment",
+    lockTitle: "Secured cashier",
+    lockSubtitle: "Enter the 4-digit code",
+    pinPlaceholder: "PIN code",
+    pinWrong: "Incorrect code",
+    validate: "Validate",
+    title: "Cashier - Payment Validation",
+    subtitle: "Manual validation then send to kitchen",
+    refreshing: "Refreshing...",
+    refreshed: "Refreshed",
+    refresh: "Refresh",
+    loading: "Loading...",
+    noOrders: "No orders.",
+    name: "Name",
+    payment: "Payment",
+    validating: "Validating...",
+    validatePayment: "Validate payment",
+    validated: "Validated",
+    total: "Total",
+    ticketTitle: "Customer ticket",
+    ticketSub: "Issued after payment validation",
+    order: "Order",
+    ticketSent: "Order sent to kitchen",
+    thanks: "Thanks and enjoy your meal",
+    reprint: "Reprint ticket",
+  },
+};
 
 const FALLBACK_PRICE_BY_NAME = new Map<string, number>([
   ["ingwersaft", 5],
@@ -95,6 +213,7 @@ function isTodayOrder(order: OrderRow, todayKey: string) {
 }
 
 export default function CaissePage() {
+  const [lang, setLang] = useState<Lang>("de");
   const [pin, setPin] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
@@ -107,9 +226,7 @@ export default function CaissePage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [ticketOrder, setTicketOrder] = useState<OrderRow | null>(null);
 
-  function getErrorMessage(error: unknown) {
-    return error instanceof Error ? error.message : "Erreur inconnue";
-  }
+  const t = UI_TEXT[lang];
 
   const sortedOrders = useMemo(() => {
     return [...orders].sort((a, b) => {
@@ -155,14 +272,15 @@ export default function CaissePage() {
       setJustRefreshed(true);
       window.setTimeout(() => setJustRefreshed(false), 1200);
     } catch (e: unknown) {
-      setActionError(getErrorMessage(e));
+      setActionError(e instanceof Error ? e.message : t.unknownError);
     } finally {
       setIsRefreshing(false);
       setLoading(false);
     }
-  }, []);
+  }, [t.unknownError]);
 
   useEffect(() => {
+    setLang(getSavedLang());
     if (isUnlocked) {
       refresh();
     }
@@ -194,7 +312,7 @@ export default function CaissePage() {
 
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || "Erreur pendant la validation du paiement");
+        throw new Error(data?.error || t.validatePaymentError);
       }
 
       setTicketOrder(order);
@@ -212,7 +330,7 @@ export default function CaissePage() {
         refresh();
       }, 900);
     } catch (e: unknown) {
-      setActionError(getErrorMessage(e));
+      setActionError(e instanceof Error ? e.message : t.unknownError);
     } finally {
       setValidatingId(null);
     }
@@ -237,13 +355,36 @@ export default function CaissePage() {
         }}
       >
         <div style={{ width: "100%", maxWidth: 360, background: "rgba(17,24,39,0.85)", border: "1px solid #334155", borderRadius: 14, padding: 16 }}>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900 }}>Caisse securisee</h1>
-          <p style={{ marginTop: 8, opacity: 0.8 }}>Entrer le code a 4 chiffres</p>
+          <div style={{ display: "flex", gap: 8 }}>
+            {(["de", "fr", "en"] as Lang[]).map((L) => (
+              <button
+                key={L}
+                type="button"
+                onClick={() => {
+                  setLang(L);
+                  saveLang(L);
+                }}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 10,
+                  border: "1px solid #475569",
+                  background: lang === L ? "#111" : "white",
+                  color: lang === L ? "white" : "#111",
+                  cursor: "pointer",
+                  fontWeight: 800,
+                }}
+              >
+                {L.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <h1 style={{ margin: "10px 0 0 0", fontSize: 24, fontWeight: 900 }}>{t.lockTitle}</h1>
+          <p style={{ marginTop: 8, opacity: 0.8 }}>{t.lockSubtitle}</p>
           <input
             value={pin}
             onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
             inputMode="numeric"
-            placeholder="Code PIN"
+            placeholder={t.pinPlaceholder}
             style={{ marginTop: 10, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #475569", background: "#0f172a", color: "white" }}
           />
           {pinError ? <div style={{ marginTop: 8, color: "#fca5a5", fontWeight: 700 }}>{pinError}</div> : null}
@@ -254,12 +395,12 @@ export default function CaissePage() {
                 setPinError(null);
                 setIsUnlocked(true);
               } else {
-                setPinError("Code incorrect");
+                setPinError(t.pinWrong);
               }
             }}
             style={{ marginTop: 10, width: "100%", padding: "10px 14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#ff7a00,#ff3c00)", color: "white", fontWeight: 900, cursor: "pointer" }}
           >
-            Valider
+            {t.validate}
           </button>
         </div>
       </main>
@@ -281,8 +422,8 @@ export default function CaissePage() {
         color: "#111",
       }}
     >
-      <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>Caisse - Validation Paiement</h1>
-      <p style={{ opacity: 0.75 }}>Validation manuelle puis envoi cuisine</p>
+      <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>{t.title}</h1>
+      <p style={{ opacity: 0.75 }}>{t.subtitle}</p>
 
       <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
         <button
@@ -303,13 +444,13 @@ export default function CaissePage() {
             opacity: isRefreshing ? 0.85 : 1,
           }}
         >
-          {isRefreshing ? "Actualisation..." : justRefreshed ? "Actualise" : "Actualiser"}
+          {isRefreshing ? t.refreshing : justRefreshed ? t.refreshed : t.refresh}
         </button>
       </div>
 
-      {loading ? <p style={{ marginTop: 12 }}>Chargement...</p> : null}
+      {loading ? <p style={{ marginTop: 12 }}>{t.loading}</p> : null}
       {actionError ? <p style={{ marginTop: 8, color: "#fecaca", fontWeight: 700 }}>Erreur: {actionError}</p> : null}
-      {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>Aucune commande.</p> : null}
+      {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>{t.noOrders}</p> : null}
 
       <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
         {sortedOrders.map((o) => {
@@ -330,8 +471,8 @@ export default function CaissePage() {
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 900 }}>{o.id}</div>
                   <div style={{ opacity: 0.9, marginTop: 2 }}>
-                    {o.customer_name ? `Nom: ${o.customer_name} - ` : ""}
-                    Paiement: {o.payment}
+                    {o.customer_name ? `${t.name}: ${o.customer_name} - ` : ""}
+                    {t.payment}: {o.payment}
                   </div>
                 </div>
 
@@ -353,7 +494,7 @@ export default function CaissePage() {
                       opacity: validatingId === o.id ? 0.8 : 1,
                     }}
                   >
-                    {validatingId === o.id ? "Validation..." : "Valider paiement"}
+                    {validatingId === o.id ? t.validating : t.validatePayment}
                   </button>
                 ) : (
                   <div
@@ -365,7 +506,7 @@ export default function CaissePage() {
                       fontWeight: 900,
                     }}
                   >
-                    Validee
+                    {t.validated}
                   </div>
                 )}
               </div>
@@ -393,7 +534,7 @@ export default function CaissePage() {
                     fontSize: 18,
                   }}
                 >
-                  <span>Total</span>
+                  <span>{t.total}</span>
                   <span>{formatEur(breakdown.total)}</span>
                 </div>
               </div>
@@ -407,19 +548,19 @@ export default function CaissePage() {
           <div className="af-ticket">
             <div className="af-ticket-head">
               <img className="af-ticket-logo" src="/logo-afrofood.png" alt="AfroFood" />
-              <div className="af-ticket-title">Ticket Client</div>
-              <div className="af-ticket-sub">Emis apres validation paiement</div>
+              <div className="af-ticket-title">{t.ticketTitle}</div>
+              <div className="af-ticket-sub">{t.ticketSub}</div>
             </div>
 
             <div className="af-ticket-meta">
               <div>
-                <b>Commande:</b> {ticketOrder.id}
+                <b>{t.order}:</b> {ticketOrder.id}
               </div>
               <div>
-                <b>Nom:</b> {ticketOrder.customer_name || "-"}
+                <b>{t.name}:</b> {ticketOrder.customer_name || "-"}
               </div>
               <div>
-                <b>Paiement:</b> {ticketOrder.payment}
+                <b>{t.payment}:</b> {ticketOrder.payment}
               </div>
             </div>
 
@@ -436,7 +577,7 @@ export default function CaissePage() {
 
             <div className="af-ticket-meta">
               <div>
-                <b>Total:</b> {ticketBreakdown.total.toFixed(2)} EUR
+                <b>{t.total}:</b> {ticketBreakdown.total.toFixed(2)} EUR
               </div>
             </div>
 
@@ -451,10 +592,10 @@ export default function CaissePage() {
                 })}
                 size={72}
               />
-              <div className="af-ticket-qrtext">Commande envoyee en cuisine</div>
+              <div className="af-ticket-qrtext">{t.ticketSent}</div>
             </div>
 
-            <div className="af-ticket-foot">Merci et bon appetit</div>
+            <div className="af-ticket-foot">{t.thanks}</div>
           </div>
 
           <button
@@ -471,7 +612,7 @@ export default function CaissePage() {
               cursor: "pointer",
             }}
           >
-            Reimprimer ticket
+            {t.reprint}
           </button>
         </div>
       ) : null}
