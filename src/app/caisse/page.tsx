@@ -233,6 +233,7 @@ function isTodayOrder(order: OrderRow, todayKey: string) {
 }
 
 export default function CaissePage() {
+  const showStripeDebug = process.env.NODE_ENV !== "production";
   const [lang, setLang] = useState<Lang>("de");
   const [pin, setPin] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -565,10 +566,14 @@ export default function CaissePage() {
                               fontWeight: 700,
                             }}
                           >
-                            {t.tapToPayReady}: {tapToPayInfo[o.id].paymentIntentId}
-                            <br />
-                            {t.tapToPayStatus}: {tapToPayInfo[o.id].status}
-                            <br />
+                            {showStripeDebug ? (
+                              <>
+                                {t.tapToPayReady}: {tapToPayInfo[o.id].paymentIntentId}
+                                <br />
+                                {t.tapToPayStatus}: {tapToPayInfo[o.id].status}
+                                <br />
+                              </>
+                            ) : null}
                             {t.waitStripeValidation}
                           </div>
                         ) : null}
