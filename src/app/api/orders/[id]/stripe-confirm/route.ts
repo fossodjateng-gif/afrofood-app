@@ -67,6 +67,22 @@ export async function PATCH(
       );
     }
 
+    const existingPiRows = await sql`
+      SELECT id
+      FROM orders
+      WHERE stripe_payment_intent_id = ${piId}
+      LIMIT 1
+    `;
+    if (existingPiRows && existingPiRows.length > 0) {
+      const linkedOrderId = String((existingPiRows[0] as { id: string }).id || "");
+      if (linkedOrderId && linkedOrderId !== orderId) {
+        return NextResponse.json(
+          { ok: false, error: `PaymentIntent already linked to order ${linkedOrderId}` },
+          { status: 400 }
+        );
+      }
+    }
+
     const pi = await stripeGet<StripePaymentIntent>(`/payment_intents/${encodeURIComponent(piId)}`);
     if (String(pi.status || "") !== "succeeded") {
       return NextResponse.json(
@@ -138,4 +154,3 @@ export async function PATCH(
     return NextResponse.json({ ok: false, error }, { status: 500 });
   }
 }
-
