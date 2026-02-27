@@ -259,11 +259,17 @@ export default function CaissePage() {
   const [startingTapToPayId, setStartingTapToPayId] = useState<string | null>(null);
   const [confirmingPiId, setConfirmingPiId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionLogs, setActionLogs] = useState<string[]>([]);
   const [ticketOrder, setTicketOrder] = useState<OrderRow | null>(null);
   const [tapToPayInfo, setTapToPayInfo] = useState<Record<string, { paymentIntentId: string; status: string }>>({});
   const [piByOrder, setPiByOrder] = useState<Record<string, string>>({});
 
   const t = UI_TEXT[lang];
+
+  function pushLog(message: string) {
+    const ts = new Date().toLocaleTimeString();
+    setActionLogs((prev) => [`${ts} ${message}`, ...prev].slice(0, 12));
+  }
 
   const sortedOrders = useMemo(() => {
     return [...orders].sort((a, b) => {
@@ -338,6 +344,7 @@ export default function CaissePage() {
 
   async function markPaymentValidated(order: OrderRow) {
     try {
+      pushLog(`Validation manuelle demarree pour ${order.id}`);
       setActionError(null);
       setValidatingId(order.id);
 
@@ -353,6 +360,7 @@ export default function CaissePage() {
       }
 
       setTicketOrder(order);
+      pushLog(`Validation manuelle OK pour ${order.id} -> NEW`);
       setOrders((prev) =>
         prev.map((it) =>
           it.id === order.id ? { ...it, status: "NEW", isJustValidated: true } : it
@@ -367,6 +375,7 @@ export default function CaissePage() {
         refresh();
       }, 900);
     } catch (e: unknown) {
+      pushLog(`Validation manuelle KO pour ${order.id}`);
       setActionError(e instanceof Error ? e.message : t.unknownError);
     } finally {
       setValidatingId(null);
@@ -375,6 +384,7 @@ export default function CaissePage() {
 
   async function initTapToPay(order: OrderRow) {
     try {
+      pushLog(`Creation PaymentIntent demarree pour ${order.id}`);
       setActionError(null);
       setStartingTapToPayId(order.id);
 
@@ -401,8 +411,11 @@ export default function CaissePage() {
         [order.id]: String(data.paymentIntentId || ""),
       }));
 
+      pushLog(`PaymentIntent cree pour ${order.id}: ${String(data.paymentIntentId || "-")}`);
+
       refresh();
     } catch (e: unknown) {
+      pushLog(`Creation PaymentIntent KO pour ${order.id}`);
       setActionError(e instanceof Error ? e.message : t.unknownError);
     } finally {
       setStartingTapToPayId(null);
@@ -415,6 +428,9 @@ export default function CaissePage() {
       setConfirmingPiId(order.id);
 
       const paymentIntentId = String(piByOrder[order.id] || "").trim();
+      pushLog(
+        `Confirmation PI demarree pour ${order.id}${paymentIntentId ? ` (${paymentIntentId})` : ""}`
+      );
       const res = await fetch(`/api/orders/${order.id}/stripe-confirm`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -432,6 +448,7 @@ export default function CaissePage() {
         ...order,
         status: "NEW",
       });
+      pushLog(`Confirmation PI OK pour ${order.id} -> NEW`);
       setOrders((prev) =>
         prev.map((it) =>
           it.id === order.id ? { ...it, status: "NEW", isJustValidated: true } : it
@@ -446,6 +463,7 @@ export default function CaissePage() {
         refresh();
       }, 900);
     } catch (e: unknown) {
+      pushLog(`Confirmation PI KO pour ${order.id}`);
       setActionError(e instanceof Error ? e.message : t.unknownError);
     } finally {
       setConfirmingPiId(null);
@@ -567,6 +585,26 @@ export default function CaissePage() {
       {loading ? <p style={{ marginTop: 12 }}>{t.loading}</p> : null}
       {actionError ? <p style={{ marginTop: 8, color: "#fecaca", fontWeight: 700 }}>Erreur: {actionError}</p> : null}
       {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>{t.noOrders}</p> : null}
+      <div
+        style={{
+          marginTop: 12,
+          padding: 10,
+          borderRadius: 12,
+          border: "1px solid #cbd5e1",
+          background: "rgba(255,255,255,0.9)",
+        }}
+      >
+        <div style={{ fontWeight: 900, marginBottom: 6 }}>Journal actions caisse</div>
+        {actionLogs.length === 0 ? (
+          <div style={{ opacity: 0.7 }}>Aucune action recente.</div>
+        ) : (
+          actionLogs.map((line, idx) => (
+            <div key={`${line}-${idx}`} style={{ fontSize: 13, opacity: 0.9, padding: "2px 0" }}>
+              {line}
+            </div>
+          ))
+        )}
+      </div>
 
       <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
         {sortedOrders.map((o) => {
