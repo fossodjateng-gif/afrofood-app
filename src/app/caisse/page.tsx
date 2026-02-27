@@ -7,7 +7,7 @@ import { makeQrPayload } from "@/lib/order";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 
-const PIN_CODE = "1955";
+const CASHIER_PIN = process.env.NEXT_PUBLIC_CAISSE_PIN || "1955";
 
 type CaisseCard = OrderRow & { isJustValidated?: boolean };
 
@@ -37,6 +37,9 @@ const UI_TEXT: Record<
     tapToPayReady: string;
     tapToPayStatus: string;
     waitStripeValidation: string;
+    piPlaceholder: string;
+    confirmPi: string;
+    confirmingPi: string;
     validated: string;
     total: string;
     ticketTitle: string;
@@ -71,6 +74,9 @@ const UI_TEXT: Record<
     tapToPayReady: "PaymentIntent erstellt",
     tapToPayStatus: "Stripe Status",
     waitStripeValidation: "Warten auf Stripe Webhook (payment_intent.succeeded)...",
+    piPlaceholder: "PaymentIntent ID (pi_...)",
+    confirmPi: "Kartenzahlung per PI bestaetigen",
+    confirmingPi: "PI wird gepruft...",
     validated: "Validiert",
     total: "Gesamt",
     ticketTitle: "Kundenbeleg",
@@ -104,6 +110,9 @@ const UI_TEXT: Record<
     tapToPayReady: "PaymentIntent cree",
     tapToPayStatus: "Statut Stripe",
     waitStripeValidation: "En attente du webhook Stripe (payment_intent.succeeded)...",
+    piPlaceholder: "PaymentIntent ID (pi_...)",
+    confirmPi: "Confirmer paiement carte via PI",
+    confirmingPi: "Verification PI...",
     validated: "Validee",
     total: "Total",
     ticketTitle: "Ticket Client",
@@ -137,6 +146,9 @@ const UI_TEXT: Record<
     tapToPayReady: "PaymentIntent created",
     tapToPayStatus: "Stripe status",
     waitStripeValidation: "Waiting for Stripe webhook (payment_intent.succeeded)...",
+    piPlaceholder: "PaymentIntent ID (pi_...)",
+    confirmPi: "Confirm card payment via PI",
+    confirmingPi: "Checking PI...",
     validated: "Validated",
     total: "Total",
     ticketTitle: "Customer ticket",
@@ -245,9 +257,11 @@ export default function CaissePage() {
   const [justRefreshed, setJustRefreshed] = useState(false);
   const [validatingId, setValidatingId] = useState<string | null>(null);
   const [startingTapToPayId, setStartingTapToPayId] = useState<string | null>(null);
+  const [confirmingPiId, setConfirmingPiId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [ticketOrder, setTicketOrder] = useState<OrderRow | null>(null);
   const [tapToPayInfo, setTapToPayInfo] = useState<Record<string, { paymentIntentId: string; status: string }>>({});
+  const [piByOrder, setPiByOrder] = useState<Record<string, string>>({});
 
   const t = UI_TEXT[lang];
 
@@ -382,12 +396,59 @@ export default function CaissePage() {
           status: String(data.status || ""),
         },
       }));
+      setPiByOrder((prev) => ({
+        ...prev,
+        [order.id]: String(data.paymentIntentId || ""),
+      }));
 
       refresh();
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : t.unknownError);
     } finally {
       setStartingTapToPayId(null);
+    }
+  }
+
+  async function confirmCardByPaymentIntent(order: OrderRow) {
+    try {
+      setActionError(null);
+      setConfirmingPiId(order.id);
+
+      const paymentIntentId = String(piByOrder[order.id] || "").trim();
+      const res = await fetch(`/api/orders/${order.id}/stripe-confirm`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          paymentIntentId ? { paymentIntentId } : {}
+        ),
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || t.validatePaymentError);
+      }
+
+      setTicketOrder({
+        ...order,
+        status: "NEW",
+      });
+      setOrders((prev) =>
+        prev.map((it) =>
+          it.id === order.id ? { ...it, status: "NEW", isJustValidated: true } : it
+        )
+      );
+
+      window.setTimeout(() => {
+        window.print();
+      }, 150);
+
+      window.setTimeout(() => {
+        refresh();
+      }, 900);
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : t.unknownError);
+    } finally {
+      setConfirmingPiId(null);
     }
   }
 
@@ -446,7 +507,7 @@ export default function CaissePage() {
           <button
             type="button"
             onClick={() => {
-              if (pin === PIN_CODE) {
+              if (pin === CASHIER_PIN) {
                 setPinError(null);
                 setIsUnlocked(true);
               } else {
@@ -577,6 +638,49 @@ export default function CaissePage() {
                             {t.waitStripeValidation}
                           </div>
                         ) : null}
+
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <input
+                            value={piByOrder[o.id] || ""}
+                            onChange={(e) =>
+                              setPiByOrder((prev) => ({
+                                ...prev,
+                                [o.id]: e.target.value,
+                              }))
+                            }
+                            placeholder={t.piPlaceholder}
+                            style={{
+                              width: 320,
+                              maxWidth: "100%",
+                              padding: "8px 10px",
+                              borderRadius: 10,
+                              border: "1px solid #93c5fd",
+                              background: "white",
+                              color: "#111",
+                              fontWeight: 700,
+                            }}
+                          />
+                          <button
+                            onClick={() => confirmCardByPaymentIntent(o)}
+                            disabled={confirmingPiId === o.id}
+                            type="button"
+                            style={{
+                              padding: "10px 14px",
+                              borderRadius: 12,
+                              border: "none",
+                              background:
+                                confirmingPiId === o.id
+                                  ? "linear-gradient(135deg,#f59e0b,#d97706)"
+                                  : "linear-gradient(135deg,#08a045,#0d8f3f)",
+                              color: "white",
+                              fontWeight: 900,
+                              cursor: confirmingPiId === o.id ? "not-allowed" : "pointer",
+                              opacity: confirmingPiId === o.id ? 0.8 : 1,
+                            }}
+                          >
+                            {confirmingPiId === o.id ? t.confirmingPi : t.confirmPi}
+                          </button>
+                        </div>
                       </>
                     ) : (
                       <button

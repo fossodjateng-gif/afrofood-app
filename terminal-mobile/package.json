@@ -1,0 +1,23 @@
+{
+  "name": "afrofood-terminal-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "android": "expo run:android"
+  },
+  "dependencies": {
+    "@stripe/stripe-terminal-react-native": "^0.0.1-beta.28",
+    "expo": "~53.0.0",
+    "expo-dev-client": "~5.0.0",
+    "react": "19.0.0",
+    "react-native": "0.79.5"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.7",
+    "typescript": "^5.8.2"
+  }
+}
+

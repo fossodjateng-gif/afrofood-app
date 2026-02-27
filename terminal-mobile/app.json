@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "AfroFood Terminal",
+    "slug": "afrofood-terminal",
+    "version": "1.0.0",
+    "scheme": "afrofoodterminal",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.afrofood.terminal",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.afrofood.terminal"
+    },
+    "plugins": [
+      [
+        "@stripe/stripe-terminal-react-native",
+        {
+          "bluetoothBackgroundMode": false
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c1b8345e-f6a1-4a35-86e4-82fe229c47fc"
+      }
+    },
+    "owner": "anfo"
+  }
+}

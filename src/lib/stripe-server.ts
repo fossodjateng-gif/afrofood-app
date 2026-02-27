@@ -40,3 +40,26 @@ export async function stripePost<T = unknown>(
 
   return json;
 }
+
+export async function stripeGet<T = unknown>(path: string) {
+  const res = await fetch(`https://api.stripe.com/v1${path}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${getStripeSecretKey()}`,
+    },
+    cache: "no-store",
+  });
+
+  const json = (await res.json().catch(() => null)) as (T & {
+    error?: { message?: string };
+  }) | null;
+  if (!res.ok || !json) {
+    const message =
+      typeof json?.error?.message === "string"
+        ? json.error.message
+        : `Stripe API error (${res.status})`;
+    throw new Error(message);
+  }
+
+  return json;
+}
