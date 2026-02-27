@@ -16,6 +16,15 @@ type StripeEvent = {
   };
 };
 
+function ignored(reason: string, diagnostic?: Record<string, string | null>) {
+  return NextResponse.json({
+    ok: true,
+    ignored: true,
+    reason,
+    diagnostic: diagnostic || {},
+  });
+}
+
 function verifyStripeSignature(payload: string, signatureHeader: string, secret: string) {
   const parts = signatureHeader.split(",").map((p) => p.trim());
   const t = parts.find((p) => p.startsWith("t="))?.slice(2);
@@ -59,7 +68,10 @@ export async function POST(req: Request) {
 
     const event = JSON.parse(payload) as StripeEvent;
     if (event.type !== "payment_intent.succeeded") {
-      return NextResponse.json({ ok: true, ignored: true });
+      return ignored("unsupported_event_type", {
+        eventId: String(event.id || "") || null,
+        eventType: String(event.type || "") || null,
+      });
     }
 
     const obj = event.data?.object || {};
@@ -68,7 +80,16 @@ export async function POST(req: Request) {
     const orderId = metadataOrderId || (piId ? await findOrderIdFromPaymentIntent(piId) : null);
 
     if (!orderId) {
-      return NextResponse.json({ ok: true, ignored: true, reason: "order_not_found" });
+      const reason = metadataOrderId
+        ? "metadata_order_not_found"
+        : piId
+        ? "payment_intent_not_linked"
+        : "missing_payment_intent_id";
+      return ignored(reason, {
+        eventId: String(event.id || "") || null,
+        paymentIntentId: piId || null,
+        metadataOrderId: metadataOrderId || null,
+      });
     }
 
     const beforeRows = await sql`
@@ -78,7 +99,11 @@ export async function POST(req: Request) {
       LIMIT 1
     `;
     if (!beforeRows || beforeRows.length === 0) {
-      return NextResponse.json({ ok: true, ignored: true, reason: "missing_order" });
+      return ignored("missing_order", {
+        eventId: String(event.id || "") || null,
+        paymentIntentId: piId || null,
+        orderId,
+      });
     }
     const previousStatus = String((beforeRows[0] as { status?: string }).status || "");
 

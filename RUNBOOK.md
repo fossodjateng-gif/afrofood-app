@@ -45,6 +45,20 @@ Use `/caisse` fallback for card orders:
 - Resend event from Stripe dashboard.
 - Re-check response status and body.
 
+### D) Stripe CLI quick test (sandbox)
+
+1. Login:
+   - `stripe login`
+2. Trigger a success event:
+   - `stripe trigger payment_intent.succeeded`
+3. Trigger with an explicit order metadata (if needed):
+   - `stripe trigger payment_intent.succeeded --override payment_intent:metadata.order_id=20260227-001`
+4. Verify:
+   - Stripe event exists
+   - webhook delivery is `200`
+   - app response reason is not `ignored`
+   - order transitions `PENDING_PAYMENT -> NEW`
+
 ### C) Tap to Pay button creates PI only
 
 - Expected if terminal collection is not integrated on the same device.
@@ -63,4 +77,3 @@ Use `/caisse` fallback for card orders:
 - `NEW`: paid and sent to kitchen
 - `READY`: order ready for pickup
 - `DONE`: completed
-
