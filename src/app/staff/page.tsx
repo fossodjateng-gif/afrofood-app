@@ -121,6 +121,8 @@ export default function StaffPage() {
           <input
             value={password}
             onChange={(e) => setPassword(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
+            type="password"
+            autoComplete="off"
             inputMode="numeric"
             placeholder={t.passwordPlaceholder}
             style={{

@@ -517,6 +517,8 @@ export default function CaissePage() {
           <input
             value={pin}
             onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
+            type="password"
+            autoComplete="off"
             inputMode="numeric"
             placeholder={t.pinPlaceholder}
             style={{ marginTop: 10, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #475569", background: "#0f172a", color: "white" }}
