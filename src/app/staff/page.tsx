@@ -17,6 +17,7 @@ const UI_TEXT: Record<
     cashier: string;
     kitchen: string;
     readyOrders: string;
+    adminMenu: string;
   }
 > = {
   de: {
@@ -30,6 +31,7 @@ const UI_TEXT: Record<
     cashier: "Kasse",
     kitchen: "Kuche",
     readyOrders: "Fertige Bestellungen",
+    adminMenu: "Admin Menu",
   },
   fr: {
     secureTitle: "Staff securise",
@@ -42,6 +44,7 @@ const UI_TEXT: Record<
     cashier: "Caisse",
     kitchen: "Cuisine",
     readyOrders: "Commandes pretes",
+    adminMenu: "Admin Menu",
   },
   en: {
     secureTitle: "Secured staff access",
@@ -54,6 +57,7 @@ const UI_TEXT: Record<
     cashier: "Cashier",
     kitchen: "Kitchen",
     readyOrders: "Ready orders",
+    adminMenu: "Admin menu",
   },
 };
 
@@ -228,6 +232,20 @@ export default function StaffPage() {
             }}
           >
             {t.readyOrders}
+          </a>
+          <a
+            href="/admin/menu"
+            style={{
+              padding: "14px 24px",
+              borderRadius: 12,
+              color: "white",
+              textDecoration: "none",
+              fontWeight: 900,
+              background: "linear-gradient(135deg,#111827,#1f2937)",
+              boxShadow: "0 12px 26px rgba(17,24,39,0.25)",
+            }}
+          >
+            {t.adminMenu}
           </a>
         </div>
       </div>
