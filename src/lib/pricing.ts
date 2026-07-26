@@ -50,7 +50,7 @@ export function calculateOrderTotalCents(items: PricedItem[]) {
 
     if (isDipItem(item)) {
       const paidQty = Math.max(0, dipQtySoFar + qty - 1) - Math.max(0, dipQtySoFar - 1);
-      totalEur += paidQty * 1;
+      totalEur += paidQty * unitPrice(item);
       dipQtySoFar += qty;
       continue;
     }

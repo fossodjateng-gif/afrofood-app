@@ -1,15 +1,19 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { OrderRow } from "@/lib/schema";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
+import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
+import { goBackOr } from "@/lib/client-nav";
 
 const UI_TEXT: Record<
   Lang,
   {
     title: string;
     subtitle: string;
+    back: string;
     refreshing: string;
     refreshed: string;
     refresh: string;
@@ -22,6 +26,7 @@ const UI_TEXT: Record<
   de: {
     title: "Bestellungen",
     subtitle: "Live-Status der laufenden Bestellungen",
+    back: "Zuruck",
     refreshing: "Aktualisierung...",
     refreshed: "Aktualisiert",
     refresh: "Aktualisieren",
@@ -33,6 +38,7 @@ const UI_TEXT: Record<
   fr: {
     title: "Commande",
     subtitle: "Suivi des commandes en cours",
+    back: "Retour",
     refreshing: "Actualisation...",
     refreshed: "Actualise",
     refresh: "Actualiser",
@@ -44,6 +50,7 @@ const UI_TEXT: Record<
   en: {
     title: "Orders",
     subtitle: "Live order tracking",
+    back: "Back",
     refreshing: "Refreshing...",
     refreshed: "Refreshed",
     refresh: "Refresh",
@@ -54,13 +61,17 @@ const UI_TEXT: Record<
   },
 };
 
-export default function ScreenPage() {
+function ScreenPageContent() {
+  const searchParams = useSearchParams();
   const [lang, setLang] = useState<Lang>("de");
   const [preparing, setPreparing] = useState<OrderRow[]>([]);
   const [ready, setReady] = useState<OrderRow[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [justRefreshed, setJustRefreshed] = useState(false);
+  const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
   const t = UI_TEXT[lang];
+  const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
+  const backHref = fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine";
 
   async function refresh() {
     try {
@@ -83,8 +94,18 @@ export default function ScreenPage() {
   }
 
   useEffect(() => {
+    const s = getSession();
+    if (!s) {
+      window.location.href = "/team/login";
+      return;
+    }
+    if (s.role !== "admin" && s.role !== "kitchen" && s.role !== "cashier") {
+      window.location.href = "/staff";
+      return;
+    }
+    setStaffRole(s.role);
     setLang(getSavedLang());
-    refresh();
+    void refresh();
   }, []);
 
   useEffect(() => {
@@ -114,7 +135,23 @@ export default function ScreenPage() {
         color: "#111",
       }}
     >
-      <div style={{ marginTop: 2, display: "flex", gap: 8 }}>
+      <div style={{ marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <button
+          type="button"
+          onClick={() => goBackOr(backHref)}
+          className="af-link-btn"
+          style={{
+            padding: "6px 10px",
+            borderRadius: 10,
+            border: "1px solid #111",
+            background: "white",
+            color: "#111",
+            fontWeight: 800,
+            cursor: "pointer",
+          }}
+        >
+          {t.back}
+        </button>
         {(["de", "fr", "en"] as Lang[]).map((L) => (
           <button
             key={L}
@@ -123,24 +160,18 @@ export default function ScreenPage() {
               setLang(L);
               saveLang(L);
             }}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 10,
-              border: "1px solid #111",
-              background: lang === L ? "#111" : "white",
-              color: lang === L ? "white" : "#111",
-              cursor: "pointer",
-              fontWeight: 800,
-            }}
+            className={`af-lang-btn ${lang === L ? "is-active" : ""}`}
           >
             {L.toUpperCase()}
           </button>
         ))}
+        {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
       </div>
       <h1 style={{ margin: "10px 0 0 0", fontSize: 32, fontWeight: 900 }}>{t.title}</h1>
       <p style={{ marginTop: 6, opacity: 0.8 }}>{t.subtitle}</p>
 
       <button
+        className="af-btn"
         onClick={refresh}
         disabled={isRefreshing}
         style={{
@@ -190,5 +221,13 @@ export default function ScreenPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export default function ScreenPage() {
+  return (
+    <Suspense fallback={null}>
+      <ScreenPageContent />
+    </Suspense>
   );
 }

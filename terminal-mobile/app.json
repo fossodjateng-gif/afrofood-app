@@ -7,6 +7,9 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.afrofood.terminal",
+      "entitlements": {
+        "com.apple.developer.proximity-reader.payment.acceptance": true
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -20,7 +23,8 @@
         {
           "bluetoothBackgroundMode": false
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "extra": {
       "eas": {

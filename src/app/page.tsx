@@ -51,15 +51,7 @@ export default function Home() {
                 setLang(L);
                 saveLang(L);
               }}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 10,
-                border: "1px solid #111",
-                background: lang === L ? "#111" : "white",
-                color: lang === L ? "white" : "#111",
-                cursor: "pointer",
-                fontWeight: 800,
-              }}
+              className={`af-lang-btn ${lang === L ? "is-active" : ""}`}
             >
               {L.toUpperCase()}
             </button>
@@ -98,6 +90,7 @@ export default function Home() {
         >
           <a
             href="/menu"
+            className="af-link-btn"
             style={{
               display: "inline-block",
               padding: "14px 28px",
@@ -113,7 +106,8 @@ export default function Home() {
             {t.menu}
           </a>
           <a
-            href="/staff"
+            href="/team/login"
+            className="af-link-btn"
             style={{
               display: "inline-block",
               padding: "14px 28px",

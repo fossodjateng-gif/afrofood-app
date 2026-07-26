@@ -44,3 +44,6 @@ next-env.d.ts
 .env*.local
 
 terminal-mobile/node_modules/
+terminal-mobile/.expo/
+tmp_checklist_*/
+tmp_checklist_preview*.jpg

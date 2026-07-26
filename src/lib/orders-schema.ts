@@ -13,6 +13,7 @@ export async function ensureOrdersSchema() {
       currency TEXT DEFAULT 'eur',
       paid_at TIMESTAMP,
       payment_error TEXT,
+      event_name TEXT,
       status TEXT NOT NULL DEFAULT 'PENDING_PAYMENT',
       items JSONB NOT NULL
     );
@@ -24,4 +25,5 @@ export async function ensureOrdersSchema() {
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'eur';`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP;`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_error TEXT;`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS event_name TEXT;`;
 }

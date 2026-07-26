@@ -6,8 +6,18 @@ import { QRCodeCanvas } from "qrcode.react";
 import { makeQrPayload } from "@/lib/order";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
+import { clearSession, getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
+import { goBackOr } from "@/lib/client-nav";
+import {
+  detectClientPlatform,
+  getCashierCreatingCardPaymentLabel,
+  getCashierInitCardPaymentLabel,
+  getCashierWaitingWebhookText,
+  type ClientPlatform,
+} from "@/lib/payment-platform";
 
 const CASHIER_PIN = process.env.NEXT_PUBLIC_CAISSE_PIN || "1955";
+const TERMINAL_DEEP_LINK_SCHEME = "afrofoodterminal";
 
 type CaisseCard = OrderRow & { isJustValidated?: boolean };
 
@@ -16,6 +26,8 @@ const UI_TEXT: Record<
   {
     unknownError: string;
     validatePaymentError: string;
+    back: string;
+    logout: string;
     lockTitle: string;
     lockSubtitle: string;
     pinPlaceholder: string;
@@ -48,11 +60,23 @@ const UI_TEXT: Record<
     ticketSent: string;
     thanks: string;
     reprint: string;
+    actionLogTitle: string;
+    noRecentActions: string;
+    cancelOrder: string;
+    canceling: string;
+    canceled: string;
+    ticketLegend: string;
+    quickAccess: string;
+    qaKitchenSpace: string;
+    qaPayments: string;
+    qaEvent: string;
   }
 > = {
   de: {
     unknownError: "Unbekannter Fehler",
     validatePaymentError: "Fehler bei der Zahlungsfreigabe",
+    back: "Zuruck",
+    logout: "Abmelden",
     lockTitle: "Geschutzte Kasse",
     lockSubtitle: "4-stelligen Code eingeben",
     pinPlaceholder: "PIN Code",
@@ -68,9 +92,9 @@ const UI_TEXT: Record<
     name: "Name",
     payment: "Zahlung",
     validating: "Validierung...",
-    validatePayment: "Zahlung validieren",
-    initTapToPay: "Stripe Tap to Pay starten",
-    creatingTapToPay: "Stripe wird gestartet...",
+    validatePayment: "Barzahlung bestaetigen",
+    initTapToPay: "Tap to Pay auf dem iPhone",
+    creatingTapToPay: "Tap to Pay startet...",
     tapToPayReady: "PaymentIntent erstellt",
     tapToPayStatus: "Stripe Status",
     waitStripeValidation: "Warten auf Stripe Webhook (payment_intent.succeeded)...",
@@ -85,10 +109,22 @@ const UI_TEXT: Record<
     ticketSent: "Bestellung an die Kuche gesendet",
     thanks: "Danke und guten Appetit",
     reprint: "Beleg erneut drucken",
+    actionLogTitle: "Kassenjournal",
+    noRecentActions: "Keine aktuellen Aktionen.",
+    cancelOrder: "Bestellung stornieren",
+    canceling: "Storniere...",
+    canceled: "Storniert",
+    ticketLegend: "(1) Enthalt Gluten - (2) Enthalt Sellerie",
+    quickAccess: "Schnellzugriff",
+    qaKitchenSpace: "Kuchenbereich",
+    qaPayments: "Zahlungen",
+    qaEvent: "Event / Markt",
   },
   fr: {
     unknownError: "Erreur inconnue",
     validatePaymentError: "Erreur pendant la validation du paiement",
+    back: "Retour",
+    logout: "Se deconnecter",
     lockTitle: "Caisse securisee",
     lockSubtitle: "Entrer le code a 4 chiffres",
     pinPlaceholder: "Code PIN",
@@ -104,9 +140,9 @@ const UI_TEXT: Record<
     name: "Nom",
     payment: "Paiement",
     validating: "Validation...",
-    validatePayment: "Valider paiement",
-    initTapToPay: "Demarrer Stripe Tap to Pay",
-    creatingTapToPay: "Demarrage Stripe...",
+    validatePayment: "Confirmer paiement espece",
+    initTapToPay: "Tap to Pay sur iPhone",
+    creatingTapToPay: "Demarrage Tap to Pay...",
     tapToPayReady: "PaymentIntent cree",
     tapToPayStatus: "Statut Stripe",
     waitStripeValidation: "En attente du webhook Stripe (payment_intent.succeeded)...",
@@ -121,10 +157,22 @@ const UI_TEXT: Record<
     ticketSent: "Commande envoyee en cuisine",
     thanks: "Merci et bon appetit",
     reprint: "Reimprimer ticket",
+    actionLogTitle: "Journal actions caisse",
+    noRecentActions: "Aucune action recente.",
+    cancelOrder: "Annuler commande",
+    canceling: "Annulation...",
+    canceled: "Annulee",
+    ticketLegend: "(1) Contient gluten - (2) Contient celeri",
+    quickAccess: "Acces rapide",
+    qaKitchenSpace: "Espace cuisine",
+    qaPayments: "Paiements",
+    qaEvent: "Evenement / Marche",
   },
   en: {
     unknownError: "Unknown error",
     validatePaymentError: "Error while validating payment",
+    back: "Back",
+    logout: "Logout",
     lockTitle: "Secured cashier",
     lockSubtitle: "Enter the 4-digit code",
     pinPlaceholder: "PIN code",
@@ -140,9 +188,9 @@ const UI_TEXT: Record<
     name: "Name",
     payment: "Payment",
     validating: "Validating...",
-    validatePayment: "Validate payment",
-    initTapToPay: "Start Stripe Tap to Pay",
-    creatingTapToPay: "Starting Stripe...",
+    validatePayment: "Confirm cash payment",
+    initTapToPay: "Tap to Pay on iPhone",
+    creatingTapToPay: "Starting Tap to Pay...",
     tapToPayReady: "PaymentIntent created",
     tapToPayStatus: "Stripe status",
     waitStripeValidation: "Waiting for Stripe webhook (payment_intent.succeeded)...",
@@ -157,6 +205,16 @@ const UI_TEXT: Record<
     ticketSent: "Order sent to kitchen",
     thanks: "Thanks and enjoy your meal",
     reprint: "Reprint ticket",
+    actionLogTitle: "Cashier action log",
+    noRecentActions: "No recent actions.",
+    cancelOrder: "Cancel order",
+    canceling: "Canceling...",
+    canceled: "Canceled",
+    ticketLegend: "(1) Contains gluten - (2) Contains celery",
+    quickAccess: "Quick access",
+    qaKitchenSpace: "Kitchen space",
+    qaPayments: "Payments",
+    qaEvent: "Event / market",
   },
 };
 
@@ -171,6 +229,19 @@ const FALLBACK_PRICE_BY_NAME = new Map<string, number>([
   ["pollo fino 2", 10],
   ["bh 1 2", 10],
   ["batbout mit bohnenfullung 2", 10],
+]);
+
+const FALLBACK_PRICE_BY_ID = new Map<string, number>([
+  ["ingwersaft", 5],
+  ["hibiskussaft", 5],
+  ["puff-puff-1", 5],
+  ["plantain-chips", 5],
+  ["bhb-1-2-kamerun-veganer-teller", 15],
+  ["attieke-poulet-2-elfenbeinkuste", 15],
+  ["batbout-mit-hahnchenfullung-2-marokko", 15],
+  ["pollo-fino-2", 10],
+  ["bh-1-2", 10],
+  ["batbout-mit-bohnenfullung-2", 10],
 ]);
 
 function normalizeItemName(name?: string) {
@@ -192,6 +263,10 @@ function getUnitPrice(item: OrderRow["items"][number]) {
   if (typeof item.price === "number" && Number.isFinite(item.price)) {
     return item.price;
   }
+  const id = String(item.id || "");
+  if (FALLBACK_PRICE_BY_ID.has(id)) {
+    return FALLBACK_PRICE_BY_ID.get(id) ?? 0;
+  }
   return FALLBACK_PRICE_BY_NAME.get(normalizeItemName(item.name)) ?? 0;
 }
 
@@ -204,7 +279,7 @@ function getLineTotal(item: OrderRow["items"][number], dipQtySoFar: number) {
   const qty = Math.max(0, Number(item.qty || 0));
   if (isDip(item)) {
     const paidQty = Math.max(0, dipQtySoFar + qty - 1) - Math.max(0, dipQtySoFar - 1);
-    return paidQty * 1;
+    return paidQty * unitPrice;
   }
   return unitPrice * qty;
 }
@@ -244,12 +319,31 @@ function isTodayOrder(order: OrderRow, todayKey: string) {
   return `${yyyy}${mm}${dd}` === todayKey;
 }
 
+async function hasCompletedTapSetup() {
+  try {
+    const res = await fetch("/api/menu-config", { cache: "no-store" });
+    const data = await res.json().catch(() => null);
+    const config = data?.tapToPayConfig as
+      | Partial<{
+          awarenessSeen: boolean;
+          termsAccepted: boolean;
+          educationSeen: boolean;
+        }>
+      | undefined;
+    return Boolean(res.ok && config?.awarenessSeen && config?.termsAccepted && config?.educationSeen);
+  } catch {
+    return false;
+  }
+}
+
 export default function CaissePage() {
   const showStripeDebug = process.env.NODE_ENV !== "production";
   const [lang, setLang] = useState<Lang>("de");
+  const [clientPlatform, setClientPlatform] = useState<ClientPlatform>("other");
   const [pin, setPin] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
+  const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
 
   const [orders, setOrders] = useState<CaisseCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -258,17 +352,61 @@ export default function CaissePage() {
   const [validatingId, setValidatingId] = useState<string | null>(null);
   const [startingTapToPayId, setStartingTapToPayId] = useState<string | null>(null);
   const [confirmingPiId, setConfirmingPiId] = useState<string | null>(null);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLogs, setActionLogs] = useState<string[]>([]);
   const [ticketOrder, setTicketOrder] = useState<OrderRow | null>(null);
   const [tapToPayInfo, setTapToPayInfo] = useState<Record<string, { paymentIntentId: string; status: string }>>({});
   const [piByOrder, setPiByOrder] = useState<Record<string, string>>({});
+  const [processingPaymentId, setProcessingPaymentId] = useState<string | null>(null);
+  const [isNarrowScreen, setIsNarrowScreen] = useState(false);
 
   const t = UI_TEXT[lang];
+  const initCardPaymentLabel = getCashierInitCardPaymentLabel(lang, clientPlatform);
+  const creatingCardPaymentLabel = getCashierCreatingCardPaymentLabel(lang, clientPlatform);
+  const waitingWebhookLabel = getCashierWaitingWebhookText(lang, clientPlatform);
+
+  useEffect(() => {
+    const updateNarrowScreen = () => setIsNarrowScreen(window.innerWidth < 720);
+    updateNarrowScreen();
+    window.addEventListener("resize", updateNarrowScreen);
+    return () => window.removeEventListener("resize", updateNarrowScreen);
+  }, []);
+
+  useEffect(() => {
+    async function unlock() {
+      const s = getSession();
+      if (!s) {
+        window.location.href = "/team/login";
+        return;
+      }
+      if (s.role === "admin" || s.role === "cashier") {
+        if (!(await hasCompletedTapSetup())) {
+          window.location.href = "/caisse/setup";
+          return;
+        }
+        setStaffRole(s.role);
+        setIsUnlocked(true);
+      } else {
+        window.location.href = "/staff";
+      }
+    }
+    void unlock();
+  }, []);
 
   function pushLog(message: string) {
     const ts = new Date().toLocaleTimeString();
     setActionLogs((prev) => [`${ts} ${message}`, ...prev].slice(0, 12));
+  }
+
+  function txt(
+    fr: string,
+    de: string,
+    en: string
+  ) {
+    if (lang === "fr") return fr;
+    if (lang === "de") return de;
+    return en;
   }
 
   const sortedOrders = useMemo(() => {
@@ -322,8 +460,16 @@ export default function CaissePage() {
     }
   }, [t.unknownError]);
 
+  const loadOrderById = useCallback(async (orderId: string) => {
+    const res = await fetch("/api/orders", { cache: "no-store" });
+    const data = await res.json().catch(() => []);
+    if (!res.ok || !Array.isArray(data)) return null;
+    return (data as OrderRow[]).find((order) => order.id === orderId) || null;
+  }, []);
+
   useEffect(() => {
     setLang(getSavedLang());
+    setClientPlatform(detectClientPlatform());
     if (isUnlocked) {
       refresh();
     }
@@ -335,8 +481,34 @@ export default function CaissePage() {
       if (message.reason === "ORDER_CREATED") {
         refresh();
       }
+      if (message.reason === "ORDER_STATUS_CHANGED") {
+        refresh();
+      }
+      if (message.reason === "PAYMENT_VALIDATED" && message.orderId) {
+        pushLog(
+          txt(
+            `Paiement Tap to Pay confirme pour ${message.orderId}`,
+            `Tap to Pay Zahlung bestatigt fur ${message.orderId}`,
+            `Tap to Pay payment confirmed for ${message.orderId}`
+          )
+        );
+        void loadOrderById(message.orderId).then((order) => {
+          if (order) {
+            const paidOrder = { ...order, status: "NEW" as const, isJustValidated: true };
+            setTicketOrder(paidOrder);
+            setOrders((prev) => {
+              const exists = prev.some((it) => it.id === paidOrder.id);
+              const next = exists
+                ? prev.map((it) => (it.id === paidOrder.id ? paidOrder : it))
+                : [paidOrder, ...prev];
+              return next;
+            });
+          }
+          refresh();
+        });
+      }
     });
-  }, [isUnlocked, refresh]);
+  }, [isUnlocked, loadOrderById, refresh]);
 
   function printTicket() {
     window.print();
@@ -344,7 +516,13 @@ export default function CaissePage() {
 
   async function markPaymentValidated(order: OrderRow) {
     try {
-      pushLog(`Validation manuelle demarree pour ${order.id}`);
+      pushLog(
+        txt(
+          `Validation manuelle demarree pour ${order.id}`,
+          `Manuelle Freigabe gestartet fur ${order.id}`,
+          `Manual validation started for ${order.id}`
+        )
+      );
       setActionError(null);
       setValidatingId(order.id);
 
@@ -360,7 +538,13 @@ export default function CaissePage() {
       }
 
       setTicketOrder(order);
-      pushLog(`Validation manuelle OK pour ${order.id} -> NEW`);
+      pushLog(
+        txt(
+          `Validation manuelle OK pour ${order.id} -> NEW`,
+          `Manuelle Freigabe OK fur ${order.id} -> NEW`,
+          `Manual validation OK for ${order.id} -> NEW`
+        )
+      );
       setOrders((prev) =>
         prev.map((it) =>
           it.id === order.id ? { ...it, status: "NEW", isJustValidated: true } : it
@@ -375,7 +559,13 @@ export default function CaissePage() {
         refresh();
       }, 900);
     } catch (e: unknown) {
-      pushLog(`Validation manuelle KO pour ${order.id}`);
+      pushLog(
+        txt(
+          `Validation manuelle KO pour ${order.id}`,
+          `Manuelle Freigabe FEHLER fur ${order.id}`,
+          `Manual validation FAILED for ${order.id}`
+        )
+      );
       setActionError(e instanceof Error ? e.message : t.unknownError);
     } finally {
       setValidatingId(null);
@@ -383,8 +573,17 @@ export default function CaissePage() {
   }
 
   async function initTapToPay(order: OrderRow) {
+    const terminalUrl = new URL(`${TERMINAL_DEEP_LINK_SCHEME}://checkout`);
+    terminalUrl.searchParams.set("orderId", order.id);
+
     try {
-      pushLog(`Creation PaymentIntent demarree pour ${order.id}`);
+      pushLog(
+        txt(
+          `Ouverture AfroFood Terminal pour ${order.id}`,
+          `AfroFood Terminal wird fur ${order.id} geoffnet`,
+          `Opening AfroFood Terminal for ${order.id}`
+        )
+      );
       setActionError(null);
       setStartingTapToPayId(order.id);
 
@@ -411,14 +610,30 @@ export default function CaissePage() {
         [order.id]: String(data.paymentIntentId || ""),
       }));
 
-      pushLog(`PaymentIntent cree pour ${order.id}: ${String(data.paymentIntentId || "-")}`);
+      pushLog(
+        txt(
+          `PaymentIntent cree pour ${order.id}: ${String(data.paymentIntentId || "-")}`,
+          `PaymentIntent erstellt fur ${order.id}: ${String(data.paymentIntentId || "-")}`,
+          `PaymentIntent created for ${order.id}: ${String(data.paymentIntentId || "-")}`
+        )
+      );
 
-      refresh();
+      if (data.paymentIntentId) {
+        terminalUrl.searchParams.set("paymentIntentId", String(data.paymentIntentId));
+      }
     } catch (e: unknown) {
-      pushLog(`Creation PaymentIntent KO pour ${order.id}`);
+      pushLog(
+        txt(
+          `PaymentIntent non prepare pour ${order.id}; ouverture du Terminal`,
+          `PaymentIntent nicht vorbereitet fur ${order.id}; Terminal wird geoffnet`,
+          `PaymentIntent not prepared for ${order.id}; opening Terminal`
+        )
+      );
       setActionError(e instanceof Error ? e.message : t.unknownError);
     } finally {
+      window.location.href = terminalUrl.toString();
       setStartingTapToPayId(null);
+      refresh();
     }
   }
 
@@ -426,10 +641,16 @@ export default function CaissePage() {
     try {
       setActionError(null);
       setConfirmingPiId(order.id);
+      setProcessingPaymentId(order.id);
+      const startedAt = Date.now();
 
       const paymentIntentId = String(piByOrder[order.id] || "").trim();
       pushLog(
-        `Confirmation PI demarree pour ${order.id}${paymentIntentId ? ` (${paymentIntentId})` : ""}`
+        txt(
+          `Confirmation PI demarree pour ${order.id}${paymentIntentId ? ` (${paymentIntentId})` : ""}`,
+          `PI-Bestatigung gestartet fur ${order.id}${paymentIntentId ? ` (${paymentIntentId})` : ""}`,
+          `PI confirmation started for ${order.id}${paymentIntentId ? ` (${paymentIntentId})` : ""}`
+        )
       );
       const res = await fetch(`/api/orders/${order.id}/stripe-confirm`, {
         method: "PATCH",
@@ -443,12 +664,22 @@ export default function CaissePage() {
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error || t.validatePaymentError);
       }
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < 900) {
+        await new Promise((resolve) => setTimeout(resolve, 900 - elapsed));
+      }
 
       setTicketOrder({
         ...order,
         status: "NEW",
       });
-      pushLog(`Confirmation PI OK pour ${order.id} -> NEW`);
+      pushLog(
+        txt(
+          `Confirmation PI OK pour ${order.id} -> NEW`,
+          `PI-Bestatigung OK fur ${order.id} -> NEW`,
+          `PI confirmation OK for ${order.id} -> NEW`
+        )
+      );
       setOrders((prev) =>
         prev.map((it) =>
           it.id === order.id ? { ...it, status: "NEW", isJustValidated: true } : it
@@ -463,10 +694,61 @@ export default function CaissePage() {
         refresh();
       }, 900);
     } catch (e: unknown) {
-      pushLog(`Confirmation PI KO pour ${order.id}`);
+      pushLog(
+        txt(
+          `Confirmation PI KO pour ${order.id}`,
+          `PI-Bestatigung FEHLER fur ${order.id}`,
+          `PI confirmation FAILED for ${order.id}`
+        )
+      );
       setActionError(e instanceof Error ? e.message : t.unknownError);
     } finally {
       setConfirmingPiId(null);
+      setProcessingPaymentId(null);
+    }
+  }
+
+  async function cancelOrder(order: OrderRow) {
+    try {
+      setActionError(null);
+      setCancelingId(order.id);
+      pushLog(
+        txt(
+          `Annulation demarree pour ${order.id}`,
+          `Stornierung gestartet fur ${order.id}`,
+          `Cancel started for ${order.id}`
+        )
+      );
+
+      const res = await fetch(`/api/orders/${order.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "CANCELED" }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || t.unknownError);
+      }
+
+      setOrders((prev) => prev.map((it) => (it.id === order.id ? { ...it, status: "CANCELED" } : it)));
+      pushLog(
+        txt(
+          `Annulation OK pour ${order.id} -> CANCELED`,
+          `Stornierung OK fur ${order.id} -> CANCELED`,
+          `Cancel OK for ${order.id} -> CANCELED`
+        )
+      );
+    } catch (e: unknown) {
+      pushLog(
+        txt(
+          `Annulation KO pour ${order.id}`,
+          `Stornierung FEHLER fur ${order.id}`,
+          `Cancel FAILED for ${order.id}`
+        )
+      );
+      setActionError(e instanceof Error ? e.message : t.unknownError);
+    } finally {
+      setCancelingId(null);
     }
   }
 
@@ -490,6 +772,22 @@ export default function CaissePage() {
       >
         <div style={{ width: "100%", maxWidth: 360, background: "rgba(17,24,39,0.85)", border: "1px solid #334155", borderRadius: 14, padding: 16 }}>
           <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => goBackOr("/staff")}
+              className="af-link-btn"
+              style={{
+                padding: "6px 10px",
+                borderRadius: 10,
+                border: "1px solid #475569",
+                background: "white",
+                color: "#111",
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              {t.back}
+            </button>
             {(["de", "fr", "en"] as Lang[]).map((L) => (
               <button
                 key={L}
@@ -498,15 +796,7 @@ export default function CaissePage() {
                   setLang(L);
                   saveLang(L);
                 }}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 10,
-                  border: "1px solid #475569",
-                  background: lang === L ? "#111" : "white",
-                  color: lang === L ? "white" : "#111",
-                  cursor: "pointer",
-                  fontWeight: 800,
-                }}
+                className={`af-lang-btn ${lang === L ? "is-active" : ""}`}
               >
                 {L.toUpperCase()}
               </button>
@@ -525,6 +815,7 @@ export default function CaissePage() {
           />
           {pinError ? <div style={{ marginTop: 8, color: "#fca5a5", fontWeight: 700 }}>{pinError}</div> : null}
           <button
+            className="af-btn"
             type="button"
             onClick={() => {
               if (pin === CASHIER_PIN) {
@@ -543,10 +834,10 @@ export default function CaissePage() {
     );
   }
 
-  return (
-    <main
-      style={{
-        padding: 24,
+	  return (
+	    <main
+	      style={{
+	        padding: isNarrowScreen ? 12 : 24,
         fontFamily: "system-ui",
         backgroundColor: "#FFF3E6",
         backgroundImage:
@@ -555,77 +846,178 @@ export default function CaissePage() {
         backgroundPosition: "center, center",
         backgroundSize: "cover, min(64vw, 420px)",
         minHeight: "100vh",
-        color: "#111",
-      }}
-    >
-      <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>{t.title}</h1>
-      <p style={{ opacity: 0.75 }}>{t.subtitle}</p>
+	        color: "#111",
+	      }}
+	    >
+	      <div style={{ maxWidth: 980, margin: "0 auto" }}>
+	        <div
+	          style={{
+	            display: "flex",
+	            justifyContent: "space-between",
+	            alignItems: "center",
+	            gap: 10,
+	            flexWrap: "wrap",
+	            background: "white",
+	            border: "1px solid #F1D7C8",
+	            borderRadius: 12,
+	            padding: 12,
+	            boxShadow: "0 12px 30px rgba(242,140,40,0.18)",
+	            position: "sticky",
+	            top: 12,
+	            zIndex: 20,
+	          }}
+	        >
+	          <div>
+	            <h1 style={{ margin: 0, fontSize: isNarrowScreen ? 22 : 24, fontWeight: 900, display: "flex", alignItems: "center", gap: 8, lineHeight: 1.12 }}>
+	              <img src="/logo-afrofood.png" alt="AfroFood" style={{ width: 30, height: 30, borderRadius: 8, objectFit: "cover", border: "1px solid #F1D7C8" }} />
+	              {t.title}
+	            </h1>
+	            <div style={{ opacity: 0.75, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+	              <span>{t.subtitle}</span>
+	              {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
+	            </div>
+	          </div>
+	          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+	            {(["de", "fr", "en"] as Lang[]).map((L) => (
+	              <button
+	                key={L}
+	                type="button"
+	                onClick={() => {
+	                  setLang(L);
+	                  saveLang(L);
+	                }}
+	                className={`af-lang-btn ${lang === L ? "is-active" : ""}`}
+	              >
+	                {L.toUpperCase()}
+	              </button>
+	            ))}
+			            <button
+			              type="button"
+			              onClick={() => goBackOr("/staff")}
+			              className="af-link-btn"
+			              style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, cursor: "pointer" }}
+			            >
+			              {t.back}
+			            </button>
+		            <button
+		              className="af-btn"
+		              type="button"
+		              onClick={() => {
+		                clearSession();
+		                window.location.href = "/team/login";
+		              }}
+		              style={{ padding: "8px 12px", borderRadius: 10, border: "none", background: "#111", color: "white", fontWeight: 800, cursor: "pointer" }}
+		            >
+		              {t.logout}
+		            </button>
+		          </div>
+		        </div>
 
-      <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <button
-          onClick={refresh}
-          disabled={isRefreshing}
-          style={{
-            padding: "10px 14px",
-            borderRadius: 12,
-            border: "none",
-            background: isRefreshing
-              ? "linear-gradient(135deg,#f59e0b,#d97706)"
-              : justRefreshed
-              ? "linear-gradient(135deg,#16a34a,#15803d)"
-              : "linear-gradient(135deg,#2563eb,#1d4ed8)",
-            color: "white",
-            fontWeight: 900,
-            cursor: isRefreshing ? "not-allowed" : "pointer",
-            opacity: isRefreshing ? 0.85 : 1,
-          }}
-        >
-          {isRefreshing ? t.refreshing : justRefreshed ? t.refreshed : t.refresh}
-        </button>
-      </div>
+	        <div
+	          style={{
+	            height: 6,
+	            borderRadius: 999,
+	            marginTop: 12,
+	            background:
+	              "repeating-linear-gradient(90deg, #111 0 10px, #F28C28 10px 20px, #111 20px 30px, #fff 30px 40px)",
+	            opacity: 0.9,
+	          }}
+	        />
 
-      {loading ? <p style={{ marginTop: 12 }}>{t.loading}</p> : null}
-      {actionError ? <p style={{ marginTop: 8, color: "#fecaca", fontWeight: 700 }}>Erreur: {actionError}</p> : null}
-      {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>{t.noOrders}</p> : null}
-      <div
-        style={{
-          marginTop: 12,
-          padding: 10,
-          borderRadius: 12,
-          border: "1px solid #cbd5e1",
-          background: "rgba(255,255,255,0.9)",
-        }}
-      >
-        <div style={{ fontWeight: 900, marginBottom: 6 }}>Journal actions caisse</div>
-        {actionLogs.length === 0 ? (
-          <div style={{ opacity: 0.7 }}>Aucune action recente.</div>
-        ) : (
-          actionLogs.map((line, idx) => (
-            <div key={`${line}-${idx}`} style={{ fontSize: 13, opacity: 0.9, padding: "2px 0" }}>
-              {line}
-            </div>
-          ))
-        )}
-      </div>
+	        <div
+	          style={{
+	            marginTop: 12,
+	            padding: 10,
+	            borderRadius: 12,
+	            border: "1px solid #F1D7C8",
+	            background: "rgba(255,255,255,0.92)",
+	          }}
+	        >
+	          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+	            <a className="af-link-btn" href="/staff/cuisine?from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+	              {t.qaKitchenSpace}
+	            </a>
+	            <a className="af-link-btn" href="/admin/menu?view=payment&from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+	              {t.qaPayments}
+	            </a>
+	            <a className="af-link-btn" href="/admin/menu?view=event&from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+	              {t.qaEvent}
+	            </a>
+	          </div>
+	        </div>
 
-      <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+		        {loading ? <p style={{ marginTop: 12 }}>{t.loading}</p> : null}
+		        {actionError ? <p style={{ marginTop: 8, color: "#fecaca", fontWeight: 700 }}>{actionError}</p> : null}
+		        <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-start" }}>
+		          <button
+		            className="af-btn"
+		            onClick={refresh}
+		            disabled={isRefreshing}
+		            style={{
+		              padding: "10px 14px",
+		              borderRadius: 12,
+		              border: "none",
+		              background: isRefreshing
+		                ? "linear-gradient(135deg,#f59e0b,#d97706)"
+		                : justRefreshed
+		                ? "linear-gradient(135deg,#16a34a,#15803d)"
+		                : "linear-gradient(135deg,#2563eb,#1d4ed8)",
+		              color: "white",
+		              fontWeight: 900,
+		              cursor: isRefreshing ? "not-allowed" : "pointer",
+		              opacity: isRefreshing ? 0.85 : 1,
+		            }}
+		          >
+		            {isRefreshing ? t.refreshing : justRefreshed ? t.refreshed : t.refresh}
+		          </button>
+		        </div>
+		        <div
+		          style={{
+		            marginTop: 12,
+	            padding: 10,
+	            borderRadius: 12,
+	            border: "1px solid #cbd5e1",
+	            background: "rgba(255,255,255,0.9)",
+	          }}
+	        >
+		          <div style={{ display: "flex", gap: 10, justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+		            <div style={{ fontWeight: 900 }}>{t.actionLogTitle}</div>
+		          </div>
+	          {actionLogs.length === 0 ? (
+	            <div style={{ opacity: 0.7 }}>{t.noRecentActions}</div>
+	          ) : (
+	            actionLogs.map((line, idx) => (
+	              <div key={`${line}-${idx}`} style={{ fontSize: 13, opacity: 0.9, padding: "2px 0" }}>
+	                {line}
+	              </div>
+	            ))
+	          )}
+	        </div>
+
+	        {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>{t.noOrders}</p> : null}
+	        <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
         {sortedOrders.map((o) => {
           const isPending = o.status === "PENDING_PAYMENT";
+          const isCanceled = o.status === "CANCELED";
           const breakdown = getOrderBreakdown(o);
 
           return (
             <div
               key={o.id}
               style={{
-                background: isPending ? "rgba(249,115,22,0.22)" : "rgba(22,163,74,0.22)",
+                background: isPending
+                  ? "rgba(249,115,22,0.22)"
+                  : isCanceled
+                  ? "rgba(100,116,139,0.25)"
+                  : "rgba(22,163,74,0.22)",
                 borderRadius: 16,
                 padding: 16,
-                border: isPending ? "1px solid #fb923c" : "1px solid #22c55e",
+                border: isPending ? "1px solid #fb923c" : isCanceled ? "1px solid #64748b" : "1px solid #22c55e",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-                <div>
-                  <div style={{ fontSize: 20, fontWeight: 900 }}>{o.id}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: isNarrowScreen ? "stretch" : "center", flexDirection: isNarrowScreen ? "column" : "row" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: isNarrowScreen ? 18 : 20, fontWeight: 900, overflowWrap: "anywhere", lineHeight: 1.15 }}>{o.id}</div>
                   <div style={{ opacity: 0.9, marginTop: 2 }}>
                     {o.customer_name ? `${t.name}: ${o.customer_name} - ` : ""}
                     {t.payment}: {o.payment}
@@ -633,15 +1025,15 @@ export default function CaissePage() {
                 </div>
 
                 {isPending ? (
-                  <div style={{ display: "grid", gap: 8 }}>
+                  <div style={{ display: "grid", gap: 8, width: isNarrowScreen ? "100%" : undefined, minWidth: 0 }}>
                     {o.payment === "card" ? (
                       <>
                         <button
                           onClick={() => initTapToPay(o)}
                           disabled={startingTapToPayId === o.id}
                           style={{
-                            padding: "10px 14px",
-                            borderRadius: 12,
+                            padding: "16px 22px",
+                            borderRadius: 14,
                             border: "none",
                             background:
                               startingTapToPayId === o.id
@@ -649,11 +1041,17 @@ export default function CaissePage() {
                                 : "linear-gradient(135deg,#2563eb,#1d4ed8)",
                             color: "white",
                             fontWeight: 900,
+                            fontSize: 18,
+                            lineHeight: 1.15,
+                            minWidth: isNarrowScreen ? 0 : 290,
+                            width: isNarrowScreen ? "100%" : undefined,
+                            textAlign: "center",
+                            boxShadow: "0 12px 30px rgba(37,99,235,0.28)",
                             cursor: startingTapToPayId === o.id ? "not-allowed" : "pointer",
                             opacity: startingTapToPayId === o.id ? 0.8 : 1,
                           }}
                         >
-                          {startingTapToPayId === o.id ? t.creatingTapToPay : t.initTapToPay}
+                          {startingTapToPayId === o.id ? creatingCardPaymentLabel : initCardPaymentLabel}
                         </button>
 
                         {tapToPayInfo[o.id]?.paymentIntentId ? (
@@ -675,7 +1073,7 @@ export default function CaissePage() {
                                 <br />
                               </>
                             ) : null}
-                            {t.waitStripeValidation}
+                            {waitingWebhookLabel}
                           </div>
                         ) : null}
 
@@ -690,7 +1088,7 @@ export default function CaissePage() {
                             }
                             placeholder={t.piPlaceholder}
                             style={{
-                              width: 320,
+                              width: isNarrowScreen ? "100%" : 320,
                               maxWidth: "100%",
                               padding: "8px 10px",
                               borderRadius: 10,
@@ -721,6 +1119,23 @@ export default function CaissePage() {
                             {confirmingPiId === o.id ? t.confirmingPi : t.confirmPi}
                           </button>
                         </div>
+                        {processingPaymentId === o.id ? (
+                          <div
+                            style={{
+                              padding: "8px 10px",
+                              borderRadius: 10,
+                              border: "1px solid #fcd34d",
+                              background: "rgba(250,204,21,0.15)",
+                              fontWeight: 800,
+                            }}
+                          >
+                            {txt(
+                              "Processing payment...",
+                              "Zahlung wird verarbeitet...",
+                              "Processing payment..."
+                            )}
+                          </div>
+                        ) : null}
                       </>
                     ) : (
                       <button
@@ -744,6 +1159,18 @@ export default function CaissePage() {
                       </button>
                     )}
                   </div>
+                ) : isCanceled ? (
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: 12,
+                      background: "linear-gradient(135deg,#475569,#334155)",
+                      color: "white",
+                      fontWeight: 900,
+                    }}
+                  >
+                    {t.canceled}
+                  </div>
                 ) : (
                   <div
                     style={{
@@ -759,14 +1186,39 @@ export default function CaissePage() {
                 )}
               </div>
 
+              {isPending ? (
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => cancelOrder(o)}
+                    disabled={cancelingId === o.id}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: 10,
+                      border: "none",
+                      background:
+                        cancelingId === o.id
+                          ? "linear-gradient(135deg,#f59e0b,#d97706)"
+                          : "linear-gradient(135deg,#b91c1c,#991b1b)",
+                      color: "white",
+                      fontWeight: 900,
+                      cursor: cancelingId === o.id ? "not-allowed" : "pointer",
+                      opacity: cancelingId === o.id ? 0.8 : 1,
+                    }}
+                  >
+                    {cancelingId === o.id ? t.canceling : t.cancelOrder}
+                  </button>
+                </div>
+              ) : null}
+
               <div style={{ marginTop: 12, borderTop: "1px dashed rgba(255,255,255,0.25)", paddingTop: 10 }}>
                 {Array.isArray(o.items)
                   ? o.items.map((it, idx) => (
-                      <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
-                        <div style={{ fontWeight: 800 }}>
+                      <div key={idx} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0", minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, minWidth: 0, overflowWrap: "anywhere" }}>
                           {it.name} <span style={{ opacity: 0.8 }}>x{it.qty}</span>
                         </div>
-                        <div style={{ fontWeight: 900 }}>{formatEur(breakdown.lineTotals[idx] ?? 0)}</div>
+                        <div style={{ fontWeight: 900, flexShrink: 0 }}>{formatEur(breakdown.lineTotals[idx] ?? 0)}</div>
                       </div>
                     ))
                   : null}
@@ -791,8 +1243,8 @@ export default function CaissePage() {
         })}
       </div>
 
-      {ticketOrder ? (
-        <div className="af-ticket-wrap af-ticket-area af-ticket-customer" style={{ marginTop: 20, justifyItems: "center" }}>
+	      {ticketOrder ? (
+	        <div className="af-ticket-wrap af-ticket-area af-ticket-customer" style={{ marginTop: 20, justifyItems: "center" }}>
           <div className="af-ticket">
             <div className="af-ticket-head">
               <img className="af-ticket-logo" src="/logo-afrofood.png" alt="AfroFood" />
@@ -811,6 +1263,23 @@ export default function CaissePage() {
                 <b>{t.payment}:</b> {ticketOrder.payment}
               </div>
             </div>
+            <div
+              style={{
+                marginTop: 8,
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid #93c5fd",
+                background: "rgba(59,130,246,0.1)",
+                fontWeight: 800,
+                fontSize: 13,
+              }}
+            >
+              {txt(
+                "Receipt available via QR",
+                "Beleg per QR verfugbar",
+                "Receipt available via QR"
+              )}
+            </div>
 
             <div className="af-ticket-items">
               {ticketOrder.items.map((it, idx) => (
@@ -827,6 +1296,7 @@ export default function CaissePage() {
               <div>
                 <b>{t.total}:</b> {ticketBreakdown.total.toFixed(2)} EUR
               </div>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>{t.ticketLegend}</div>
             </div>
 
             <div className="af-ticket-qr">
@@ -862,8 +1332,9 @@ export default function CaissePage() {
           >
             {t.reprint}
           </button>
-        </div>
-      ) : null}
-    </main>
-  );
-}
+	        </div>
+	      ) : null}
+	      </div>
+	    </main>
+	  );
+	}

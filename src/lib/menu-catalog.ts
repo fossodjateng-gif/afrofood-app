@@ -21,14 +21,14 @@ export type CatalogSection = {
 export const MENU_CATALOG: CatalogSection[] = [
   {
     id: "dips",
-    title: { de: "Dips", fr: "Dips", en: "Dips" },
+    title: { de: "🥣 Dips", fr: "🥣 Dips", en: "🥣 Dips" },
     items: [
       {
         id: "dip-green",
         name: {
-          de: "Grune Sauce (nicht scharf)",
-          fr: "Sauce verte (douce)",
-          en: "Green sauce (mild)",
+          de: "🟢 Grune Sauce (nicht scharf)",
+          fr: "🟢 Sauce verte (douce)",
+          en: "🟢 Green sauce (mild)",
         },
         basePrice: 0,
         desc: {
@@ -40,9 +40,9 @@ export const MENU_CATALOG: CatalogSection[] = [
       {
         id: "dip-chili",
         name: {
-          de: "Chili Sauce (scharf)",
-          fr: "Sauce chili (piquante)",
-          en: "Chili sauce (hot)",
+          de: "🌶 Chili Sauce (scharf)",
+          fr: "🌶 Sauce chili (piquante)",
+          en: "🌶 Chili sauce (hot)",
         },
         basePrice: 0,
         desc: {
@@ -55,11 +55,11 @@ export const MENU_CATALOG: CatalogSection[] = [
   },
   {
     id: "drinks",
-    title: { de: "Immungetranke", fr: "Boissons bien-etre", en: "Wellness drinks" },
+    title: { de: "🧉 Immungetranke", fr: "🧉 Boissons bien-etre", en: "🧉 Wellness drinks" },
     items: [
       {
         id: "ingwersaft",
-        name: { de: "Ingwersaft", fr: "Jus de gingembre", en: "Ginger juice" },
+        name: { de: "🫚 Ingwersaft", fr: "🫚 Jus de gingembre", en: "🫚 Ginger juice" },
         basePrice: 5,
         desc: {
           de: "Scharf-wurziger Frischekick",
@@ -69,7 +69,7 @@ export const MENU_CATALOG: CatalogSection[] = [
       },
       {
         id: "hibiskussaft",
-        name: { de: "Hibiskussaft", fr: "Jus d'hibiscus", en: "Hibiscus juice" },
+        name: { de: "🌺 Hibiskussaft", fr: "🌺 Jus d'hibiscus", en: "🌺 Hibiscus juice" },
         basePrice: 5,
         desc: {
           de: "Erfrischend und reich an Antioxidantien",
@@ -81,11 +81,11 @@ export const MENU_CATALOG: CatalogSection[] = [
   },
   {
     id: "finger-food",
-    title: { de: "Fingerfood", fr: "Finger food", en: "Finger food" },
+    title: { de: "🍢 Fingerfood", fr: "🍢 Finger food", en: "🍢 Finger food" },
     items: [
       {
         id: "puff-puff-1",
-        name: { de: "Puff-puff (1)", fr: "Puff-puff (1)", en: "Puff-puff (1)" },
+        name: { de: "🍩 Puff-puff (1)", fr: "🍩 Puff-puff (1)", en: "🍩 Puff-puff (1)" },
         basePrice: 5,
         desc: {
           de: "Goldbraune Hefeballchen, aussen knusprig und innen fluffig",
@@ -96,7 +96,7 @@ export const MENU_CATALOG: CatalogSection[] = [
       },
       {
         id: "plantain-chips",
-        name: { de: "Plantain Chips", fr: "Chips de plantain", en: "Plantain chips" },
+        name: { de: "🥔 Plantain Chips", fr: "🥔 Chips de plantain", en: "🥔 Plantain chips" },
         basePrice: 5,
         desc: {
           de: "Knusprig frittierte Kochbananenscheiben",
@@ -109,14 +109,14 @@ export const MENU_CATALOG: CatalogSection[] = [
   },
   {
     id: "africa-tour",
-    title: { de: "Afrika entdecken", fr: "Voyage en Afrique", en: "Taste of Africa" },
+    title: { de: "🌍 Afrika entdecken", fr: "🌍 Voyage en Afrique", en: "🌍 Taste of Africa" },
     items: [
       {
         id: "bhb-1-2-kamerun-veganer-teller",
         name: {
-          de: "BHB (1)(2) (Kamerun) - Veganer Teller",
-          fr: "BHB (1)(2) (Cameroun) - Assiette vegane",
-          en: "BHB (1)(2) (Cameroon) - Vegan plate",
+          de: "🇨🇲 BHB (1)(2) (Kamerun)",
+          fr: "🇨🇲 BHB (1)(2) (Cameroun)",
+          en: "🇨🇲 BHB (1)(2) (Cameroon)",
         },
         basePrice: 15,
         desc: {
@@ -129,9 +129,9 @@ export const MENU_CATALOG: CatalogSection[] = [
       {
         id: "attieke-poulet-2-elfenbeinkuste",
         name: {
-          de: "Attieke Poulet (2) (Elfenbeinkuste)",
-          fr: "Attieke Poulet (2) (Cote d'Ivoire)",
-          en: "Attieke Chicken (2) (Ivory Coast)",
+          de: "🇨🇮 Attieke Poulet (2) (Elfenbeinkuste)",
+          fr: "🇨🇮 Attieke Poulet (2) (Cote d'Ivoire)",
+          en: "🇨🇮 Attieke Chicken (2) (Ivory Coast)",
         },
         basePrice: 15,
         desc: {
@@ -144,9 +144,9 @@ export const MENU_CATALOG: CatalogSection[] = [
       {
         id: "batbout-mit-hahnchenfullung-2-marokko",
         name: {
-          de: "Batbout mit Hahnchenfullung (2) (Marokko)",
-          fr: "Batbout au poulet (2) (Maroc)",
-          en: "Batbout with chicken filling (2) (Morocco)",
+          de: "🇲🇦 Batbout mit Hahnchenfullung (2) (Marokko)",
+          fr: "🇲🇦 Batbout au poulet (2) (Maroc)",
+          en: "🇲🇦 Batbout with chicken filling (2) (Morocco)",
         },
         basePrice: 15,
         desc: {
@@ -160,11 +160,11 @@ export const MENU_CATALOG: CatalogSection[] = [
   },
   {
     id: "fusion",
-    title: { de: "Fusion", fr: "Fusion", en: "Fusion" },
+    title: { de: "🤝 Fusion", fr: "🤝 Fusion", en: "🤝 Fusion" },
     items: [
       {
         id: "pollo-fino-2",
-        name: { de: "Pollo Fino (2)", fr: "Pollo Fino (2)", en: "Pollo Fino (2)" },
+        name: { de: "🍗 Pollo Fino (2)", fr: "🍗 Pollo Fino (2)", en: "🍗 Pollo Fino (2)" },
         basePrice: 10,
         desc: {
           de: "Gegrilltes Hahnchen mit Plantain Chips und Puff-puff",
@@ -175,7 +175,7 @@ export const MENU_CATALOG: CatalogSection[] = [
       },
       {
         id: "bh-1-2",
-        name: { de: "BH (1)(2)", fr: "BH (1)(2)", en: "BH (1)(2)" },
+        name: { de: "🌱 BH (1)(2)", fr: "🌱 BH (1)(2)", en: "🌱 BH (1)(2)" },
         basePrice: 10,
         desc: {
           de: "Gewurzter Bohneneintopf mit Puff-puff und Plantain Chips",
@@ -187,9 +187,9 @@ export const MENU_CATALOG: CatalogSection[] = [
       {
         id: "batbout-mit-bohnenfullung-2",
         name: {
-          de: "Batbout mit Bohnenfullung (2)",
-          fr: "Batbout aux haricots (2)",
-          en: "Batbout with bean filling (2)",
+          de: "🥙 Batbout mit Bohnenfullung (2)",
+          fr: "🥙 Batbout aux haricots (2)",
+          en: "🥙 Batbout with bean filling (2)",
         },
         basePrice: 10,
         desc: {
@@ -206,4 +206,3 @@ export const MENU_CATALOG: CatalogSection[] = [
 export function getCatalogItemIds() {
   return MENU_CATALOG.flatMap((section) => section.items.map((it) => it.id));
 }
-
