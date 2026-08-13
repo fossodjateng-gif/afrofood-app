@@ -1,12 +1,12 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OrderRow } from "@/lib/schema";
 import { QRCodeCanvas } from "qrcode.react";
 import { makeQrPayload } from "@/lib/order";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { clearSession, getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
+import { clearSession, getSession, getStaffRoleLabel, type StaffRole, type StaffSession } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 import {
   detectClientPlatform,
@@ -310,13 +310,17 @@ function parseTimestamp(value: string) {
 }
 
 function isTodayOrder(order: OrderRow, todayKey: string) {
-  if (String(order.id || "").startsWith(`${todayKey}-`)) return true;
+  const orderId = String(order.id || "");
   const created = new Date(order.created_at);
-  if (Number.isNaN(created.getTime())) return false;
-  const yyyy = created.getFullYear();
-  const mm = String(created.getMonth() + 1).padStart(2, "0");
-  const dd = String(created.getDate()).padStart(2, "0");
-  return `${yyyy}${mm}${dd}` === todayKey;
+  if (!Number.isNaN(created.getTime())) {
+    const yyyy = created.getFullYear();
+    const mm = String(created.getMonth() + 1).padStart(2, "0");
+    const dd = String(created.getDate()).padStart(2, "0");
+    if (`${yyyy}${mm}${dd}` === todayKey) return true;
+  }
+
+  const datedId = orderId.match(/^(\d{8})-/);
+  return datedId ? datedId[1] === todayKey : false;
 }
 
 async function hasCompletedTapSetup() {
@@ -344,6 +348,8 @@ export default function CaissePage() {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
+  const [staffSession, setStaffSession] = useState<StaffSession | null>(null);
+  const [activeEventName, setActiveEventName] = useState("");
 
   const [orders, setOrders] = useState<CaisseCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -353,6 +359,9 @@ export default function CaissePage() {
   const [startingTapToPayId, setStartingTapToPayId] = useState<string | null>(null);
   const [confirmingPiId, setConfirmingPiId] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [activeTerminalOrderId, setActiveTerminalOrderId] = useState<string | null>(null);
+  const [handledPaymentOrderIds, setHandledPaymentOrderIds] = useState<string[]>([]);
+  const handledPaymentOrderIdsRef = useRef<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLogs, setActionLogs] = useState<string[]>([]);
   const [ticketOrder, setTicketOrder] = useState<OrderRow | null>(null);
@@ -381,11 +390,8 @@ export default function CaissePage() {
         return;
       }
       if (s.role === "admin" || s.role === "cashier") {
-        if (!(await hasCompletedTapSetup())) {
-          window.location.href = "/caisse/setup";
-          return;
-        }
         setStaffRole(s.role);
+        setStaffSession(s);
         setIsUnlocked(true);
       } else {
         window.location.href = "/staff";
@@ -409,6 +415,81 @@ export default function CaissePage() {
     return en;
   }
 
+  useEffect(() => {
+    async function loadActiveEventName() {
+      if (!staffRole) return;
+      try {
+        const res = await fetch("/api/admin/menu-config", {
+          headers: { "x-staff-role": staffRole },
+          cache: "no-store",
+        });
+        const data = await res.json().catch(() => null);
+        if (res.ok && data?.ok) {
+          setActiveEventName(String(data.storeConfig?.activeEventName || "").trim());
+        }
+      } catch {
+        setActiveEventName("");
+      }
+    }
+    void loadActiveEventName();
+  }, [staffRole]);
+
+  async function sendCashierLock(action: "acquire" | "heartbeat" | "release") {
+    if (!staffRole || !staffSession) return;
+    const res = await fetch("/api/cashier-lock", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-staff-role": staffRole,
+      },
+      body: JSON.stringify({
+        action,
+        eventName: activeEventName,
+        userId: staffSession.userId,
+        username: staffSession.username,
+      }),
+      keepalive: action === "release",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      const activeCashier = String(data?.lock?.username || "").trim();
+      throw new Error(
+        activeCashier
+          ? txt(
+              `Cet evenement est deja ouvert par ${activeCashier}.`,
+              `Dieses Event ist bereits von ${activeCashier} geoffnet.`,
+              `This event is already open by ${activeCashier}.`
+            )
+          : data?.error || t.unknownError
+      );
+    }
+  }
+
+  useEffect(() => {
+    if (!isUnlocked || !staffRole || !staffSession) return;
+    let stopped = false;
+
+    async function heartbeat() {
+      try {
+        await sendCashierLock("heartbeat");
+      } catch (e: unknown) {
+        if (!stopped) {
+          setActionError(e instanceof Error ? e.message : t.unknownError);
+          setIsUnlocked(false);
+        }
+      }
+    }
+
+    void heartbeat();
+    const id = window.setInterval(() => {
+      void heartbeat();
+    }, 30000);
+    return () => {
+      stopped = true;
+      window.clearInterval(id);
+    };
+  }, [isUnlocked, staffRole, staffSession, activeEventName, lang]);
+
   const sortedOrders = useMemo(() => {
     return [...orders].sort((a, b) => {
       const aRank = a.status === "PENDING_PAYMENT" ? 0 : 1;
@@ -423,11 +504,11 @@ export default function CaissePage() {
       }
 
       if (a.isJustValidated !== b.isJustValidated) {
-        return a.isJustValidated ? 1 : -1;
+        return a.isJustValidated ? -1 : 1;
       }
 
-      if (aTs !== bTs) return aTs - bTs;
-      return String(a.id).localeCompare(String(b.id));
+      if (bTs !== aTs) return bTs - aTs;
+      return String(b.id).localeCompare(String(a.id));
     });
   }, [orders]);
 
@@ -435,6 +516,101 @@ export default function CaissePage() {
     () => (ticketOrder ? getOrderBreakdown(ticketOrder) : { lineTotals: [], total: 0 }),
     [ticketOrder]
   );
+
+  function TicketBlock() {
+    if (!ticketOrder) return null;
+    return (
+      <div className="af-ticket-wrap af-ticket-area af-ticket-customer" style={{ marginTop: 14, justifyItems: "center" }}>
+        <div className="af-ticket">
+          <div className="af-ticket-head">
+            <img className="af-ticket-logo" src="/logo-afrofood.png" alt="AfroFood" />
+            <div className="af-ticket-title">{t.ticketTitle}</div>
+            <div className="af-ticket-sub">{t.ticketSub}</div>
+          </div>
+
+          <div className="af-ticket-meta">
+            <div>
+              <b>{t.order}:</b> {ticketOrder.id}
+            </div>
+            <div>
+              <b>{t.name}:</b> {ticketOrder.customer_name || "-"}
+            </div>
+            <div>
+              <b>{t.payment}:</b> {ticketOrder.payment}
+            </div>
+          </div>
+          <div
+            style={{
+              marginTop: 8,
+              padding: "8px 10px",
+              borderRadius: 10,
+              border: "1px solid #93c5fd",
+              background: "rgba(59,130,246,0.1)",
+              fontWeight: 800,
+              fontSize: 13,
+            }}
+          >
+            {txt(
+              "Receipt available via QR",
+              "Beleg per QR verfugbar",
+              "Receipt available via QR"
+            )}
+          </div>
+
+          <div className="af-ticket-items">
+            {ticketOrder.items.map((it, idx) => (
+              <div key={idx} className="af-ticket-row">
+                <div className="af-ticket-name">{it.name}</div>
+                <div className="af-ticket-qty">
+                  x{it.qty} - {(ticketBreakdown.lineTotals[idx] ?? 0).toFixed(2)} EUR
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="af-ticket-meta">
+            <div>
+              <b>{t.total}:</b> {ticketBreakdown.total.toFixed(2)} EUR
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>{t.ticketLegend}</div>
+          </div>
+
+          <div className="af-ticket-qr">
+            <QRCodeCanvas
+              value={makeQrPayload({
+                id: ticketOrder.id,
+                createdAt: ticketOrder.created_at,
+                customerName: ticketOrder.customer_name || undefined,
+                payment: ticketOrder.payment,
+                items: ticketOrder.items,
+              })}
+              size={72}
+            />
+            <div className="af-ticket-qrtext">{t.ticketSent}</div>
+          </div>
+
+          <div className="af-ticket-foot">{t.thanks}</div>
+        </div>
+
+        <button
+          onClick={printTicket}
+          type="button"
+          style={{
+            marginTop: 10,
+            padding: "10px 14px",
+            borderRadius: 12,
+            border: "1px solid #111",
+            background: "white",
+            color: "#111",
+            fontWeight: 800,
+            cursor: "pointer",
+          }}
+        >
+          {t.reprint}
+        </button>
+      </div>
+    );
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -449,7 +625,19 @@ export default function CaissePage() {
         isTodayOrder(it as OrderRow, todayKey)
       );
 
-      setOrders(todayOrders);
+      setOrders(
+        todayOrders.map((order) => ({
+          ...(order as CaisseCard),
+          isJustValidated: handledPaymentOrderIdsRef.current.has(String((order as OrderRow).id || "")),
+        }))
+      );
+      setActiveTerminalOrderId((prev) => {
+        if (!prev) return prev;
+        const stillPending = todayOrders.some(
+          (order) => order.id === prev && order.status === "PENDING_PAYMENT"
+        );
+        return stillPending ? prev : null;
+      });
       setJustRefreshed(true);
       window.setTimeout(() => setJustRefreshed(false), 1200);
     } catch (e: unknown) {
@@ -466,6 +654,38 @@ export default function CaissePage() {
     if (!res.ok || !Array.isArray(data)) return null;
     return (data as OrderRow[]).find((order) => order.id === orderId) || null;
   }, []);
+
+  const handlePaymentValidated = useCallback(async (orderId: string) => {
+    const cleanOrderId = String(orderId || "").trim();
+    if (!cleanOrderId) return;
+    if (handledPaymentOrderIdsRef.current.has(cleanOrderId)) return;
+    handledPaymentOrderIdsRef.current.add(cleanOrderId);
+
+    setHandledPaymentOrderIds((prev) =>
+      prev.includes(cleanOrderId) ? prev : [...prev, cleanOrderId].slice(-20)
+    );
+    setActiveTerminalOrderId((prev) => (prev === cleanOrderId ? null : prev));
+    pushLog(
+      txt(
+        `Paiement Tap to Pay confirme pour ${cleanOrderId}`,
+        `Tap to Pay Zahlung bestatigt fur ${cleanOrderId}`,
+        `Tap to Pay payment confirmed for ${cleanOrderId}`
+      )
+    );
+    const order = await loadOrderById(cleanOrderId);
+    if (order) {
+      const paidOrder = { ...order, status: "NEW" as const, isJustValidated: true };
+      setTicketOrder(paidOrder);
+      setOrders((prev) => {
+        const exists = prev.some((it) => it.id === paidOrder.id);
+        const next = exists
+          ? prev.map((it) => (it.id === paidOrder.id ? paidOrder : it))
+          : [paidOrder, ...prev];
+        return next;
+      });
+    }
+    refresh();
+  }, [loadOrderById, refresh, lang]);
 
   useEffect(() => {
     setLang(getSavedLang());
@@ -485,30 +705,37 @@ export default function CaissePage() {
         refresh();
       }
       if (message.reason === "PAYMENT_VALIDATED" && message.orderId) {
-        pushLog(
-          txt(
-            `Paiement Tap to Pay confirme pour ${message.orderId}`,
-            `Tap to Pay Zahlung bestatigt fur ${message.orderId}`,
-            `Tap to Pay payment confirmed for ${message.orderId}`
-          )
-        );
-        void loadOrderById(message.orderId).then((order) => {
-          if (order) {
-            const paidOrder = { ...order, status: "NEW" as const, isJustValidated: true };
-            setTicketOrder(paidOrder);
-            setOrders((prev) => {
-              const exists = prev.some((it) => it.id === paidOrder.id);
-              const next = exists
-                ? prev.map((it) => (it.id === paidOrder.id ? paidOrder : it))
-                : [paidOrder, ...prev];
-              return next;
-            });
-          }
-          refresh();
-        });
+        void handlePaymentValidated(message.orderId);
       }
     });
-  }, [isUnlocked, loadOrderById, refresh]);
+  }, [isUnlocked, handlePaymentValidated, refresh]);
+
+  useEffect(() => {
+    const orderId = activeTerminalOrderId;
+    if (!isUnlocked || !orderId) return;
+    const terminalOrderId: string = orderId;
+    let stopped = false;
+
+    async function pollActiveTerminalOrder() {
+      try {
+        const order = await loadOrderById(terminalOrderId);
+        if (!stopped && order?.status === "NEW") {
+          void handlePaymentValidated(terminalOrderId);
+        }
+      } catch {
+        // The live event path remains primary; polling is a fallback.
+      }
+    }
+
+    void pollActiveTerminalOrder();
+    const interval = window.setInterval(() => {
+      void pollActiveTerminalOrder();
+    }, 2500);
+    return () => {
+      stopped = true;
+      window.clearInterval(interval);
+    };
+  }, [isUnlocked, activeTerminalOrderId, loadOrderById, handlePaymentValidated]);
 
   function printTicket() {
     window.print();
@@ -573,19 +800,19 @@ export default function CaissePage() {
   }
 
   async function initTapToPay(order: OrderRow) {
-    const terminalUrl = new URL(`${TERMINAL_DEEP_LINK_SCHEME}://checkout`);
-    terminalUrl.searchParams.set("orderId", order.id);
+    const session = getSession();
 
     try {
       pushLog(
         txt(
-          `Ouverture AfroFood Terminal pour ${order.id}`,
-          `AfroFood Terminal wird fur ${order.id} geoffnet`,
-          `Opening AfroFood Terminal for ${order.id}`
+          `Envoi de ${order.id} vers AfroFood Terminal`,
+          `${order.id} wird an AfroFood Terminal gesendet`,
+          `Sending ${order.id} to AfroFood Terminal`
         )
       );
       setActionError(null);
       setStartingTapToPayId(order.id);
+      setActiveTerminalOrderId(order.id);
 
       const res = await fetch("/api/stripe/terminal/payment-intent", {
         method: "POST",
@@ -618,20 +845,42 @@ export default function CaissePage() {
         )
       );
 
-      if (data.paymentIntentId) {
-        terminalUrl.searchParams.set("paymentIntentId", String(data.paymentIntentId));
+      const terminalRes = await fetch("/api/terminal-active-order", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-staff-role": staffRole || "",
+        },
+        body: JSON.stringify({
+          username: session?.username || staffSession?.username || "cashier",
+          userId: session?.userId || staffSession?.userId || null,
+          eventName: activeEventName,
+          orderId: order.id,
+          paymentIntentId: String(data.paymentIntentId || ""),
+        }),
+      });
+      const terminalData = await terminalRes.json().catch(() => null);
+      if (!terminalRes.ok || !terminalData?.ok) {
+        throw new Error(terminalData?.error || t.unknownError);
       }
+
+      pushLog(
+        txt(
+          `Commande ${order.id} disponible sur l'iPhone Terminal`,
+          `Bestellung ${order.id} ist auf dem Terminal-iPhone verfugbar`,
+          `Order ${order.id} is available on the Terminal iPhone`
+        )
+      );
     } catch (e: unknown) {
       pushLog(
         txt(
-          `PaymentIntent non prepare pour ${order.id}; ouverture du Terminal`,
-          `PaymentIntent nicht vorbereitet fur ${order.id}; Terminal wird geoffnet`,
-          `PaymentIntent not prepared for ${order.id}; opening Terminal`
+          `Envoi Terminal KO pour ${order.id}`,
+          `Terminal-Senden fehlgeschlagen fur ${order.id}`,
+          `Terminal send failed for ${order.id}`
         )
       );
       setActionError(e instanceof Error ? e.message : t.unknownError);
     } finally {
-      window.location.href = terminalUrl.toString();
       setStartingTapToPayId(null);
       refresh();
     }
@@ -731,6 +980,7 @@ export default function CaissePage() {
       }
 
       setOrders((prev) => prev.map((it) => (it.id === order.id ? { ...it, status: "CANCELED" } : it)));
+      setActiveTerminalOrderId((prev) => (prev === order.id ? null : prev));
       pushLog(
         txt(
           `Annulation OK pour ${order.id} -> CANCELED`,
@@ -814,6 +1064,7 @@ export default function CaissePage() {
             style={{ marginTop: 10, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #475569", background: "#0f172a", color: "white" }}
           />
           {pinError ? <div style={{ marginTop: 8, color: "#fca5a5", fontWeight: 700 }}>{pinError}</div> : null}
+          {actionError ? <div style={{ marginTop: 8, color: "#fca5a5", fontWeight: 700 }}>{actionError}</div> : null}
           <button
             className="af-btn"
             type="button"
@@ -893,7 +1144,9 @@ export default function CaissePage() {
 	            ))}
 			            <button
 			              type="button"
-			              onClick={() => goBackOr("/staff")}
+			              onClick={() => {
+			                void sendCashierLock("release").finally(() => goBackOr("/staff"));
+			              }}
 			              className="af-link-btn"
 			              style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, cursor: "pointer" }}
 			            >
@@ -903,8 +1156,10 @@ export default function CaissePage() {
 		              className="af-btn"
 		              type="button"
 		              onClick={() => {
-		                clearSession();
-		                window.location.href = "/team/login";
+		                void sendCashierLock("release").finally(() => {
+		                  clearSession();
+		                  window.location.href = "/team/login";
+		                });
 		              }}
 		              style={{ padding: "8px 12px", borderRadius: 10, border: "none", background: "#111", color: "white", fontWeight: 800, cursor: "pointer" }}
 		            >
@@ -1000,6 +1255,9 @@ export default function CaissePage() {
           const isPending = o.status === "PENDING_PAYMENT";
           const isCanceled = o.status === "CANCELED";
           const breakdown = getOrderBreakdown(o);
+          const isActiveTerminalOrder = activeTerminalOrderId === o.id;
+          const isBlockedByAnotherTerminalOrder =
+            Boolean(activeTerminalOrderId) && activeTerminalOrderId !== o.id;
 
           return (
             <div
@@ -1030,7 +1288,7 @@ export default function CaissePage() {
                       <>
                         <button
                           onClick={() => initTapToPay(o)}
-                          disabled={startingTapToPayId === o.id}
+                          disabled={startingTapToPayId === o.id || isBlockedByAnotherTerminalOrder}
                           style={{
                             padding: "16px 22px",
                             borderRadius: 14,
@@ -1038,6 +1296,8 @@ export default function CaissePage() {
                             background:
                               startingTapToPayId === o.id
                                 ? "linear-gradient(135deg,#f59e0b,#d97706)"
+                                : isBlockedByAnotherTerminalOrder
+                                ? "linear-gradient(135deg,#64748b,#475569)"
                                 : "linear-gradient(135deg,#2563eb,#1d4ed8)",
                             color: "white",
                             fontWeight: 900,
@@ -1047,11 +1307,28 @@ export default function CaissePage() {
                             width: isNarrowScreen ? "100%" : undefined,
                             textAlign: "center",
                             boxShadow: "0 12px 30px rgba(37,99,235,0.28)",
-                            cursor: startingTapToPayId === o.id ? "not-allowed" : "pointer",
-                            opacity: startingTapToPayId === o.id ? 0.8 : 1,
+                            cursor:
+                              startingTapToPayId === o.id || isBlockedByAnotherTerminalOrder
+                                ? "not-allowed"
+                                : "pointer",
+                            opacity: startingTapToPayId === o.id || isBlockedByAnotherTerminalOrder ? 0.8 : 1,
                           }}
                         >
-                          {startingTapToPayId === o.id ? creatingCardPaymentLabel : initCardPaymentLabel}
+                          {startingTapToPayId === o.id
+                            ? creatingCardPaymentLabel
+                            : isBlockedByAnotherTerminalOrder
+                            ? txt(
+                                `Commande ${activeTerminalOrderId} en validation`,
+                                `Bestellung ${activeTerminalOrderId} wird validiert`,
+                                `Order ${activeTerminalOrderId} is validating`
+                              )
+                            : isActiveTerminalOrder
+                            ? txt(
+                                "Reprendre validation paiement carte",
+                                "Kartenzahlung fortsetzen",
+                                "Resume card payment validation"
+                              )
+                            : initCardPaymentLabel}
                         </button>
 
                         {tapToPayInfo[o.id]?.paymentIntentId ? (
@@ -1076,49 +1353,6 @@ export default function CaissePage() {
                             {waitingWebhookLabel}
                           </div>
                         ) : null}
-
-                        <div style={{ display: "grid", gap: 6 }}>
-                          <input
-                            value={piByOrder[o.id] || ""}
-                            onChange={(e) =>
-                              setPiByOrder((prev) => ({
-                                ...prev,
-                                [o.id]: e.target.value,
-                              }))
-                            }
-                            placeholder={t.piPlaceholder}
-                            style={{
-                              width: isNarrowScreen ? "100%" : 320,
-                              maxWidth: "100%",
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid #93c5fd",
-                              background: "white",
-                              color: "#111",
-                              fontWeight: 700,
-                            }}
-                          />
-                          <button
-                            onClick={() => confirmCardByPaymentIntent(o)}
-                            disabled={confirmingPiId === o.id}
-                            type="button"
-                            style={{
-                              padding: "10px 14px",
-                              borderRadius: 12,
-                              border: "none",
-                              background:
-                                confirmingPiId === o.id
-                                  ? "linear-gradient(135deg,#f59e0b,#d97706)"
-                                  : "linear-gradient(135deg,#08a045,#0d8f3f)",
-                              color: "white",
-                              fontWeight: 900,
-                              cursor: confirmingPiId === o.id ? "not-allowed" : "pointer",
-                              opacity: confirmingPiId === o.id ? 0.8 : 1,
-                            }}
-                          >
-                            {confirmingPiId === o.id ? t.confirmingPi : t.confirmPi}
-                          </button>
-                        </div>
                         {processingPaymentId === o.id ? (
                           <div
                             style={{
@@ -1238,102 +1472,11 @@ export default function CaissePage() {
                   <span>{formatEur(breakdown.total)}</span>
                 </div>
               </div>
+              {ticketOrder?.id === o.id ? <TicketBlock /> : null}
             </div>
           );
         })}
       </div>
-
-	      {ticketOrder ? (
-	        <div className="af-ticket-wrap af-ticket-area af-ticket-customer" style={{ marginTop: 20, justifyItems: "center" }}>
-          <div className="af-ticket">
-            <div className="af-ticket-head">
-              <img className="af-ticket-logo" src="/logo-afrofood.png" alt="AfroFood" />
-              <div className="af-ticket-title">{t.ticketTitle}</div>
-              <div className="af-ticket-sub">{t.ticketSub}</div>
-            </div>
-
-            <div className="af-ticket-meta">
-              <div>
-                <b>{t.order}:</b> {ticketOrder.id}
-              </div>
-              <div>
-                <b>{t.name}:</b> {ticketOrder.customer_name || "-"}
-              </div>
-              <div>
-                <b>{t.payment}:</b> {ticketOrder.payment}
-              </div>
-            </div>
-            <div
-              style={{
-                marginTop: 8,
-                padding: "8px 10px",
-                borderRadius: 10,
-                border: "1px solid #93c5fd",
-                background: "rgba(59,130,246,0.1)",
-                fontWeight: 800,
-                fontSize: 13,
-              }}
-            >
-              {txt(
-                "Receipt available via QR",
-                "Beleg per QR verfugbar",
-                "Receipt available via QR"
-              )}
-            </div>
-
-            <div className="af-ticket-items">
-              {ticketOrder.items.map((it, idx) => (
-                <div key={idx} className="af-ticket-row">
-                  <div className="af-ticket-name">{it.name}</div>
-                  <div className="af-ticket-qty">
-                    x{it.qty} - {(ticketBreakdown.lineTotals[idx] ?? 0).toFixed(2)} EUR
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="af-ticket-meta">
-              <div>
-                <b>{t.total}:</b> {ticketBreakdown.total.toFixed(2)} EUR
-              </div>
-              <div style={{ fontSize: 12, opacity: 0.8 }}>{t.ticketLegend}</div>
-            </div>
-
-            <div className="af-ticket-qr">
-              <QRCodeCanvas
-                value={makeQrPayload({
-                  id: ticketOrder.id,
-                  createdAt: ticketOrder.created_at,
-                  customerName: ticketOrder.customer_name || undefined,
-                  payment: ticketOrder.payment,
-                  items: ticketOrder.items,
-                })}
-                size={72}
-              />
-              <div className="af-ticket-qrtext">{t.ticketSent}</div>
-            </div>
-
-            <div className="af-ticket-foot">{t.thanks}</div>
-          </div>
-
-          <button
-            onClick={printTicket}
-            type="button"
-            style={{
-              marginTop: 10,
-              padding: "10px 14px",
-              borderRadius: 12,
-              border: "1px solid #111",
-              background: "white",
-              color: "#111",
-              fontWeight: 800,
-              cursor: "pointer",
-            }}
-          >
-            {t.reprint}
-          </button>
-	        </div>
-	      ) : null}
 	      </div>
 	    </main>
 	  );

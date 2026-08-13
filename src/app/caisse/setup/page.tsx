@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { QRCodeCanvas } from "qrcode.react";
 import {
   getHeroBannerAssetPath,
   getTapToPayOnIphoneLabel,
@@ -26,6 +27,7 @@ const BRAND = {
   border: "#F1D7C8",
   black: "#111",
 };
+const TERMINAL_DEEP_LINK_SCHEME = "afrofoodterminal";
 
 function getTapSetupProgressKey(userId: string) {
   return `af_ttp_setup_progress_${userId}`;
@@ -284,6 +286,8 @@ export default function CaisseSetupPage() {
   const [prepareMessage, setPrepareMessage] = useState<string | null>(null);
   const [termsChecked, setTermsChecked] = useState(false);
   const [hasCompletedSetupBefore, setHasCompletedSetupBefore] = useState(false);
+  const [activeEventName, setActiveEventName] = useState("");
+  const [terminalSetupUrl, setTerminalSetupUrl] = useState("");
   const [tapConfig, setTapConfig] = useState<TapToPayConfig>({
     awarenessSeen: false,
     termsViewed: false,
@@ -387,6 +391,20 @@ export default function CaisseSetupPage() {
       : "Tap to Pay est bloque tant qu'aucune connexion n'est disponible.";
   const prepareError = isTapPrepareError(error) ? error : null;
   const generalError = !isTapPrepareError(error) ? error : null;
+
+  function openAfroFoodTerminalSetup() {
+    if (!session) return;
+    const terminalUrl = new URL(`${TERMINAL_DEEP_LINK_SCHEME}://setup`);
+    terminalUrl.searchParams.set("username", session.username);
+    terminalUrl.searchParams.set("role", session.role);
+    terminalUrl.searchParams.set("returnUrl", `${window.location.origin}/caisse/setup`);
+    const url = terminalUrl.toString();
+    setTerminalSetupUrl(url);
+    if (/iphone/i.test(window.navigator.userAgent)) {
+      window.location.href = url;
+    }
+  }
+
   async function loadConfig(role: StaffRole, userId: string) {
     setLoading(true);
     setError(null);
@@ -400,6 +418,7 @@ export default function CaisseSetupPage() {
         throw new Error(data?.error || "Unauthorized");
       }
       const incoming = data.tapToPayConfig as Partial<TapToPayConfig> | undefined;
+      setActiveEventName(String(data.storeConfig?.activeEventName || "").trim());
       const serverProgress: TapToPayConfig = {
         awarenessSeen: Boolean(incoming?.awarenessSeen),
         termsViewed: Boolean(incoming?.termsViewed),
@@ -562,6 +581,59 @@ export default function CaisseSetupPage() {
     });
   }
 
+  async function openCashierWithEventLock() {
+    if (!session || !staffRole) return;
+    if (!canOpenCashier && !terminalSetupUrl) {
+      setError(
+        lang === "de"
+          ? "Bitte schliessen Sie zuerst Awareness, Terms und Education ab."
+          : lang === "en"
+          ? "Please complete awareness, terms, and education first."
+          : "Veuillez d'abord terminer awareness, terms et education."
+      );
+      return;
+    }
+    if (connectionBlocked) {
+      setError(offlineMessage);
+      return;
+    }
+    setError(null);
+    setSavingId("cashier-lock");
+    try {
+      const res = await fetch("/api/cashier-lock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-staff-role": staffRole,
+        },
+        body: JSON.stringify({
+          action: "acquire",
+          eventName: activeEventName,
+          userId: session.userId,
+          username: session.username,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        const activeCashier = String(data?.lock?.username || "").trim();
+        throw new Error(
+          activeCashier
+            ? lang === "de"
+              ? `Dieses Event ist bereits von ${activeCashier} geoffnet.`
+              : lang === "en"
+              ? `This event is already open by ${activeCashier}.`
+              : `Cet evenement est deja ouvert par ${activeCashier}.`
+            : data?.error || "Cashier lock failed"
+        );
+      }
+      window.location.href = "/caisse";
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Cashier lock failed");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <main
       style={{
@@ -640,7 +712,77 @@ export default function CaisseSetupPage() {
 
         {loading ? <p>{lang === "de" ? "Laden..." : lang === "en" ? "Loading..." : "Chargement..."}</p> : null}
         {generalError ? <p style={{ color: "#b91c1c", fontWeight: 700 }}>{generalError}</p> : null}
-        {!loading ? (
+        {!loading && !shouldShowAdminBlock ? (
+          <section style={{ background: "white", border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 16, marginTop: 12 }}>
+            <div style={{ fontWeight: 900, fontSize: 22 }}>
+              {lang === "de" ? "Configuration Tap to Pay" : lang === "en" ? "Tap to Pay Configuration" : "Configuration Tap to Pay"}
+            </div>
+            <div style={{ marginTop: 8, color: "#5b5b5b", lineHeight: 1.5 }}>
+              {lang === "de"
+                ? "Offnen Sie AfroFood Terminal auf dem iPhone, um die offiziellen Bedingungen, den Handlerleitfaden und die Tap to Pay Vorbereitung abzuschliessen."
+                : lang === "en"
+                ? "Open AfroFood Terminal on iPhone to complete the official terms, merchant guide, and Tap to Pay preparation."
+                : "Ouvrez AfroFood Terminal sur l'iPhone pour terminer les conditions officielles, le guide marchand et la preparation Tap to Pay."}
+            </div>
+            <button
+              className="af-btn"
+              type="button"
+              onClick={openAfroFoodTerminalSetup}
+              style={{ marginTop: 14, padding: "12px 16px", borderRadius: 12, border: "none", background: "#16a34a", color: "white", fontWeight: 900 }}
+            >
+              {lang === "de" ? "Konfigurieren" : lang === "en" ? "Configure" : "Configurer"}
+            </button>
+            {terminalSetupUrl ? (
+              <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+                <div style={{ fontWeight: 900 }}>
+                  {lang === "de"
+                    ? "Mit dem iPhone scannen"
+                    : lang === "en"
+                    ? "Scan with the iPhone"
+                    : "Scanner avec l'iPhone"}
+                </div>
+                <div style={{ width: 172, padding: 10, borderRadius: 12, border: `1px solid ${BRAND.border}`, background: "white" }}>
+                  <QRCodeCanvas value={terminalSetupUrl} size={150} />
+                </div>
+                <div style={{ color: "#5b5b5b", lineHeight: 1.45 }}>
+                  {lang === "de"
+                    ? "Die Kasse kann auf dem iPad bleiben. Scannen Sie diesen Code mit dem iPhone, auf dem AfroFood Terminal installiert ist."
+                    : lang === "en"
+                    ? "The cashier can stay on the iPad. Scan this code with the iPhone where AfroFood Terminal is installed."
+                    : "La caisse peut rester sur l'iPad. Scannez ce code avec l'iPhone ou AfroFood Terminal est installe."}
+                </div>
+                <button
+                  className="af-btn"
+                  type="button"
+                  onClick={() => void openCashierWithEventLock()}
+                  disabled={savingId === "cashier-lock"}
+                  style={{
+                    padding: "12px 16px",
+                    borderRadius: 12,
+                    border: "none",
+                    background: savingId === "cashier-lock" ? "#94a3b8" : "linear-gradient(135deg,#ff7a00,#ff3c00)",
+                    color: "white",
+                    fontWeight: 900,
+                    cursor: savingId === "cashier-lock" ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {savingId === "cashier-lock"
+                    ? lang === "de"
+                      ? "Kasse wird reserviert..."
+                      : lang === "en"
+                      ? "Reserving cashier..."
+                      : "Reservation caisse..."
+                    : lang === "de"
+                    ? "Auf dem iPhone konfiguriert / Kasse offnen"
+                    : lang === "en"
+                    ? "Configured on iPhone / Open cashier"
+                    : "Configure sur l'iPhone / Ouvrir caisse"}
+                </button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+        {false && !loading ? (
           <button
             className="af-btn"
             type="button"
@@ -652,7 +794,7 @@ export default function CaisseSetupPage() {
           </button>
         ) : null}
 
-        {!loading && shouldShowAdminBlock ? (
+        {false && !loading && shouldShowAdminBlock ? (
           <section style={{ background: "white", border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 16, marginTop: 12 }}>
             <div style={{ fontWeight: 900, fontSize: 22 }}>
               {lang === "de"
@@ -677,7 +819,7 @@ export default function CaisseSetupPage() {
           </section>
         ) : null}
 
-        {!loading && !shouldShowAdminBlock && step === "awareness" ? (
+        {false && !loading && !shouldShowAdminBlock && step === "awareness" ? (
           <section style={{ background: "white", border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 16, marginTop: 12 }}>
             <div
               style={{
@@ -712,7 +854,7 @@ export default function CaisseSetupPage() {
               <button
                 className="af-btn"
                 type="button"
-                onClick={() => void saveUserProgress({ awarenessSeen: true })}
+                onClick={openAfroFoodTerminalSetup}
                 disabled={savingId === "config"}
                 style={{ padding: "12px 16px", borderRadius: 12, border: "none", background: "#111", color: "white", fontWeight: 900 }}
               >
@@ -730,7 +872,7 @@ export default function CaisseSetupPage() {
           </section>
         ) : null}
 
-        {!loading && !shouldShowAdminBlock && step === "terms" ? (
+        {false && !loading && !shouldShowAdminBlock && step === "terms" ? (
           <section style={{ background: "white", border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 16, marginTop: 12 }}>
             <div style={{ fontWeight: 900, fontSize: 22 }}>{terms.title}</div>
             <div style={{ marginTop: 8, color: "#5b5b5b", lineHeight: 1.5 }}>{terms.intro}</div>
@@ -771,7 +913,7 @@ export default function CaisseSetupPage() {
           </section>
         ) : null}
 
-        {!loading && !shouldShowAdminBlock && step === "education" ? (
+        {false && !loading && !shouldShowAdminBlock && step === "education" ? (
           <section style={{ background: "white", border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 16, marginTop: 12 }}>
             <div style={{ fontWeight: 900, fontSize: 22 }}>{guide.title}</div>
             <div style={{ marginTop: 8, color: "#5b5b5b", lineHeight: 1.5 }}>{guide.intro}</div>
@@ -803,7 +945,7 @@ export default function CaisseSetupPage() {
           </section>
         ) : null}
 
-        {!loading && !shouldShowAdminBlock && step === "prepare" && !setupCompleted ? (
+        {false && !loading && !shouldShowAdminBlock && step === "prepare" && !setupCompleted ? (
           <>
             <section style={{ background: "white", border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 16, marginTop: 12 }}>
               <div style={{ fontWeight: 900, fontSize: 22 }}>
@@ -875,42 +1017,36 @@ export default function CaisseSetupPage() {
               <button
                 className="af-btn"
                 type="button"
-                onClick={() => {
-                  if (!canOpenCashier) {
-                    setError(
-                      lang === "de"
-                        ? "Bitte schliessen Sie zuerst Awareness, Terms und Education ab."
-                        : lang === "en"
-                        ? "Please complete awareness, terms, and education first."
-                        : "Veuillez d'abord terminer awareness, terms et education."
-                    );
-                    return;
-                  }
-                  if (connectionBlocked) {
-                    setError(offlineMessage);
-                    return;
-                  }
-                  window.location.href = "/caisse";
-                }}
-                disabled={connectionBlocked}
+                onClick={() => void openCashierWithEventLock()}
+                disabled={connectionBlocked || savingId === "cashier-lock"}
                 style={{
                   marginTop: 10,
                   padding: "10px 14px",
                   borderRadius: 10,
                   border: "none",
-                  background: connectionBlocked ? "#94a3b8" : "linear-gradient(135deg,#ff7a00,#ff3c00)",
+                  background: connectionBlocked || savingId === "cashier-lock" ? "#94a3b8" : "linear-gradient(135deg,#ff7a00,#ff3c00)",
                   color: "white",
                   fontWeight: 900,
-                  cursor: connectionBlocked ? "not-allowed" : "pointer",
-                  opacity: connectionBlocked ? 0.8 : 1,
+                  cursor: connectionBlocked || savingId === "cashier-lock" ? "not-allowed" : "pointer",
+                  opacity: connectionBlocked || savingId === "cashier-lock" ? 0.8 : 1,
                 }}
               >
-                {lang === "de" ? "Kasse offnen" : lang === "en" ? "Open cashier" : "Ouvrir caisse"}
+                {savingId === "cashier-lock"
+                  ? lang === "de"
+                    ? "Kasse wird reserviert..."
+                    : lang === "en"
+                    ? "Reserving cashier..."
+                    : "Reservation caisse..."
+                  : lang === "de"
+                  ? "Kasse offnen"
+                  : lang === "en"
+                  ? "Open cashier"
+                  : "Ouvrir caisse"}
               </button>
             </section>
           </>
         ) : null}
-        {!loading && setupCompleted ? (
+        {false && !loading && setupCompleted ? (
           <>
             <section style={{ background: "white", border: `1px solid ${BRAND.border}`, borderRadius: 16, padding: 16, marginTop: 12 }}>
               <div style={{ fontWeight: 900, fontSize: 22 }}>
@@ -1022,27 +1158,31 @@ export default function CaisseSetupPage() {
               <button
                 className="af-btn"
                 type="button"
-                onClick={() => {
-                  if (connectionBlocked) {
-                    setError(offlineMessage);
-                    return;
-                  }
-                  window.location.href = "/caisse";
-                }}
-                disabled={connectionBlocked}
+                onClick={() => void openCashierWithEventLock()}
+                disabled={connectionBlocked || savingId === "cashier-lock"}
                 style={{
                   marginTop: 10,
                   padding: "10px 14px",
                   borderRadius: 10,
                   border: "none",
-                  background: connectionBlocked ? "#94a3b8" : "linear-gradient(135deg,#ff7a00,#ff3c00)",
+                  background: connectionBlocked || savingId === "cashier-lock" ? "#94a3b8" : "linear-gradient(135deg,#ff7a00,#ff3c00)",
                   color: "white",
                   fontWeight: 900,
-                  cursor: connectionBlocked ? "not-allowed" : "pointer",
-                  opacity: connectionBlocked ? 0.8 : 1,
+                  cursor: connectionBlocked || savingId === "cashier-lock" ? "not-allowed" : "pointer",
+                  opacity: connectionBlocked || savingId === "cashier-lock" ? 0.8 : 1,
                 }}
               >
-                {lang === "de" ? "Kasse offnen" : lang === "en" ? "Open cashier" : "Ouvrir caisse"}
+                {savingId === "cashier-lock"
+                  ? lang === "de"
+                    ? "Kasse wird reserviert..."
+                    : lang === "en"
+                    ? "Reserving cashier..."
+                    : "Reservation caisse..."
+                  : lang === "de"
+                  ? "Kasse offnen"
+                  : lang === "en"
+                  ? "Open cashier"
+                  : "Ouvrir caisse"}
               </button>
             </section>
           </>

@@ -31,26 +31,17 @@ export function getCardPaymentHintText(lang: Lang, platform: ClientPlatform): st
 }
 
 export function getCashierInitCardPaymentLabel(lang: Lang, platform: ClientPlatform): string {
-  if (platform === "ios") {
-    if (lang === "fr") return "Demarrer Tap to Pay sur iPhone";
-    if (lang === "de") return "Tap to Pay auf dem iPhone starten";
-    return "Start Tap to Pay on iPhone";
-  }
-  if (platform === "android") {
-    if (lang === "fr") return "Demarrer Tap to Pay sur iPhone";
-    if (lang === "de") return "Tap to Pay auf dem iPhone starten";
-    return "Start Tap to Pay on iPhone";
-  }
-  if (lang === "fr") return "Demarrer Tap to Pay sur iPhone";
-  if (lang === "de") return "Tap to Pay auf dem iPhone starten";
-  return "Start Tap to Pay on iPhone";
+  void platform;
+  if (lang === "fr") return "Valider paiement carte";
+  if (lang === "de") return "Kartenzahlung validieren";
+  return "Validate card payment";
 }
 
 export function getCashierCreatingCardPaymentLabel(lang: Lang, platform: ClientPlatform): string {
   if (platform === "ios") {
-    if (lang === "fr") return "Preparation Tap to Pay sur iPhone...";
-    if (lang === "de") return "Tap to Pay auf dem iPhone wird vorbereitet...";
-    return "Preparing Tap to Pay on iPhone...";
+    if (lang === "fr") return "Ouverture validation paiement...";
+    if (lang === "de") return "Zahlungsvalidierung wird geoffnet...";
+    return "Opening payment validation...";
   }
   if (platform === "android") {
     if (lang === "fr") return "Preparation paiement Android...";

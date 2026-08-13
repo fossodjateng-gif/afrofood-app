@@ -23,10 +23,14 @@ function getErrorMessage(error: unknown) {
 }
 
 function formatDayKey(d = new Date()) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}${mm}${dd}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const part = (type: string) => parts.find((it) => it.type === type)?.value || "";
+  return `${part("year")}${part("month")}${part("day")}`;
 }
 
 async function makeNextOrderId() {
