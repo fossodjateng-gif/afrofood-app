@@ -54,19 +54,9 @@ type TerminalActiveOrderResponse = {
   error?: string;
 };
 
-type PrepPaymentIntentResponse = {
-  ok: boolean;
-  paymentIntentId?: string;
-  clientSecret?: string;
-  amount?: number;
-  currency?: string;
-  status?: string;
-  error?: string;
-};
-
 type NativeRole = "admin" | "cashier" | "kitchen";
 type NativeLang = "de" | "fr" | "en";
-type SetupStep = "intro" | "terms" | "education" | "prep";
+type SetupStep = "intro" | "education" | "complete";
 
 type NativeSession = {
   username: string;
@@ -125,82 +115,52 @@ function getDailySetupStorageKey(username: string) {
 function getTerminalStepText(lang: NativeLang) {
   if (lang === "de") {
     return {
-      termsTitle: "Tap to Pay on iPhone Nutzungsbedingungen",
-      termsBody:
-        "Offnen Sie die offiziellen Apple Tap to Pay on iPhone Terms and Conditions. Die native iPhone Vorbereitung zeigt die offiziellen Bedingungen ebenfalls an, wenn Apple sie erneut verlangt.",
-      termsSummary: [
-        "AfroFood Terminal akzeptiert kontaktlose Zahlungen direkt auf diesem iPhone.",
-        "Die offiziellen Apple Terms konnen uber die Schaltflache unten geoffnet werden.",
-        "Nach der Zustimmung folgt der Handlerleitfaden und die Tap to Pay Vorbereitung.",
-      ],
-      termsCheck: "Ich habe die Nutzungsbedingungen gelesen und akzeptiere sie.",
-      acceptContinue: "Akzeptieren und fortfahren",
       merchantGuideTitle: "Tap to Pay Handlerleitfaden",
       understood: "Ich habe verstanden",
-      prepTitle: "Tap to Pay Vorbereitung",
+      prepTitle: "Tap to Pay auf dem iPhone aktiviert",
       prepAccepted:
-        "Die Bedingungen wurden akzeptiert. Starten Sie jetzt eine echte Tap to Pay Vorbereitung mit 0,50 EUR.",
-      prepButton: "Tap to Pay vorbereiten (0,50 EUR)",
-      prepBusy: "Vorbereitung lauft...",
-      prepDone: "Tap to Pay ist bereit. Die Demo-Zahlung uber 0,50 EUR wurde verarbeitet.",
-      readApproved: "Gelesen und akzeptiert",
+        "Die offizielle native Einrichtung wurde abgeschlossen. Falls Apple es verlangt hat, wurden die Tap to Pay on iPhone Terms and Conditions vor der Kasse angezeigt und akzeptiert.",
+      prepButton: "Offizielle Tap to Pay Einrichtung starten",
+      prepBusy: "Offizielle Einrichtung lauft...",
+      prepDone: "Tap to Pay ist bereit. Sie konnen jetzt die Kasse offnen.",
+      readApproved: "Kasse offnen",
       configTitle: "Tap to Pay Konfiguration",
       configBody:
-        "Jeder Kassenbenutzer bereitet Tap to Pay einmal pro Tag vor. Danach kann die Kasse Bestellungen an AfroFood Terminal senden.",
-      configure: "Konfigurieren",
+        "Starten Sie die offizielle native Tap to Pay on iPhone Einrichtung. Das iPhone zeigt die Apple Terms and Conditions an, wenn sie fur diesen Merchant noch akzeptiert werden mussen.",
+      configure: "Tap to Pay einrichten und Apple Terms anzeigen",
     };
   }
   if (lang === "en") {
     return {
-      termsTitle: "Tap to Pay on iPhone Terms and Conditions",
-      termsBody:
-        "Open the official Apple Tap to Pay on iPhone Terms and Conditions. The native iPhone setup also displays the official terms if Apple requires them again.",
-      termsSummary: [
-        "AfroFood Terminal accepts contactless payments directly on this iPhone.",
-        "The official Apple Terms can be opened with the button below.",
-        "After acceptance, the merchant guide and Tap to Pay preparation follow.",
-      ],
-      termsCheck: "I have read and accept the Terms and Conditions.",
-      acceptContinue: "Accept and continue",
       merchantGuideTitle: "Tap to Pay Merchant Guide",
       understood: "I understand",
-      prepTitle: "Tap to Pay preparation",
+      prepTitle: "Tap to Pay on iPhone enabled",
       prepAccepted:
-        "The terms have been accepted. Start a real Tap to Pay preparation with 0.50 EUR.",
-      prepButton: "Prepare Tap to Pay (0.50 EUR)",
-      prepBusy: "Preparing...",
-      prepDone: "Tap to Pay is ready. The 0.50 EUR demo payment was processed.",
-      readApproved: "Read and approved",
+        "The official native setup has completed. If Apple required it, the Tap to Pay on iPhone Terms and Conditions were presented and accepted before opening the cashier.",
+      prepButton: "Start official Tap to Pay setup",
+      prepBusy: "Official setup in progress...",
+      prepDone: "Tap to Pay is ready. You can now open the cashier.",
+      readApproved: "Open cashier",
       configTitle: "Tap to Pay configuration",
       configBody:
-        "Each cashier prepares Tap to Pay once per day. After that, the cashier page can send orders to AfroFood Terminal.",
-      configure: "Configure",
+        "Start the official native Tap to Pay on iPhone setup. iPhone displays the Apple Terms and Conditions if they still need to be accepted for this merchant.",
+      configure: "Set up Tap to Pay and show Apple Terms",
     };
   }
   return {
-    termsTitle: "Conditions d'utilisation Tap to Pay on iPhone",
-    termsBody:
-      "Ouvrez les Tap to Pay on iPhone Terms and Conditions officiels Apple. La preparation native iPhone affiche aussi les conditions officielles si Apple les redemande.",
-    termsSummary: [
-      "AfroFood Terminal accepte les paiements sans contact directement sur cet iPhone.",
-      "Les Terms Apple officiels s'ouvrent avec le bouton ci-dessous.",
-      "Apres acceptation, le guide marchand et la preparation Tap to Pay suivent.",
-    ],
-    termsCheck: "J'ai lu et j'accepte les conditions d'utilisation.",
-    acceptContinue: "Accepter et continuer",
     merchantGuideTitle: "Guide marchand Tap to Pay",
     understood: "J'ai compris",
-    prepTitle: "Tap to Pay (preparation)",
+    prepTitle: "Tap to Pay sur iPhone active",
     prepAccepted:
-      "Les conditions ont ete acceptees. Lancez maintenant une vraie preparation Tap to Pay avec 0,50 EUR.",
-    prepButton: "Tap to Pay (preparation avec 0,50 EUR)",
-    prepBusy: "Preparation...",
-    prepDone: "Tap to Pay est pret. Le paiement demo de 0,50 EUR a ete traite.",
-    readApproved: "Lu et approuve",
+      "La configuration native officielle est terminee. Si Apple l'a demande, les Tap to Pay on iPhone Terms and Conditions ont ete presentees et acceptees avant l'ouverture de la caisse.",
+    prepButton: "Demarrer la configuration officielle Tap to Pay",
+    prepBusy: "Configuration officielle en cours...",
+    prepDone: "Tap to Pay est pret. Vous pouvez maintenant ouvrir la caisse.",
+    readApproved: "Ouvrir la caisse",
     configTitle: "Configuration Tap to Pay",
     configBody:
-      "Chaque caissier prepare Tap to Pay une fois par jour. Ensuite, la caisse peut envoyer les commandes a AfroFood Terminal.",
-    configure: "Configurer",
+      "Demarrez la configuration native officielle Tap to Pay sur iPhone. L'iPhone affiche les Apple Terms and Conditions si elles doivent encore etre acceptees pour ce merchant.",
+    configure: "Configurer Tap to Pay et afficher les Terms Apple",
   };
 }
 
@@ -683,8 +643,6 @@ function AwarenessScreen({
   const t = NATIVE_TEXT[lang];
   const stepText = getTerminalStepText(lang);
   const [setupStep, setSetupStep] = useState<SetupStep>("intro");
-  const [termsChecked, setTermsChecked] = useState(false);
-  const [prepComplete, setPrepComplete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [setupLog, setSetupLog] = useState("");
   const [termsAcceptedBySdk, setTermsAcceptedBySdk] = useState(false);
@@ -699,7 +657,7 @@ function AwarenessScreen({
     },
   } as any) as any;
 
-  async function prepareTapToPayDemoPayment() {
+  async function startOfficialTapToPaySetup() {
     try {
       setBusy(true);
       setSetupLog(t.setupStarted);
@@ -728,44 +686,8 @@ function AwarenessScreen({
       );
       if (connectedResult?.error) throw connectedResult.error;
 
-      const prepRes = await fetch(`${API_BASE_URL}/api/stripe/terminal/prep-payment-intent`, {
-        method: "POST",
-      });
-      const prepData = (await prepRes.json()) as PrepPaymentIntentResponse;
-      if (!prepRes.ok || !prepData?.ok || !prepData.clientSecret) {
-        throw new Error(prepData?.error || "Unable to create preparation payment.");
-      }
-
-      setSetupLog(
-        lang === "de"
-          ? "Karte fur die Tap to Pay Vorbereitung uber 0,50 EUR vorhalten."
-          : lang === "en"
-          ? "Present the card for the 0.50 EUR Tap to Pay preparation."
-          : "Presentez la carte pour la preparation Tap to Pay de 0,50 EUR."
-      );
-
-      const retrieved = await terminal.retrievePaymentIntent(prepData.clientSecret);
-      if (retrieved?.error) throw retrieved.error;
-      const intent = retrieved?.paymentIntent;
-      if (!intent) throw new Error("No payment intent returned by Terminal SDK");
-
-      const collected = await terminal.collectPaymentMethod({
-        paymentIntent: intent,
-      });
-      if (collected?.error) throw collected.error;
-
-      const toProcess = collected?.paymentIntent || intent;
-      const processed =
-        (await terminal.confirmPaymentIntent?.({ paymentIntent: toProcess })) ||
-        (await terminal.processPayment?.({ paymentIntent: toProcess })) ||
-        (await terminal.processPaymentIntent?.({ paymentIntent: toProcess }));
-      if (!processed) {
-        throw new Error("Stripe Terminal payment confirmation is not available in this build");
-      }
-      if (processed?.error) throw processed.error;
-
       setSetupLog(stepText.prepDone);
-      setPrepComplete(true);
+      setSetupStep("education");
     } catch (e: any) {
       const message = e?.message || "Unable to start Tap to Pay on iPhone setup.";
       setSetupLog(message);
@@ -789,49 +711,25 @@ function AwarenessScreen({
         <Section title={stepText.configTitle}>
           <Text style={styles.helpText}>{stepText.configBody}</Text>
           <Button
-            label={stepText.configure}
-            onPress={() => setSetupStep("terms")}
+            label={busy ? stepText.prepBusy : stepText.configure}
+            onPress={() => void startOfficialTapToPaySetup()}
             disabled={busy}
             kind="success"
           />
-          <Button label={t.logout} onPress={onLogout} kind="secondary" disabled={busy} />
-        </Section>
-      ) : setupStep === "terms" ? (
-        <Section title={stepText.termsTitle}>
-          <Text style={styles.helpText}>{stepText.termsBody}</Text>
-          <View style={styles.summaryList}>
-            {stepText.termsSummary.map((point) => (
-              <View key={point} style={styles.summaryRow}>
-                <Text style={styles.summaryBullet}>•</Text>
-                <Text style={styles.summaryText}>{point}</Text>
-              </View>
-            ))}
-          </View>
+          <Text style={termsAcceptedBySdk ? styles.successText : styles.helpText}>
+            {setupLog || t.setupDefault}
+          </Text>
           <Button
             label={t.openAppleTerms}
             onPress={() => void Linking.openURL(APPLE_TAP_TO_PAY_TERMS_URL)}
             kind="secondary"
             disabled={busy}
           />
-          <Pressable
-            onPress={() => setTermsChecked((value) => !value)}
-            style={styles.checkboxRow}
-          >
-            <View style={[styles.checkboxBox, termsChecked ? styles.checkboxBoxChecked : null]}>
-              <Text style={styles.checkboxMark}>{termsChecked ? "✓" : ""}</Text>
-            </View>
-            <Text style={styles.checkboxLabel}>{stepText.termsCheck}</Text>
-          </Pressable>
-          <Button
-            label={stepText.acceptContinue}
-            onPress={() => setSetupStep("education")}
-            disabled={busy || !termsChecked}
-            kind="success"
-          />
           <Button label={t.logout} onPress={onLogout} kind="secondary" disabled={busy} />
         </Section>
       ) : setupStep === "education" ? (
         <Section title={stepText.merchantGuideTitle}>
+          <Text style={styles.successText}>{setupLog || stepText.prepDone}</Text>
           <Text style={styles.selectedLabel}>{t.cardsTitle}</Text>
           <Text style={styles.helpText}>{t.cardsBody}</Text>
           <Text style={styles.selectedLabel}>{t.walletsTitle}</Text>
@@ -840,28 +738,21 @@ function AwarenessScreen({
           <Text style={styles.helpText}>{t.pinBody}</Text>
           <Button
             label={stepText.understood}
-            onPress={() => setSetupStep("prep")}
+            onPress={() => setSetupStep("complete")}
             disabled={busy}
             kind="success"
           />
         </Section>
       ) : (
         <Section title={stepText.prepTitle}>
-          <Text style={styles.successText}>{t.termsAccepted}</Text>
           <Text style={styles.helpText}>{stepText.prepAccepted}</Text>
-          <Button
-            label={busy ? stepText.prepBusy : stepText.prepButton}
-            onPress={() => void prepareTapToPayDemoPayment()}
-            disabled={busy || prepComplete}
-            kind={prepComplete ? "secondary" : "success"}
-          />
-          <Text style={termsAcceptedBySdk || prepComplete ? styles.successText : styles.helpText}>
+          <Text style={termsAcceptedBySdk ? styles.successText : styles.helpText}>
             {setupLog || t.setupDefault}
           </Text>
           <Button
             label={stepText.readApproved}
             onPress={onSetupComplete}
-            disabled={busy || !prepComplete}
+            disabled={busy}
             kind="success"
           />
         </Section>
