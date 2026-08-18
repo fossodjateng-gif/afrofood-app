@@ -3,7 +3,8 @@ export type OrderStatus =
   | "NEW"
   | "IN_PROGRESS"
   | "READY"
-  | "DONE";
+  | "DONE"
+  | "CANCELED";
 export type PaymentMethod = "cash" | "card";
 
 export type OrderItem = {
@@ -24,6 +25,7 @@ export type OrderRow = {
   currency?: string | null;
   paid_at?: string | null;
   payment_error?: string | null;
+  event_name?: string | null;
   status: OrderStatus;
   items: OrderItem[];        // JSON
 };

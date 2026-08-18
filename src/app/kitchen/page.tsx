@@ -1,15 +1,19 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { OrderRow } from "@/lib/schema";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
+import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
+import { goBackOr } from "@/lib/client-nav";
 
 const UI_TEXT: Record<
   Lang,
   {
     title: string;
     subtitle: string;
+    back: string;
     refreshing: string;
     refreshed: string;
     refresh: string;
@@ -25,6 +29,7 @@ const UI_TEXT: Record<
   de: {
     title: "Kuche - Bestellungen",
     subtitle: "Orange: in Vorbereitung, Grun: abholbereit",
+    back: "Zuruck",
     refreshing: "Aktualisierung...",
     refreshed: "Aktualisiert",
     refresh: "Aktualisieren",
@@ -39,6 +44,7 @@ const UI_TEXT: Record<
   fr: {
     title: "Cuisine - Commandes",
     subtitle: "Orange: en preparation, Vert: pret a retirer",
+    back: "Retour",
     refreshing: "Actualisation...",
     refreshed: "Actualise",
     refresh: "Actualiser",
@@ -53,6 +59,7 @@ const UI_TEXT: Record<
   en: {
     title: "Kitchen - Orders",
     subtitle: "Orange: preparing, Green: ready for pickup",
+    back: "Back",
     refreshing: "Refreshing...",
     refreshed: "Refreshed",
     refresh: "Refresh",
@@ -66,13 +73,17 @@ const UI_TEXT: Record<
   },
 };
 
-export default function KitchenPage() {
+function KitchenPageContent() {
+  const searchParams = useSearchParams();
   const [lang, setLang] = useState<Lang>("de");
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [justRefreshed, setJustRefreshed] = useState(false);
+  const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
   const t = UI_TEXT[lang];
+  const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
+  const backHref = fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine";
 
   const sortedOrders = useMemo(() => {
     return [...orders].sort((a, b) => {
@@ -109,8 +120,18 @@ export default function KitchenPage() {
   }
 
   useEffect(() => {
+    const s = getSession();
+    if (!s) {
+      window.location.href = "/team/login";
+      return;
+    }
+    if (s.role !== "admin" && s.role !== "kitchen" && s.role !== "cashier") {
+      window.location.href = "/staff";
+      return;
+    }
+    setStaffRole(s.role);
     setLang(getSavedLang());
-    refresh();
+    void refresh();
   }, []);
 
   useEffect(() => {
@@ -149,7 +170,23 @@ export default function KitchenPage() {
         color: "#111",
       }}
     >
-      <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+      <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <button
+          type="button"
+          onClick={() => goBackOr(backHref)}
+          className="af-link-btn"
+          style={{
+            padding: "6px 10px",
+            borderRadius: 10,
+            border: "1px solid #111",
+            background: "white",
+            color: "#111",
+            fontWeight: 800,
+            cursor: "pointer",
+          }}
+        >
+          {t.back}
+        </button>
         {(["de", "fr", "en"] as Lang[]).map((L) => (
           <button
             key={L}
@@ -158,23 +195,17 @@ export default function KitchenPage() {
               setLang(L);
               saveLang(L);
             }}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 10,
-              border: "1px solid #111",
-              background: lang === L ? "#111" : "white",
-              color: lang === L ? "white" : "#111",
-              cursor: "pointer",
-              fontWeight: 800,
-            }}
+            className={`af-lang-btn ${lang === L ? "is-active" : ""}`}
           >
             {L.toUpperCase()}
           </button>
         ))}
+        {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
       </div>
       <h1 style={{ margin: "10px 0 0 0", fontSize: 28, fontWeight: 900 }}>{t.title}</h1>
       <p style={{ opacity: 0.75 }}>{t.subtitle}</p>
       <button
+        className="af-btn"
         onClick={refresh}
         disabled={isRefreshing}
         style={{
@@ -271,5 +302,13 @@ export default function KitchenPage() {
         })}
       </div>
     </main>
+  );
+}
+
+export default function KitchenPage() {
+  return (
+    <Suspense fallback={null}>
+      <KitchenPageContent />
+    </Suspense>
   );
 }

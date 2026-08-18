@@ -24,6 +24,7 @@ Set in `.env`:
 
 ```bash
 EXPO_PUBLIC_AFROFOOD_API_BASE_URL=https://afrofood-app.vercel.app
+EXPO_PUBLIC_STRIPE_TERMINAL_LOCATION_ID=tml_GZ01YQcRTm1DdP
 ```
 
 ## Run on iPhone
@@ -52,4 +53,3 @@ Then launch from Xcode/device.
   - `POST /api/stripe/terminal/connection-token`
   - `POST /api/stripe/terminal/payment-intent`
 - If Tap to Pay does not connect, verify Stripe Terminal account/device eligibility and iPhone region requirements.
-

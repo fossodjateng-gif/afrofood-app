@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
 
-type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE";
+type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE" | "CANCELED";
 
 const VALID_STATUSES = new Set<OrderStatus>([
   "PENDING_PAYMENT",
@@ -10,6 +10,7 @@ const VALID_STATUSES = new Set<OrderStatus>([
   "IN_PROGRESS",
   "READY",
   "DONE",
+  "CANCELED",
 ]);
 
 export async function PATCH(

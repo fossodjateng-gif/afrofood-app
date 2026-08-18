@@ -10,6 +10,7 @@ export type CatalogMenuItem = {
   basePrice: number;
   desc?: LocalizedText;
   tags?: MenuTag[];
+  imagePath?: string;
 };
 
 export type CatalogSection = {
@@ -26,7 +27,7 @@ export const MENU_CATALOG: CatalogSection[] = [
       {
         id: "dip-green",
         name: {
-          de: "Grune Sauce (nicht scharf)",
+          de: "Green sauce (mild)",
           fr: "Sauce verte (douce)",
           en: "Green sauce (mild)",
         },
@@ -40,7 +41,7 @@ export const MENU_CATALOG: CatalogSection[] = [
       {
         id: "dip-chili",
         name: {
-          de: "Chili Sauce (scharf)",
+          de: "Chili sauce (hot)",
           fr: "Sauce chili (piquante)",
           en: "Chili sauce (hot)",
         },
@@ -55,7 +56,7 @@ export const MENU_CATALOG: CatalogSection[] = [
   },
   {
     id: "drinks",
-    title: { de: "Immungetranke", fr: "Boissons bien-etre", en: "Wellness drinks" },
+    title: { de: "Wellness drinks", fr: "Boissons bien-etre", en: "Wellness drinks" },
     items: [
       {
         id: "ingwersaft",
@@ -87,6 +88,7 @@ export const MENU_CATALOG: CatalogSection[] = [
         id: "puff-puff-1",
         name: { de: "Puff-puff (1)", fr: "Puff-puff (1)", en: "Puff-puff (1)" },
         basePrice: 5,
+        imagePath: "/assets/menu/puff-puff-1.png",
         desc: {
           de: "Goldbraune Hefeballchen, aussen knusprig und innen fluffig",
           fr: "Beignets dores, croustillants dehors et moelleux dedans",
@@ -98,6 +100,7 @@ export const MENU_CATALOG: CatalogSection[] = [
         id: "plantain-chips",
         name: { de: "Plantain Chips", fr: "Chips de plantain", en: "Plantain chips" },
         basePrice: 5,
+        imagePath: "/assets/menu/plantain-chips.png",
         desc: {
           de: "Knusprig frittierte Kochbananenscheiben",
           fr: "Tranches de plantain frites et croustillantes",
@@ -109,14 +112,14 @@ export const MENU_CATALOG: CatalogSection[] = [
   },
   {
     id: "africa-tour",
-    title: { de: "Afrika entdecken", fr: "Voyage en Afrique", en: "Taste of Africa" },
+    title: { de: "Taste of Africa", fr: "Voyage en Afrique", en: "Taste of Africa" },
     items: [
       {
         id: "bhb-1-2-kamerun-veganer-teller",
         name: {
-          de: "BHB (1)(2) (Kamerun) - Veganer Teller",
-          fr: "BHB (1)(2) (Cameroun) - Assiette vegane",
-          en: "BHB (1)(2) (Cameroon) - Vegan plate",
+          de: "BHB (1)(2) (Kamerun)",
+          fr: "BHB (1)(2) (Cameroun)",
+          en: "BHB (1)(2) (Cameroon)",
         },
         basePrice: 15,
         desc: {
@@ -134,10 +137,11 @@ export const MENU_CATALOG: CatalogSection[] = [
           en: "Attieke Chicken (2) (Ivory Coast)",
         },
         basePrice: 15,
+        imagePath: "/assets/menu/attieke-poulet-2-elfenbeinkuste.png",
         desc: {
           de: "Maniok-Semola mit gegrilltem Pollo Fino und Tomaten-Zwiebel-Gurken Salat",
-          fr: "Semoule de manioc avec pollo fino grille et Salade de tomates, oignons et concombres",
-          en: "Cassava semolina with grilled pollo fino and Tomato, onion and cucumber salad",
+          fr: "Semoule de manioc avec pollo fino grille et salade de tomates, oignons et concombres",
+          en: "Cassava semolina with grilled pollo fino and tomato, onion and cucumber salad",
         },
         tags: ["CHICKEN"],
       },
@@ -149,6 +153,7 @@ export const MENU_CATALOG: CatalogSection[] = [
           en: "Batbout with chicken filling (2) (Morocco)",
         },
         basePrice: 15,
+        imagePath: "/assets/menu/batbout-mit-hahnchenfullung-2-marokko.png",
         desc: {
           de: "Marokkanisches Fladenbrot mit gegrilltem Pollo Fino, Tomaten und Salat",
           fr: "Pain marocain garni de pollo fino grille, tomates et salade",
@@ -166,6 +171,7 @@ export const MENU_CATALOG: CatalogSection[] = [
         id: "pollo-fino-2",
         name: { de: "Pollo Fino (2)", fr: "Pollo Fino (2)", en: "Pollo Fino (2)" },
         basePrice: 10,
+        imagePath: "/assets/menu/pollo-fino-2.png",
         desc: {
           de: "Gegrilltes Hahnchen mit Plantain Chips und Puff-puff",
           fr: "Poulet grille avec chips de plantain et puff-puff",
@@ -177,6 +183,7 @@ export const MENU_CATALOG: CatalogSection[] = [
         id: "bh-1-2",
         name: { de: "BH (1)(2)", fr: "BH (1)(2)", en: "BH (1)(2)" },
         basePrice: 10,
+        imagePath: "/assets/menu/bh-1-2.png",
         desc: {
           de: "Gewurzter Bohneneintopf mit Puff-puff und Plantain Chips",
           fr: "Haricot epice avec puff-puff et chips de plantain",
@@ -192,6 +199,7 @@ export const MENU_CATALOG: CatalogSection[] = [
           en: "Batbout with bean filling (2)",
         },
         basePrice: 10,
+        imagePath: "/assets/menu/batbout-mit-bohnenfullung-2.png",
         desc: {
           de: "Marokkanisches Fladenbrot mit gewurzten Bohnen, Tomaten und Salat",
           fr: "Pain marocain garni de haricot epice, tomates et salade",
@@ -203,7 +211,10 @@ export const MENU_CATALOG: CatalogSection[] = [
   },
 ];
 
+export function getMenuItemImagePath(itemId: string) {
+  return `/assets/menu/${String(itemId || "").trim()}.jpg`;
+}
+
 export function getCatalogItemIds() {
   return MENU_CATALOG.flatMap((section) => section.items.map((it) => it.id));
 }
-

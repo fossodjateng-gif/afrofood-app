@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
+import { getPaymentConfig } from "@/lib/menu-settings";
 import { calculateOrderTotalCents } from "@/lib/pricing";
 import { ensureOrdersSchema } from "@/lib/orders-schema";
 
 type PaymentMethod = "cash" | "card";
-type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE";
+type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE" | "CANCELED";
 
 const VALID_PAYMENTS = new Set<PaymentMethod>(["cash", "card"]);
 const VALID_STATUSES = new Set<OrderStatus>([
@@ -14,6 +15,7 @@ const VALID_STATUSES = new Set<OrderStatus>([
   "IN_PROGRESS",
   "READY",
   "DONE",
+  "CANCELED",
 ]);
 
 function getErrorMessage(error: unknown) {
@@ -64,14 +66,14 @@ export async function GET(req: Request) {
       }
 
       rows = await sql`
-        SELECT id, created_at, customer_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, event_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
         FROM orders
         WHERE id = ${idParam} AND UPPER(status) = ${statusParam}
         ORDER BY created_at DESC
       `;
     } else if (idParam) {
       rows = await sql`
-        SELECT id, created_at, customer_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, event_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
         FROM orders
         WHERE id = ${idParam}
         ORDER BY created_at DESC
@@ -82,14 +84,14 @@ export async function GET(req: Request) {
       }
 
       rows = await sql`
-        SELECT id, created_at, customer_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, event_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
         FROM orders
         WHERE UPPER(status) = ${statusParam}
         ORDER BY created_at DESC
       `;
     } else {
       rows = await sql`
-        SELECT id, created_at, customer_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, event_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
         FROM orders
         ORDER BY created_at DESC
       `;
@@ -114,6 +116,10 @@ export async function POST(req: Request) {
       body.customerName && String(body.customerName).trim()
         ? String(body.customerName).trim()
         : null;
+    const eventName =
+      body.eventName && String(body.eventName).trim()
+        ? String(body.eventName).trim()
+        : null;
 
     const payment = String(body.payment || "") as PaymentMethod;
     const items = body.items;
@@ -125,12 +131,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Missing items" }, { status: 400 });
     }
 
+    const paymentConfig = await getPaymentConfig();
+    if (payment === "cash" && !paymentConfig.cashEnabled) {
+      return NextResponse.json({ ok: false, error: "Cash payment disabled" }, { status: 400 });
+    }
+    if (payment === "card" && !paymentConfig.cardEnabled) {
+      return NextResponse.json({ ok: false, error: "Card payment disabled" }, { status: 400 });
+    }
+
     const id = await makeNextOrderId();
     const amountCents = calculateOrderTotalCents(items);
 
     await sql`
-      INSERT INTO orders (id, created_at, customer_name, payment, payment_provider, amount_cents, currency, status, items)
-      VALUES (${id}, ${createdAt}::timestamptz, ${customerName}, ${payment}, NULL, ${amountCents}, 'eur', 'PENDING_PAYMENT', ${JSON.stringify(items)}::jsonb)
+      INSERT INTO orders (id, created_at, customer_name, event_name, payment, payment_provider, amount_cents, currency, status, items)
+      VALUES (${id}, ${createdAt}::timestamptz, ${customerName}, ${eventName}, ${payment}, NULL, ${amountCents}, 'eur', 'PENDING_PAYMENT', ${JSON.stringify(items)}::jsonb)
     `;
 
     publishOrderEvent({
@@ -142,7 +156,14 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      order: { id, createdAt, customerName: customerName ?? undefined, payment, items },
+      order: {
+        id,
+        createdAt,
+        customerName: customerName ?? undefined,
+        eventName: eventName ?? undefined,
+        payment,
+        items,
+      },
     });
   } catch (e: unknown) {
     return NextResponse.json(

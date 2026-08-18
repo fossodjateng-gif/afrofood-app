@@ -13,6 +13,7 @@ export type Order = {
   id: string;            // ex: 20260219-003
   createdAt: string;     // ISO
   customerName?: string;
+  eventName?: string;
   items: TicketItem[];
   payment: PaymentMethod;
 };
@@ -55,6 +56,7 @@ export function makeQrPayload(order: Order) {
     `AFROFOOD|${order.id}`,
     `DATE:${order.createdAt}`,
     order.customerName ? `NAME:${order.customerName}` : "",
+    order.eventName ? `EVENT:${order.eventName}` : "",
     `PAY:${order.payment}`,
     ...order.items.map((it) => `ITEM:${it.qty}x ${it.name}`),
   ].filter(Boolean);
