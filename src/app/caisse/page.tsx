@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OrderRow } from "@/lib/schema";
 import { QRCodeCanvas } from "qrcode.react";
 import { makeQrPayload } from "@/lib/order";
@@ -316,26 +316,8 @@ function isTodayOrder(order: OrderRow, todayKey: string) {
   return datedId ? datedId[1] === todayKey : false;
 }
 
-async function hasCompletedTapSetup() {
-  try {
-    const res = await fetch("/api/menu-config", { cache: "no-store" });
-    const data = await res.json().catch(() => null);
-    const config = data?.tapToPayConfig as
-      | Partial<{
-          awarenessSeen: boolean;
-          termsAccepted: boolean;
-          educationSeen: boolean;
-        }>
-      | undefined;
-    return Boolean(res.ok && config?.awarenessSeen && config?.termsAccepted && config?.educationSeen);
-  } catch {
-    return false;
-  }
-}
-
 export default function CaissePage() {
   const [lang, setLang] = useState<Lang>("de");
-  const [clientPlatform, setClientPlatform] = useState<ClientPlatform>("other");
   const [pin, setPin] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
@@ -354,16 +336,6 @@ export default function CaissePage() {
   const [cashierEventId, setCashierEventId] = useState("");
 
   const t = UI_TEXT[lang];
-  const initCardPaymentLabel = getCashierInitCardPaymentLabel(lang, clientPlatform);
-  const creatingCardPaymentLabel = getCashierCreatingCardPaymentLabel(lang, clientPlatform);
-  const waitingWebhookLabel = getCashierWaitingWebhookText(lang, clientPlatform);
-
-  useEffect(() => {
-    const updateNarrowScreen = () => setIsNarrowScreen(window.innerWidth < 720);
-    updateNarrowScreen();
-    window.addEventListener("resize", updateNarrowScreen);
-    return () => window.removeEventListener("resize", updateNarrowScreen);
-  }, []);
 
   useEffect(() => {
     async function unlock() {
@@ -374,7 +346,6 @@ export default function CaissePage() {
       }
       if (s.role === "admin" || s.role === "cashier") {
         setStaffRole(s.role);
-        setStaffSession(s);
         setIsUnlocked(true);
       } else {
         window.location.href = "/staff";
@@ -635,18 +606,11 @@ export default function CaissePage() {
   const handlePaymentValidated = useCallback(async (orderId: string) => {
     const cleanOrderId = String(orderId || "").trim();
     if (!cleanOrderId) return;
-    if (handledPaymentOrderIdsRef.current.has(cleanOrderId)) return;
-    handledPaymentOrderIdsRef.current.add(cleanOrderId);
-
-    setHandledPaymentOrderIds((prev) =>
-      prev.includes(cleanOrderId) ? prev : [...prev, cleanOrderId].slice(-20)
-    );
-    setActiveTerminalOrderId((prev) => (prev === cleanOrderId ? null : prev));
     pushLog(
       txt(
-        `Paiement Tap to Pay confirme pour ${cleanOrderId}`,
-        `Tap to Pay Zahlung bestatigt fur ${cleanOrderId}`,
-        `Tap to Pay payment confirmed for ${cleanOrderId}`
+        `Paiement confirme pour ${cleanOrderId}`,
+        `Zahlung bestatigt fur ${cleanOrderId}`,
+        `Payment confirmed for ${cleanOrderId}`
       )
     );
     const order = await loadOrderById(cleanOrderId);
@@ -666,7 +630,6 @@ export default function CaissePage() {
 
   useEffect(() => {
     setLang(getSavedLang());
-    setClientPlatform(detectClientPlatform());
     if (isUnlocked) {
       refresh();
     }
@@ -686,33 +649,6 @@ export default function CaissePage() {
       }
     });
   }, [isUnlocked, handlePaymentValidated, refresh]);
-
-  useEffect(() => {
-    const orderId = activeTerminalOrderId;
-    if (!isUnlocked || !orderId) return;
-    const terminalOrderId: string = orderId;
-    let stopped = false;
-
-    async function pollActiveTerminalOrder() {
-      try {
-        const order = await loadOrderById(terminalOrderId);
-        if (!stopped && order?.status === "NEW") {
-          void handlePaymentValidated(terminalOrderId);
-        }
-      } catch {
-        // The live event path remains primary; polling is a fallback.
-      }
-    }
-
-    void pollActiveTerminalOrder();
-    const interval = window.setInterval(() => {
-      void pollActiveTerminalOrder();
-    }, 2500);
-    return () => {
-      stopped = true;
-      window.clearInterval(interval);
-    };
-  }, [isUnlocked, activeTerminalOrderId, loadOrderById, handlePaymentValidated]);
 
   function printTicket() {
     window.print();
@@ -1067,14 +1003,11 @@ export default function CaissePage() {
 		        </div>
 
 		        {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>{t.noOrders}</p> : null}
-	        <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+        <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
         {sortedOrders.map((o) => {
           const isPending = o.status === "PENDING_PAYMENT";
           const isCanceled = o.status === "CANCELED";
           const breakdown = getOrderBreakdown(o);
-          const isActiveTerminalOrder = activeTerminalOrderId === o.id;
-          const isBlockedByAnotherTerminalOrder =
-            Boolean(activeTerminalOrderId) && activeTerminalOrderId !== o.id;
 
           return (
             <div

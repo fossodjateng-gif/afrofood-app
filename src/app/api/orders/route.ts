@@ -178,14 +178,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Cashless payment disabled" }, { status: 400 });
     }
 
-    const paymentConfig = await getPaymentConfig();
-    if (payment === "cash" && !paymentConfig.cashEnabled) {
-      return NextResponse.json({ ok: false, error: "Cash payment disabled" }, { status: 400 });
-    }
-    if (payment === "card" && !paymentConfig.cardEnabled) {
-      return NextResponse.json({ ok: false, error: "Card payment disabled" }, { status: 400 });
-    }
-
     const id = await makeNextOrderId();
     const amountCents = calculateOrderTotalCents(items);
 
