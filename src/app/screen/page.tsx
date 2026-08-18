@@ -5,8 +5,10 @@ import { useSearchParams } from "next/navigation";
 import type { OrderRow } from "@/lib/schema";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
+import { getSession, getStaffRoleLabel, type StaffRole, updateSessionCashierEventId } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
+
+const CAISSE_EVENT_ID_KEY = "af_caisse_event_id";
 
 const UI_TEXT: Record<
   Lang,
@@ -69,6 +71,7 @@ function ScreenPageContent() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [justRefreshed, setJustRefreshed] = useState(false);
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
+  const [assignedEventId, setAssignedEventId] = useState("");
   const t = UI_TEXT[lang];
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
   const backHref = fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine";
@@ -76,9 +79,10 @@ function ScreenPageContent() {
   async function refresh() {
     try {
       setIsRefreshing(true);
+      const eventFilter = assignedEventId ? `&eventId=${encodeURIComponent(assignedEventId)}` : "";
       const [preparingRes, readyRes] = await Promise.all([
-        fetch("/api/orders?status=NEW", { cache: "no-store" }),
-        fetch("/api/orders?status=READY", { cache: "no-store" }),
+        fetch(`/api/orders?status=NEW${eventFilter}`, { cache: "no-store" }),
+        fetch(`/api/orders?status=READY${eventFilter}`, { cache: "no-store" }),
       ]);
 
       const preparingData = await preparingRes.json();
@@ -94,19 +98,63 @@ function ScreenPageContent() {
   }
 
   useEffect(() => {
-    const s = getSession();
-    if (!s) {
-      window.location.href = "/team/login";
-      return;
+    let alive = true;
+
+    async function boot() {
+      const s = getSession();
+      if (!s) {
+        window.location.href = "/team/login";
+        return;
+      }
+      if (s.role !== "admin" && s.role !== "kitchen" && s.role !== "cashier") {
+        window.location.href = "/staff";
+        return;
+      }
+      setStaffRole(s.role);
+      setLang(getSavedLang());
+
+      if (s.role === "admin" && fromCaisse) {
+        const caisseEventId = localStorage.getItem(CAISSE_EVENT_ID_KEY) || "";
+        if (caisseEventId.trim()) {
+          if (!alive) return;
+          setAssignedEventId(caisseEventId.trim());
+          return;
+        }
+      }
+
+      if (s.role === "admin") {
+        if (!alive) return;
+        void refresh();
+        return;
+      }
+
+      let nextEventId = String(s.cashierEventId || "").trim();
+      if (!nextEventId) {
+        try {
+          const res = await fetch("/api/menu-config", { cache: "no-store" });
+          const data = await res.json().catch(() => null);
+          const events = Array.isArray(data?.storeConfig?.events) ? data.storeConfig.events : [];
+          nextEventId = String(data?.storeConfig?.activeEventId || "").trim() || String(events[0]?.id || "").trim();
+          if (nextEventId) updateSessionCashierEventId(nextEventId);
+        } catch {}
+      }
+
+      if (!alive) return;
+      setAssignedEventId(nextEventId);
     }
-    if (s.role !== "admin" && s.role !== "kitchen" && s.role !== "cashier") {
-      window.location.href = "/staff";
-      return;
-    }
-    setStaffRole(s.role);
-    setLang(getSavedLang());
+
+    void boot();
+    return () => {
+      alive = false;
+    };
+  }, [fromCaisse]);
+
+  useEffect(() => {
+    if (staffRole === null) return;
+    if (staffRole !== "admin" && !assignedEventId) return;
+    if (staffRole === "admin" && fromCaisse && !assignedEventId) return;
     void refresh();
-  }, []);
+  }, [assignedEventId, staffRole, fromCaisse]);
 
   useEffect(() => {
     return subscribeOrderSync((message) => {

@@ -27,7 +27,10 @@ export type OrderRow = {
   currency?: string | null;
   paid_at?: string | null;
   payment_error?: string | null;
+  event_id?: string | null;
   event_name?: string | null;
+  reservation_requested?: boolean | null;
+  reservation_time?: string | null;
   status: OrderStatus;
   items: OrderItem[];        // JSON
 };

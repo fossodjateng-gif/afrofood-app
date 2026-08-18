@@ -34,8 +34,10 @@ export async function GET(req: Request) {
     if (!isAuthorized(req)) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
-    const sections = await getResolvedMenuSections();
-    const paymentConfig = await getPaymentConfig();
+    const { searchParams } = new URL(req.url);
+    const eventId = String(searchParams.get("eventId") || "").trim();
+    const sections = await getResolvedMenuSections(eventId || undefined);
+    const paymentConfig = await getPaymentConfig(eventId || undefined);
     const storeConfig = await getStoreConfig();
     const tapToPayConfig = await getTapToPayConfig();
     return NextResponse.json({ ok: true, sections, paymentConfig, storeConfig, tapToPayConfig });
@@ -87,7 +89,8 @@ export async function PATCH(req: Request) {
       const cashEnabled = Boolean(body?.cashEnabled);
       const cardEnabled = Boolean(body?.cardEnabled);
       const cashlessEnabled = body?.cashlessEnabled === undefined ? true : Boolean(body?.cashlessEnabled);
-      await upsertPaymentConfig({ cashEnabled, cardEnabled, cashlessEnabled });
+      const eventId = String(body?.eventId || "").trim();
+      await upsertPaymentConfig({ cashEnabled, cardEnabled, cashlessEnabled }, eventId || undefined);
       return NextResponse.json({ ok: true });
     }
 
@@ -95,8 +98,17 @@ export async function PATCH(req: Request) {
       if (!canManageOps) {
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
       }
+      const activeEventId = String(body?.activeEventId || "").trim();
       const activeEventName = String(body?.activeEventName || "").trim();
-      await upsertStoreConfig({ activeEventName });
+      const events = Array.isArray(body?.events)
+        ? body.events
+            .map((event: { id?: string; name?: string }) => ({
+              id: String(event?.id || "").trim(),
+              name: String(event?.name || "").trim(),
+            }))
+            .filter((event: { id: string; name: string }) => event.id && event.name)
+        : [];
+      await upsertStoreConfig({ activeEventId, activeEventName, events });
       return NextResponse.json({ ok: true });
     }
 
@@ -126,6 +138,7 @@ export async function PATCH(req: Request) {
     const itemId = String(body?.itemId || "").trim();
     const price = Number(body?.price);
     const visible = Boolean(body?.visible);
+    const eventId = String(body?.eventId || "").trim();
     if (!canManageCatalog) {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
@@ -135,7 +148,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: false, error: "Unknown itemId" }, { status: 400 });
     }
 
-    await upsertMenuItemSetting({ itemId, price, visible });
+    await upsertMenuItemSetting({ itemId, price, visible, eventId: eventId || undefined });
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     const error = e instanceof Error ? e.message : "Server error";

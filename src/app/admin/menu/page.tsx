@@ -38,7 +38,9 @@ type PaymentConfig = {
 };
 
 type StoreConfig = {
+  activeEventId: string;
   activeEventName: string;
+  events: Array<{ id: string; name: string }>;
 };
 
 type TapToPayConfig = {
@@ -51,6 +53,7 @@ type TapToPayConfig = {
 
 type CustomItemCategory = "dish" | "drink" | "dip";
 type TapSetupStep = "awareness" | "terms" | "education" | "prepare";
+const CAISSE_EVENT_ID_KEY = "af_caisse_event_id";
 
 function formatTapPrepareError(error: unknown, lang: Lang) {
   const message = error instanceof Error ? error.message : String(error || "Preparation failed");
@@ -233,8 +236,12 @@ function AdminMenuPageContent() {
     cashlessEnabled: true,
   });
   const [storeConfig, setStoreConfig] = useState<StoreConfig>({
+    activeEventId: "",
     activeEventName: "",
+    events: [],
   });
+  const [pricingEventId, setPricingEventId] = useState("");
+  const [newEventName, setNewEventName] = useState("");
   const [newItemCategory, setNewItemCategory] = useState<CustomItemCategory>("dish");
   const [newItemName, setNewItemName] = useState("");
   const [newItemDesc, setNewItemDesc] = useState("");
@@ -269,7 +276,17 @@ function AdminMenuPageContent() {
     if (isUnlocked) {
       void loadData();
     }
-  }, [isUnlocked, staffRoleSession]);
+  }, [isUnlocked, staffRoleSession, pricingEventId]);
+
+  function makeEventId(name: string) {
+    return String(name || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+  }
 
   function buildAuthHeaders(extra?: Record<string, string>) {
     if (staffRoleSession) {
@@ -334,6 +351,14 @@ function AdminMenuPageContent() {
   const showMarketingSection = canManageTapToPay && (isTapView || (!isFocusedView && !isKitchenScopedView));
   const showAddSection = canManageCatalog && !isPricingView && !isPaymentView && !isEventView && !isTapView;
   const showPricingSection = canManageCatalog && !isAddView && !isPaymentView && !isEventView && !isTapView;
+
+  useEffect(() => {
+    if (!fromCaisse) return;
+    const caisseEventId = localStorage.getItem(CAISSE_EVENT_ID_KEY) || "";
+    if (caisseEventId.trim()) {
+      setPricingEventId(caisseEventId.trim());
+    }
+  }, [fromCaisse]);
 
   useEffect(() => {
     if (!isTapView) return;
@@ -553,7 +578,8 @@ function AdminMenuPageContent() {
   async function loadData() {
     setLoading(true);
     setAuthError(null);
-    const res = await fetch("/api/admin/menu-config", {
+    const query = pricingEventId ? `?eventId=${encodeURIComponent(pricingEventId)}` : "";
+    const res = await fetch(`/api/admin/menu-config${query}`, {
       headers: buildAuthHeaders(),
       cache: "no-store",
     });
@@ -571,8 +597,23 @@ function AdminMenuPageContent() {
     });
     const incomingStore = data.storeConfig as Partial<StoreConfig> | undefined;
     setStoreConfig({
+      activeEventId: String(incomingStore?.activeEventId || ""),
       activeEventName: String(incomingStore?.activeEventName || ""),
+      events: Array.isArray(incomingStore?.events)
+        ? incomingStore!.events!
+            .map((event) => ({
+              id: String((event as { id?: string })?.id || "").trim(),
+              name: String((event as { name?: string })?.name || "").trim(),
+            }))
+            .filter((event) => event.id && event.name)
+        : [],
     });
+    if (!pricingEventId) {
+      const nextPricingEventId = String(incomingStore?.activeEventId || "");
+      if (nextPricingEventId) {
+        setPricingEventId(nextPricingEventId);
+      }
+    }
     const incomingTap = data.tapToPayConfig as Partial<TapToPayConfig> | undefined;
     setTapToPayConfig({
       awarenessSeen: Boolean(incomingTap?.awarenessSeen),
@@ -602,6 +643,7 @@ function AdminMenuPageContent() {
           itemId: item.id,
           price: item.price,
           visible: item.visible,
+          eventId: pricingEventId || undefined,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -628,6 +670,7 @@ function AdminMenuPageContent() {
           cashEnabled: paymentConfig.cashEnabled,
           cardEnabled: paymentConfig.cardEnabled,
           cashlessEnabled: paymentConfig.cashlessEnabled,
+          eventId: pricingEventId || undefined,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -653,7 +696,9 @@ function AdminMenuPageContent() {
         },
         body: JSON.stringify({
           setting: "store_config",
+          activeEventId: storeConfig.activeEventId,
           activeEventName: storeConfig.activeEventName,
+          events: storeConfig.events,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -698,6 +743,45 @@ function AdminMenuPageContent() {
       setSaveError(e instanceof Error ? e.message : "Creation failed");
     } finally {
       setSavingId(null);
+    }
+  }
+
+  function addEventProfile() {
+    const trimmed = newEventName.trim();
+    const nextId = makeEventId(trimmed);
+    if (!trimmed || !nextId) {
+      setSaveError("Event invalide");
+      return;
+    }
+    if (storeConfig.events.some((event) => event.id === nextId)) {
+      setSaveError("Cet evenement existe deja");
+      return;
+    }
+    const nextEvents = [...storeConfig.events, { id: nextId, name: trimmed }];
+    setStoreConfig((prev) => ({
+      ...prev,
+      events: nextEvents,
+      activeEventId: prev.activeEventId || nextId,
+      activeEventName: prev.activeEventName || trimmed,
+    }));
+    if (!pricingEventId) {
+      setPricingEventId(nextId);
+    }
+    setNewEventName("");
+    setSaveError(null);
+  }
+
+  function removeEventProfile(eventId: string) {
+    const nextEvents = storeConfig.events.filter((event) => event.id !== eventId);
+    const nextActive = storeConfig.activeEventId === eventId ? nextEvents[0] : nextEvents.find((event) => event.id === storeConfig.activeEventId);
+    setStoreConfig((prev) => ({
+      ...prev,
+      events: nextEvents,
+      activeEventId: nextActive?.id || "",
+      activeEventName: nextActive?.name || "",
+    }));
+    if (pricingEventId === eventId) {
+      setPricingEventId(nextActive?.id || "");
     }
   }
 
@@ -1086,6 +1170,24 @@ function AdminMenuPageContent() {
         {showPaymentSection ? (
           <div style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12, marginTop: 12 }}>
           <div style={{ fontWeight: 900 }}>{ui.paymentAllowed}</div>
+          {storeConfig.events.length > 0 && !fromCaisse ? (
+            <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+              <div style={{ fontWeight: 800 }}>
+                {lang === "fr" ? "Evenement en edition" : lang === "de" ? "Event in Bearbeitung" : "Editing event"}
+              </div>
+              <select
+                value={pricingEventId}
+                onChange={(e) => setPricingEventId(e.target.value)}
+                style={{ maxWidth: 360, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}
+              >
+                {storeConfig.events.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {event.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div style={{ marginTop: 10, display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
             <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 700 }}>
               <input
@@ -1144,31 +1246,84 @@ function AdminMenuPageContent() {
             </div>
           ) : null}
 
-            {showEventSection ? (
-              <div style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12, marginTop: 12 }}>
-          <div style={{ fontWeight: 900 }}>{ui.eventActive}</div>
-          <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>
-            {ui.eventHelp}
-          </div>
-          <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <input
-              type="text"
-              value={storeConfig.activeEventName}
-              onChange={(e) => setStoreConfig({ activeEventName: e.target.value })}
-              placeholder="ex: Stadtfest Offenburg"
-              style={{ minWidth: 280, flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}
-            />
-            <button
-              className="af-btn"
-              type="button"
+	        {showEventSection ? (
+	              <div style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12, marginTop: 12 }}>
+	          <div style={{ fontWeight: 900 }}>{ui.eventActive}</div>
+	          <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>
+	            {ui.eventHelp}
+	          </div>
+	          <div style={{ marginTop: 10, display: "grid", gap: 12 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <input
+                  type="text"
+                  value={newEventName}
+                  onChange={(e) => setNewEventName(e.target.value)}
+                  placeholder="ex: Stadtfest Offenburg"
+                  style={{ minWidth: 280, flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}
+                />
+                <button
+                  className="af-btn"
+                  type="button"
+                  onClick={addEventProfile}
+                  style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800 }}
+                >
+                  {lang === "fr" ? "Ajouter evenement" : lang === "de" ? "Event hinzufugen" : "Add event"}
+                </button>
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {storeConfig.events.map((event) => (
+                  <div
+                    key={event.id}
+                    style={{
+                      display: "flex",
+                      gap: 10,
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      border: "1px solid #F1D7C8",
+                      background: "#fffaf6",
+                    }}
+                  >
+                    <label style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 800, flex: 1 }}>
+                      <input
+                        type="radio"
+                        name="active-event"
+                        checked={storeConfig.activeEventId === event.id}
+                        onChange={() =>
+                          setStoreConfig((prev) => ({
+                            ...prev,
+                            activeEventId: event.id,
+                            activeEventName: event.name,
+                          }))
+                        }
+                      />
+                      <span>{event.name}</span>
+                      <span style={{ fontSize: 12, opacity: 0.6 }}>{event.id}</span>
+                    </label>
+                    <button
+                      className="af-btn"
+                      type="button"
+                      onClick={() => removeEventProfile(event.id)}
+                      style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "#b91c1c", color: "white", fontWeight: 800 }}
+                    >
+                      {ui.delete}
+                    </button>
+                  </div>
+                ))}
+              </div>
+	            <button
+	              className="af-btn"
+	              type="button"
               onClick={saveStoreConfig}
               disabled={savingId === "store-config"}
               style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "#111", color: "white", fontWeight: 800 }}
             >
-              {savingId === "store-config" ? ui.saving : ui.save}
-            </button>
-          </div>
-        </div>
+	              {savingId === "store-config" ? ui.saving : ui.save}
+	            </button>
+	          </div>
+	        </div>
             ) : null}
 
         {showTapSections ? (
@@ -1561,14 +1716,32 @@ function AdminMenuPageContent() {
         </div>
         ) : null}
 
-        {showPricingSection ? (
-          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-          {(isPricingView || isKitchenScopedView) ? (
-            <div style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12 }}>
-              <div style={{ fontWeight: 900 }}>{ui.pricingTitle}</div>
-              <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>{ui.pricingSub}</div>
-            </div>
-          ) : null}
+	        {showPricingSection ? (
+	          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+	          {(isPricingView || isKitchenScopedView) ? (
+	            <div style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12 }}>
+	              <div style={{ fontWeight: 900 }}>{ui.pricingTitle}</div>
+	              <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>{ui.pricingSub}</div>
+                {storeConfig.events.length > 0 && !fromCaisse ? (
+                  <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+                    <div style={{ fontWeight: 800 }}>
+                      {lang === "fr" ? "Evenement en edition" : lang === "de" ? "Event in Bearbeitung" : "Editing event"}
+                    </div>
+                    <select
+                      value={pricingEventId}
+                      onChange={(e) => setPricingEventId(e.target.value)}
+                      style={{ maxWidth: 360, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}
+                    >
+                      {storeConfig.events.map((event) => (
+                        <option key={event.id} value={event.id}>
+                          {event.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+	            </div>
+	          ) : null}
           {allItems.map((item) => (
             <div key={item.id} style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12 }}>
               <div style={{ fontWeight: 900 }}>{item.name[lang]}</div>

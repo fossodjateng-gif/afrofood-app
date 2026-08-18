@@ -9,6 +9,7 @@ export type StaffUser = {
   username: string;
   password: string;
   role: StaffRole;
+  cashierEventId?: string;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -18,6 +19,7 @@ export type StaffSession = {
   userId: string;
   username: string;
   role: StaffRole;
+  cashierEventId?: string;
   loggedAt: string;
 };
 
@@ -46,6 +48,7 @@ function defaultUsers(): StaffUser[] {
       username: "existinguser",
       password: "0603",
       role: "cashier",
+      cashierEventId: "",
       active: true,
       createdAt: now,
       updatedAt: now,
@@ -55,6 +58,7 @@ function defaultUsers(): StaffUser[] {
       username: "newuser",
       password: "0603",
       role: "kitchen",
+      cashierEventId: "",
       active: true,
       createdAt: now,
       updatedAt: now,
@@ -90,6 +94,11 @@ function saveUsers(next: StaffUser[]) {
   localStorage.setItem(USERS_KEY, JSON.stringify(next));
 }
 
+function normalizeCashierEventId(role: StaffRole, cashierEventId?: string) {
+  if (role !== "cashier" && role !== "kitchen") return "";
+  return String(cashierEventId || "").trim();
+}
+
 function resetTapSetupProgress(userId: string) {
   if (!hasWindow()) return;
   localStorage.removeItem(`${TAP_SETUP_PROGRESS_PREFIX}${userId}`);
@@ -111,6 +120,17 @@ export function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
+export function updateSessionCashierEventId(cashierEventId: string) {
+  if (!hasWindow()) return;
+  const current = getSession();
+  if (!current) return;
+  const next: StaffSession = {
+    ...current,
+    cashierEventId: String(cashierEventId || "").trim() || undefined,
+  };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+}
+
 export function login(username: string, password: string): { ok: true; session: StaffSession } | { ok: false; error: string } {
   const users = getUsers();
   const u = users.find(
@@ -122,13 +142,14 @@ export function login(username: string, password: string): { ok: true; session: 
     userId: u.id,
     username: u.username,
     role: u.role,
+    cashierEventId: normalizeCashierEventId(u.role, u.cashierEventId) || undefined,
     loggedAt: nowIso(),
   };
   if (hasWindow()) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   return { ok: true, session };
 }
 
-export function createUser(input: { username: string; password: string; role: StaffRole }) {
+export function createUser(input: { username: string; password: string; role: StaffRole; cashierEventId?: string }) {
   const username = String(input.username || "").trim();
   const password = String(input.password || "").trim();
   if (!username) throw new Error("Missing username");
@@ -143,6 +164,7 @@ export function createUser(input: { username: string; password: string; role: St
     username,
     password,
     role: input.role,
+    cashierEventId: normalizeCashierEventId(input.role, input.cashierEventId) || undefined,
     active: true,
     createdAt: now,
     updatedAt: now,
@@ -153,20 +175,40 @@ export function createUser(input: { username: string; password: string; role: St
   return nextUser;
 }
 
-export function updateUser(userId: string, patch: Partial<Pick<StaffUser, "role" | "active" | "password">>) {
+export function updateUser(
+  userId: string,
+  patch: Partial<Pick<StaffUser, "role" | "active" | "password" | "cashierEventId">>
+) {
   const users = getUsers();
   const next = users.map((u) =>
     u.id === userId
-      ? {
-          ...u,
-          role: patch.role ?? u.role,
-          active: patch.active ?? u.active,
-          password: patch.password ?? u.password,
-          updatedAt: nowIso(),
-        }
+      ? (() => {
+          const nextRole = patch.role ?? u.role;
+          return {
+            ...u,
+            role: nextRole,
+            active: patch.active ?? u.active,
+            password: patch.password ?? u.password,
+            cashierEventId: normalizeCashierEventId(
+              nextRole,
+              patch.cashierEventId !== undefined ? patch.cashierEventId : u.cashierEventId
+            ) || undefined,
+            updatedAt: nowIso(),
+          };
+        })()
       : u
   );
   saveUsers(next);
+  const current = getSession();
+  const updated = next.find((u) => u.id === userId);
+  if (current && updated && current.userId === userId && hasWindow()) {
+    const session: StaffSession = {
+      ...current,
+      role: updated.role,
+      cashierEventId: normalizeCashierEventId(updated.role, updated.cashierEventId) || undefined,
+    };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  }
 }
 
 export function deleteUser(userId: string) {

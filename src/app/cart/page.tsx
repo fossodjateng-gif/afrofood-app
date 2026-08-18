@@ -125,6 +125,7 @@ const UI = {
 };
 
 const LAST_ORDER_KEY = "af_last_order_id";
+const EVENT_ID_KEY = "af_event_id";
 const EVENT_NAME_KEY = "af_event_name";
 const DEFAULT_EVENT_NAME = process.env.NEXT_PUBLIC_ACTIVE_EVENT || "";
 const FALLBACK_PRICE_BY_NAME = new Map<string, number>([
@@ -162,10 +163,25 @@ function mapRowToOrder(row: OrderRow): Order {
     id: row.id,
     createdAt: row.created_at,
     customerName: row.customer_name || undefined,
+    eventId: row.event_id || undefined,
     eventName: row.event_name || undefined,
+    reservationRequested: row.reservation_requested === true,
+    reservationTime: row.reservation_time || undefined,
     payment: row.payment,
     items: Array.isArray(row.items) ? row.items : [],
   };
+}
+
+function formatReservationDateTime(value: string, lang: Lang) {
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return value;
+  return dt.toLocaleString(lang === "fr" ? "fr-FR" : lang === "de" ? "de-DE" : "en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function normalizeItemName(name?: string) {
@@ -252,7 +268,10 @@ export default function CartPage() {
     cashlessEnabled: true,
   });
   const [customerName, setCustomerName] = useState("");
+  const [eventId, setEventId] = useState("");
   const [eventName, setEventName] = useState("");
+  const [reserveOrder, setReserveOrder] = useState(false);
+  const [reservationTime, setReservationTime] = useState("");
 
   const [order, setOrder] = useState<Order | null>(null);
   const [orderStatus, setOrderStatus] = useState<OrderStatus | null>(null);
@@ -268,7 +287,11 @@ export default function CartPage() {
     setLang(getSavedLang());
     setClientPlatform(detectClientPlatform());
     setCart(getCart());
+    const savedEventId = localStorage.getItem(EVENT_ID_KEY);
     const savedEvent = localStorage.getItem(EVENT_NAME_KEY);
+    if (savedEventId && savedEventId.trim()) {
+      setEventId(savedEventId.trim());
+    }
     if (savedEvent && savedEvent.trim()) {
       setEventName(savedEvent.trim());
     } else if (DEFAULT_EVENT_NAME.trim()) {
@@ -281,12 +304,14 @@ export default function CartPage() {
 
     async function loadPaymentConfig() {
       try {
-        const res = await fetch("/api/menu-config", { cache: "no-store" });
+        const query = eventId ? `?eventId=${encodeURIComponent(eventId)}` : "";
+        const res = await fetch(`/api/menu-config${query}`, { cache: "no-store" });
         const data = (await res.json()) as {
           ok?: boolean;
           sections?: Array<{ items?: Array<{ id?: string; price?: number }> }>;
           paymentConfig?: { cashEnabled?: boolean; cardEnabled?: boolean; cashlessEnabled?: boolean };
-          storeConfig?: { activeEventName?: string };
+          storeConfig?: { activeEventId?: string; activeEventName?: string; events?: Array<{ id?: string; name?: string }> };
+          selectedEvent?: { id?: string; name?: string } | null;
         };
         if (!res.ok || !data?.ok || cancelled) return;
         const next = {
@@ -295,13 +320,28 @@ export default function CartPage() {
           cashlessEnabled: data.paymentConfig?.cashlessEnabled !== false,
         };
         setPaymentAvailability(next);
+        const selected = data.selectedEvent;
+        if (selected?.id && selected?.name) {
+          setEventId(String(selected.id));
+          setEventName(String(selected.name));
+          localStorage.setItem(EVENT_ID_KEY, String(selected.id));
+          localStorage.setItem(EVENT_NAME_KEY, String(selected.name));
+        }
         const currentLocal = localStorage.getItem(EVENT_NAME_KEY);
-        if (!currentLocal?.trim()) {
+        if (!currentLocal?.trim() && !selected?.id) {
           const adminDefault = String(data.storeConfig?.activeEventName || "").trim();
           if (adminDefault) {
             setEventName(adminDefault);
             localStorage.setItem(EVENT_NAME_KEY, adminDefault);
           }
+          const adminDefaultId = String(data.storeConfig?.activeEventId || "").trim();
+          if (adminDefaultId) {
+            setEventId(adminDefaultId);
+            localStorage.setItem(EVENT_ID_KEY, adminDefaultId);
+          }
+        }
+        if (!selected?.id && !eventId && !String(data.storeConfig?.activeEventId || "").trim()) {
+          window.location.href = "/";
         }
 
         const priceById = new Map<string, number>();
@@ -337,7 +377,7 @@ export default function CartPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [eventId]);
 
   useEffect(() => {
     const firstAvailable = paymentAvailability.cashEnabled
@@ -398,6 +438,12 @@ export default function CartPage() {
           lang === "fr" ? "Paiement cashless desactive" : lang === "de" ? "Cashless-Zahlung deaktiviert" : "Cashless payment disabled"
         );
       }
+      if (reserveOrder && !eventName.trim()) {
+        throw new Error(t.cart_reserve_missing_event);
+      }
+      if (reserveOrder && !reservationTime.trim()) {
+        throw new Error(t.cart_reserve_missing_time);
+      }
       setIsCreating(true);
       setApiError(null);
 
@@ -405,7 +451,10 @@ export default function CartPage() {
         id: makeOrderId(),
         createdAt: new Date().toISOString(),
         customerName: customerName.trim() ? customerName.trim() : undefined,
+        eventId: eventId.trim() ? eventId.trim() : undefined,
         eventName: eventName.trim() ? eventName.trim() : undefined,
+        reservationRequested: reserveOrder,
+        reservationTime: reserveOrder && reservationTime.trim() ? new Date(reservationTime).toISOString() : undefined,
         items: cartToTicketItems(getCart()),
         payment: pay,
       };
@@ -713,28 +762,86 @@ export default function CartPage() {
             <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>
               {lang === "de" ? "Event / Markt" : lang === "fr" ? "Evenement / Marche" : "Event / Market"}
             </label>
-            <input
-              value={eventName}
-              onChange={(e) => {
-                const value = e.target.value;
-                setEventName(value);
-                localStorage.setItem(EVENT_NAME_KEY, value);
+            <div
+              style={{
+                ...UI.input,
+                fontWeight: 800,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
               }}
-              placeholder={
-                lang === "de"
-                  ? "z.B. Stadtfest Offenburg"
-                  : lang === "fr"
-                  ? "ex. Festival Offenburg"
-                  : "e.g. Stadtfest Offenburg"
-              }
-              style={UI.input}
-            />
+            >
+              <span>{eventName || "-"}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = "/";
+                }}
+                style={{
+                  border: "1px solid #111",
+                  background: "white",
+                  color: "#111",
+                  borderRadius: 999,
+                  padding: "6px 12px",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                {lang === "fr" ? "Changer" : lang === "de" ? "Wechseln" : "Change"}
+              </button>
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: 14,
+              padding: "14px 16px",
+              borderRadius: 18,
+              border: "1px solid #F1D7C8",
+              background: "rgba(255,250,246,0.92)",
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontWeight: 800 }}>
+              <input
+                type="checkbox"
+                checked={reserveOrder}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setReserveOrder(checked);
+                  if (!checked) {
+                    setReservationTime("");
+                  }
+                }}
+                style={{ marginTop: 3 }}
+              />
+              <span>{t.cart_reserve_label}</span>
+            </label>
+            <div style={{ fontSize: 13, color: "#6b4d3b" }}>{t.cart_reserve_help}</div>
+            {reserveOrder ? (
+              <div style={{ display: "grid", gap: 8 }}>
+                <label style={{ display: "block", fontWeight: 700 }}>
+                  {t.cart_reserve_time_label}
+                </label>
+                <input
+                  type="datetime-local"
+                  value={reservationTime}
+                  onChange={(e) => setReservationTime(e.target.value)}
+                  style={UI.input}
+                />
+                <div style={{ fontSize: 12, color: "#6b4d3b" }}>{t.cart_reserve_time_hint}</div>
+              </div>
+            ) : null}
           </div>
 
           <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button className="af-btn" onClick={() => createOrderInDb(payment)} disabled={isCreating} style={confirmButtonStyle} type="button">
               {isCreating
                 ? t.cart_creating
+                : reserveOrder && orderStatus !== "NEW" && orderStatus !== "READY"
+                ? t.cart_confirm_reservation_action
                 : orderStatus === "NEW" || orderStatus === "READY"
                 ? t.cart_confirmed
                 : orderStatus === "PENDING_PAYMENT"
@@ -764,7 +871,7 @@ export default function CartPage() {
 
           {orderStatus === "PENDING_PAYMENT" ? (
             <div style={{ ...UI.notice, borderColor: "#f59e0b", background: "#fff7ed", color: "#9a3412", fontWeight: 700 }}>
-              {t.cart_pending_message}
+              {order?.reservationRequested ? t.cart_pending_reservation_message : t.cart_pending_message}
             </div>
           ) : null}
 
@@ -810,6 +917,16 @@ export default function CartPage() {
                   {order.eventName ? (
                     <div>
                       <b>{lang === "de" ? "Event" : lang === "fr" ? "Evenement" : "Event"}:</b> {order.eventName}
+                    </div>
+                  ) : null}
+                  {order.reservationRequested ? (
+                    <div>
+                      <b>{t.cart_ticket_reservation}:</b> {lang === "fr" ? "Oui" : lang === "de" ? "Ja" : "Yes"}
+                    </div>
+                  ) : null}
+                  {order.reservationTime ? (
+                    <div>
+                      <b>{t.cart_ticket_pickup_time}:</b> {formatReservationDateTime(order.reservationTime, lang)}
                     </div>
                   ) : null}
                 </div>

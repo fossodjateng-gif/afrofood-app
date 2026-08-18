@@ -6,16 +6,18 @@ import { QRCodeCanvas } from "qrcode.react";
 import { makeQrPayload } from "@/lib/order";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { clearSession, getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
+import { clearSession, getSession, getStaffRoleLabel, type StaffRole, updateSessionCashierEventId } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 
 const CASHIER_PIN = process.env.NEXT_PUBLIC_CAISSE_PIN || "1955";
+const CAISSE_EVENT_ID_KEY = "af_caisse_event_id";
 
 type CaisseCard = OrderRow & { isJustValidated?: boolean };
+type EventOption = { id: string; name: string };
 
 const UI_TEXT: Record<
   Lang,
-  {
+	  {
     unknownError: string;
     validatePaymentError: string;
     back: string;
@@ -100,7 +102,7 @@ const UI_TEXT: Record<
     quickAccess: "Schnellzugriff",
     qaKitchenSpace: "Kuchenbereich",
     qaPayments: "Zahlungen",
-    qaEvent: "Event / Markt",
+	    qaEvent: "Event",
   },
   fr: {
     unknownError: "Erreur inconnue",
@@ -143,7 +145,7 @@ const UI_TEXT: Record<
     quickAccess: "Acces rapide",
     qaKitchenSpace: "Espace cuisine",
     qaPayments: "Paiements",
-    qaEvent: "Evenement / Marche",
+	    qaEvent: "Evenement",
   },
   en: {
     unknownError: "Unknown error",
@@ -186,7 +188,7 @@ const UI_TEXT: Record<
     quickAccess: "Quick access",
     qaKitchenSpace: "Kitchen space",
     qaPayments: "Payments",
-    qaEvent: "Event / market",
+	    qaEvent: "Event",
   },
 };
 
@@ -281,6 +283,25 @@ function parseTimestamp(value: string) {
   return Number.isFinite(ts) ? ts : 0;
 }
 
+function parseReservationTimestamp(value?: string | null) {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : Number.POSITIVE_INFINITY;
+}
+
+function formatReservationDateTime(value?: string | null, lang: Lang = "de") {
+  if (!value) return "";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return value;
+  return dt.toLocaleString(lang === "fr" ? "fr-FR" : lang === "de" ? "de-DE" : "en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function isTodayOrder(order: OrderRow, todayKey: string) {
   if (String(order.id || "").startsWith(`${todayKey}-`)) return true;
   const created = new Date(order.created_at);
@@ -307,23 +328,81 @@ export default function CaissePage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLogs, setActionLogs] = useState<string[]>([]);
   const [ticketOrder, setTicketOrder] = useState<OrderRow | null>(null);
+  const [selectedEventId, setSelectedEventId] = useState("");
+  const [cashierEventId, setCashierEventId] = useState("");
 
   const t = UI_TEXT[lang];
 
   useEffect(() => {
-    const s = getSession();
-    if (!s) {
-      window.location.href = "/team/login";
-      return;
-    }
-    if (s.role === "admin" || s.role === "cashier") {
+    let alive = true;
+
+    async function boot() {
+      const s = getSession();
+      if (!s) {
+        window.location.href = "/team/login";
+        return;
+      }
+      if (s.role !== "admin" && s.role !== "cashier") {
+        window.location.href = "/staff";
+        return;
+      }
+
       setStaffRole(s.role);
+
+      if (s.role === "cashier") {
+        let assignedEventId = String(s.cashierEventId || "").trim();
+        if (!assignedEventId) {
+          try {
+            const res = await fetch("/api/menu-config", { cache: "no-store" });
+            const data = await res.json().catch(() => null);
+            const activeEventId = String(data?.storeConfig?.activeEventId || "").trim();
+            const firstEventId = Array.isArray(data?.storeConfig?.events)
+              ? String(data.storeConfig.events[0]?.id || "").trim()
+              : "";
+            assignedEventId = activeEventId || firstEventId;
+          } catch {
+            assignedEventId = "";
+          }
+          if (assignedEventId) {
+            updateSessionCashierEventId(assignedEventId);
+          }
+        }
+
+        if (!assignedEventId) {
+          if (alive) {
+            setActionError(
+              lang === "fr"
+                ? "Aucun evenement n'est assigne a cette caisse."
+                : lang === "de"
+                ? "Kein Event ist dieser Kasse zugewiesen."
+                : "No event is assigned to this cashier."
+            );
+          }
+          return;
+        }
+
+        if (!alive) return;
+        setCashierEventId(assignedEventId);
+        setSelectedEventId(assignedEventId);
+        localStorage.setItem(CAISSE_EVENT_ID_KEY, assignedEventId);
+      }
+
+      if (!alive) return;
       setIsUnlocked(true);
-    } else {
-      window.location.href = "/staff";
-      return;
     }
+
+    void boot();
+    return () => {
+      alive = false;
+    };
   }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(CAISSE_EVENT_ID_KEY);
+    if (saved?.trim() && !cashierEventId) {
+      setSelectedEventId(saved.trim());
+    }
+  }, [cashierEventId]);
 
   function pushLog(message: string) {
     const ts = new Date().toLocaleTimeString();
@@ -349,6 +428,13 @@ export default function CaissePage() {
       const bTs = parseTimestamp(b.created_at);
 
       if (aRank === 0) {
+        const aReserved = a.reservation_requested === true;
+        const bReserved = b.reservation_requested === true;
+        if (aReserved && bReserved) {
+          const aReservationTs = parseReservationTimestamp(a.reservation_time);
+          const bReservationTs = parseReservationTimestamp(b.reservation_time);
+          if (aReservationTs !== bReservationTs) return aReservationTs - bReservationTs;
+        }
         if (bTs !== aTs) return bTs - aTs;
         return String(b.id).localeCompare(String(a.id));
       }
@@ -372,15 +458,18 @@ export default function CaissePage() {
       setIsRefreshing(true);
       setActionError(null);
 
-      const allRes = await fetch("/api/orders", { cache: "no-store" });
+      const orderQuery = selectedEventId ? `?eventId=${encodeURIComponent(selectedEventId)}` : "";
+      const allRes = await fetch(`/api/orders${orderQuery}`, { cache: "no-store" });
       const allData = await allRes.json();
-
       const todayKey = getTodayKey();
       const todayOrders = (Array.isArray(allData) ? allData : []).filter((it) =>
         isTodayOrder(it as OrderRow, todayKey)
       );
 
       setOrders(todayOrders);
+      if (cashierEventId) {
+        setSelectedEventId(cashierEventId);
+      }
       setJustRefreshed(true);
       window.setTimeout(() => setJustRefreshed(false), 1200);
     } catch (e: unknown) {
@@ -389,7 +478,7 @@ export default function CaissePage() {
       setIsRefreshing(false);
       setLoading(false);
     }
-  }, [t.unknownError]);
+  }, [cashierEventId, selectedEventId, t.unknownError]);
 
   useEffect(() => {
     setLang(getSavedLang());
@@ -700,18 +789,15 @@ export default function CaissePage() {
 	            background: "white",
 	          }}
 	        >
-	          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-	            <a className="af-link-btn" href="/staff/cuisine?from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
-	              {t.qaKitchenSpace}
-	            </a>
-	            <a className="af-link-btn" href="/admin/menu?view=payment&from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
-	              {t.qaPayments}
-	            </a>
-	            <a className="af-link-btn" href="/admin/menu?view=event&from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
-	              {t.qaEvent}
-	            </a>
-	          </div>
-	        </div>
+		          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+		            <a className="af-link-btn" href="/staff/cuisine?from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+		              {t.qaKitchenSpace}
+		            </a>
+		            <a className="af-link-btn" href="/admin/menu?view=payment&from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+		              {t.qaPayments}
+		            </a>
+		          </div>
+		        </div>
 
 		        {loading ? <p style={{ marginTop: 12 }}>{t.loading}</p> : null}
 		        {actionError ? <p style={{ marginTop: 8, color: "#fecaca", fontWeight: 700 }}>{actionError}</p> : null}
@@ -758,10 +844,10 @@ export default function CaissePage() {
 	                {line}
 	              </div>
 	            ))
-	          )}
-	        </div>
+		          )}
+		        </div>
 
-	        {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>{t.noOrders}</p> : null}
+		        {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>{t.noOrders}</p> : null}
 	        <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
         {sortedOrders.map((o) => {
           const isPending = o.status === "PENDING_PAYMENT";
@@ -785,12 +871,43 @@ export default function CaissePage() {
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
 	                <div>
 	                  <div style={{ fontSize: 20, fontWeight: 900 }}>{o.id}</div>
-	                  <div style={{ opacity: 0.9, marginTop: 2 }}>
-	                    {o.customer_name ? `${t.name}: ${o.customer_name} - ` : ""}
-	                    {t.payment}: {o.payment}
-	                  </div>
-                    {Array.isArray(o.items) &&
-                    o.items.some(
+		                  <div style={{ opacity: 0.9, marginTop: 2 }}>
+		                    {o.customer_name ? `${t.name}: ${o.customer_name} - ` : ""}
+		                    {t.payment}: {o.payment}
+		                  </div>
+                    <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {o.reservation_requested ? (
+                        <span
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: 999,
+                            background: "rgba(37,99,235,0.15)",
+                            border: "1px solid rgba(37,99,235,0.28)",
+                            color: "#1d4ed8",
+                            fontSize: 12,
+                            fontWeight: 900,
+                          }}
+                        >
+                          {lang === "fr" ? "Reservation" : lang === "de" ? "Reservierung" : "Reservation"}
+                        </span>
+                      ) : null}
+                      {o.reservation_time ? (
+                        <span
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: 999,
+                            background: "rgba(255,255,255,0.72)",
+                            border: "1px solid rgba(17,17,17,0.12)",
+                            fontSize: 12,
+                            fontWeight: 800,
+                          }}
+                        >
+                          {lang === "fr" ? "Retrait" : lang === "de" ? "Abholung" : "Pickup"}: {formatReservationDateTime(o.reservation_time, lang)}
+                        </span>
+                      ) : null}
+                    </div>
+	                    {Array.isArray(o.items) &&
+	                    o.items.some(
                       (item) =>
                         String(item.note || "").trim() ||
                         (Array.isArray(item.unitNotes) && item.unitNotes.some((note) => String(note || "").trim()))
@@ -946,10 +1063,20 @@ export default function CaissePage() {
               <div>
                 <b>{t.name}:</b> {ticketOrder.customer_name || "-"}
               </div>
-              <div>
-                <b>{t.payment}:</b> {ticketOrder.payment}
-              </div>
-            </div>
+	              <div>
+	                <b>{t.payment}:</b> {ticketOrder.payment}
+	              </div>
+                {ticketOrder.reservation_requested ? (
+                  <div>
+                    <b>{lang === "fr" ? "Reservation" : lang === "de" ? "Reservierung" : "Reservation"}:</b> {lang === "fr" ? "Oui" : lang === "de" ? "Ja" : "Yes"}
+                  </div>
+                ) : null}
+                {ticketOrder.reservation_time ? (
+                  <div>
+                    <b>{lang === "fr" ? "Retrait" : lang === "de" ? "Abholung" : "Pickup"}:</b> {formatReservationDateTime(ticketOrder.reservation_time, lang)}
+                  </div>
+                ) : null}
+	            </div>
             <div
               style={{
                 marginTop: 8,
@@ -989,12 +1116,15 @@ export default function CaissePage() {
             <div className="af-ticket-qr">
               <QRCodeCanvas
                 value={makeQrPayload({
-                  id: ticketOrder.id,
-                  createdAt: ticketOrder.created_at,
-                  customerName: ticketOrder.customer_name || undefined,
-                  payment: ticketOrder.payment,
-                  items: ticketOrder.items,
-                })}
+	                  id: ticketOrder.id,
+	                  createdAt: ticketOrder.created_at,
+	                  customerName: ticketOrder.customer_name || undefined,
+                    eventName: ticketOrder.event_name || undefined,
+                    reservationRequested: ticketOrder.reservation_requested === true,
+                    reservationTime: ticketOrder.reservation_time || undefined,
+	                  payment: ticketOrder.payment,
+	                  items: ticketOrder.items,
+	                })}
                 size={72}
               />
               <div className="af-ticket-qrtext">{t.ticketSent}</div>

@@ -8,6 +8,13 @@ type MenuSettingsRow = {
   visible: boolean;
 };
 
+type EventMenuSettingsRow = {
+  event_id: string;
+  item_id: string;
+  price: number;
+  visible: boolean;
+};
+
 type AppSettingRow = {
   setting_key: string;
   setting_value: unknown;
@@ -33,7 +40,14 @@ export type PaymentConfig = {
 };
 
 export type StoreConfig = {
+  activeEventId: string;
   activeEventName: string;
+  events: EventProfile[];
+};
+
+export type EventProfile = {
+  id: string;
+  name: string;
 };
 
 export type TapToPayConfig = {
@@ -55,7 +69,9 @@ const DEFAULT_PAYMENT_CONFIG: PaymentConfig = {
 };
 
 const DEFAULT_STORE_CONFIG: StoreConfig = {
+  activeEventId: "",
   activeEventName: "",
+  events: [],
 };
 
 const DEFAULT_TAP_TO_PAY_CONFIG: TapToPayConfig = {
@@ -76,8 +92,8 @@ export type CreateCustomMenuItemInput = {
 };
 
 export async function ensureMenuSettingsSchema() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS menu_item_settings (
+	  await sql`
+	    CREATE TABLE IF NOT EXISTS menu_item_settings (
       item_id TEXT PRIMARY KEY,
       price NUMERIC(10,2) NOT NULL,
       visible BOOLEAN NOT NULL DEFAULT TRUE,
@@ -85,8 +101,19 @@ export async function ensureMenuSettingsSchema() {
     );
   `;
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS app_settings (
+	  await sql`
+	    CREATE TABLE IF NOT EXISTS event_menu_item_settings (
+	      event_id TEXT NOT NULL,
+	      item_id TEXT NOT NULL,
+	      price NUMERIC(10,2) NOT NULL,
+	      visible BOOLEAN NOT NULL DEFAULT TRUE,
+	      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	      PRIMARY KEY (event_id, item_id)
+	    );
+	  `;
+
+	  await sql`
+	    CREATE TABLE IF NOT EXISTS app_settings (
       setting_key TEXT PRIMARY KEY,
       setting_value JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -139,26 +166,36 @@ function toPaymentConfig(value: unknown): PaymentConfig {
   };
 }
 
-export async function getPaymentConfig(): Promise<PaymentConfig> {
+function paymentConfigKey(eventId?: string) {
+  const normalizedEventId = String(eventId || "").trim();
+  return normalizedEventId ? `${PAYMENT_CONFIG_KEY}:${normalizedEventId}` : PAYMENT_CONFIG_KEY;
+}
+
+export async function getPaymentConfig(eventId?: string): Promise<PaymentConfig> {
   await ensureMenuSettingsSchema();
+  const key = paymentConfigKey(eventId);
   const rows = (await sql`
     SELECT setting_key, setting_value
     FROM app_settings
-    WHERE setting_key = ${PAYMENT_CONFIG_KEY}
+    WHERE setting_key = ${key}
     LIMIT 1
   `) as AppSettingRow[];
 
-  if (rows.length === 0) return DEFAULT_PAYMENT_CONFIG;
+  if (rows.length === 0) {
+    if (eventId) return getPaymentConfig();
+    return DEFAULT_PAYMENT_CONFIG;
+  }
   return toPaymentConfig(rows[0]?.setting_value);
 }
 
-export async function upsertPaymentConfig(config: PaymentConfig) {
+export async function upsertPaymentConfig(config: PaymentConfig, eventId?: string) {
   await ensureMenuSettingsSchema();
   const normalized = toPaymentConfig(config);
+  const key = paymentConfigKey(eventId);
 
   await sql`
     INSERT INTO app_settings (setting_key, setting_value, updated_at)
-    VALUES (${PAYMENT_CONFIG_KEY}, ${JSON.stringify(normalized)}::jsonb, NOW())
+    VALUES (${key}, ${JSON.stringify(normalized)}::jsonb, NOW())
     ON CONFLICT (setting_key)
     DO UPDATE SET
       setting_value = EXCLUDED.setting_value,
@@ -168,8 +205,21 @@ export async function upsertPaymentConfig(config: PaymentConfig) {
 
 function toStoreConfig(value: unknown): StoreConfig {
   const raw = value as Partial<StoreConfig> | null;
+  const rawEvents = Array.isArray(raw?.events) ? raw?.events : [];
+  const eventMap = new Map<string, EventProfile>();
+  for (const entry of rawEvents) {
+    const id = String((entry as Partial<EventProfile>)?.id || "").trim();
+    const name = String((entry as Partial<EventProfile>)?.name || "").trim();
+    if (!id || !name || eventMap.has(id)) continue;
+    eventMap.set(id, { id, name });
+  }
+  const activeEventId = String(raw?.activeEventId || "").trim();
+  const activeEventName = String(raw?.activeEventName || "").trim();
+  const activeFromList = activeEventId ? eventMap.get(activeEventId) : undefined;
   return {
-    activeEventName: String(raw?.activeEventName || "").trim(),
+    activeEventId: activeFromList?.id || activeEventId,
+    activeEventName: activeFromList?.name || activeEventName,
+    events: [...eventMap.values()],
   };
 }
 
@@ -246,13 +296,20 @@ export async function upsertTapToPayConfig(config: Partial<TapToPayConfig>) {
   `;
 }
 
-export async function getResolvedMenuSections() {
+export async function getResolvedMenuSections(eventId?: string) {
   await ensureMenuSettingsSchema();
 
   const rows = await sql`
     SELECT item_id, price, visible
     FROM menu_item_settings
   `;
+  const eventRows = eventId
+    ? ((await sql`
+        SELECT event_id, item_id, price, visible
+        FROM event_menu_item_settings
+        WHERE event_id = ${eventId}
+      `) as EventMenuSettingsRow[])
+    : [];
   const customRows = (await sql`
     SELECT item_id, section_id, name_de, name_fr, name_en, desc_de, desc_fr, desc_en, price, visible
     FROM custom_menu_items
@@ -268,11 +325,20 @@ export async function getResolvedMenuSections() {
       visible: Boolean(raw.visible),
     });
   }
+  const eventSettingsMap = new Map<string, { price: number; visible: boolean }>();
+  for (const raw of eventRows) {
+    const itemId = String(raw.item_id || "").trim();
+    if (!itemId) continue;
+    eventSettingsMap.set(itemId, {
+      price: Number(raw.price),
+      visible: Boolean(raw.visible),
+    });
+  }
 
   const resolved = MENU_CATALOG.map((section) => ({
     ...section,
     items: section.items.map((item) => {
-      const setting = settingsMap.get(item.id);
+      const setting = eventSettingsMap.get(item.id) ?? settingsMap.get(item.id);
       return {
         ...item,
         imagePath: item.imagePath ?? getMenuItemImagePath(item.id),
@@ -283,7 +349,7 @@ export async function getResolvedMenuSections() {
   }));
 
   for (const row of customRows) {
-    const setting = settingsMap.get(row.item_id);
+    const setting = eventSettingsMap.get(row.item_id) ?? settingsMap.get(row.item_id);
     const targetSectionId = String(row.section_id || "").trim() || "custom-dishes";
     let section = resolved.find((s) => s.id === targetSectionId);
     if (!section) {
@@ -320,24 +386,39 @@ export async function upsertMenuItemSetting(payload: {
   itemId: string;
   price: number;
   visible: boolean;
+  eventId?: string;
 }) {
   await ensureMenuSettingsSchema();
   const itemId = String(payload.itemId || "").trim();
   const price = Number(payload.price);
   const visible = Boolean(payload.visible);
+  const eventId = String(payload.eventId || "").trim();
 
   if (!itemId) throw new Error("Missing itemId");
   if (!Number.isFinite(price) || price < 0) throw new Error("Invalid price");
 
+  if (eventId) {
+    await sql`
+      INSERT INTO event_menu_item_settings (event_id, item_id, price, visible, updated_at)
+      VALUES (${eventId}, ${itemId}, ${price}, ${visible}, NOW())
+      ON CONFLICT (event_id, item_id)
+      DO UPDATE SET
+        price = EXCLUDED.price,
+        visible = EXCLUDED.visible,
+        updated_at = NOW()
+    `;
+    return;
+  }
+
   await sql`
-    INSERT INTO menu_item_settings (item_id, price, visible, updated_at)
-    VALUES (${itemId}, ${price}, ${visible}, NOW())
-    ON CONFLICT (item_id)
-    DO UPDATE SET
-      price = EXCLUDED.price,
-      visible = EXCLUDED.visible,
-      updated_at = NOW()
-  `;
+      INSERT INTO menu_item_settings (item_id, price, visible, updated_at)
+      VALUES (${itemId}, ${price}, ${visible}, NOW())
+      ON CONFLICT (item_id)
+      DO UPDATE SET
+        price = EXCLUDED.price,
+        visible = EXCLUDED.visible,
+        updated_at = NOW()
+    `;
 }
 
 function createCustomItemId() {

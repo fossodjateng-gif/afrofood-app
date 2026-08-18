@@ -284,6 +284,8 @@ const UI = {
 type RuntimeItem = CatalogSection["items"][number] & { price: number; visible: boolean };
 type RuntimeSection = Omit<CatalogSection, "items"> & { items: RuntimeItem[] };
 const MENU_IMAGE_FALLBACK = "/logo-afrofood.png";
+const EVENT_ID_KEY = "af_event_id";
+const EVENT_NAME_KEY = "af_event_name";
 
 function Tag({ label, lang }: { label: MenuTag; lang: Lang }) {
   const bg = label === "VEGAN" ? "#0A7A3D" : BRAND.orange;
@@ -315,6 +317,8 @@ export default function MenuPage() {
   const [cartCount, setCartCount] = React.useState(0);
   const [lang, setLang] = React.useState<Lang>("de");
   const [selectedImage, setSelectedImage] = React.useState<{ src: string; alt: string } | null>(null);
+  const [selectedEventId, setSelectedEventId] = React.useState("");
+  const [selectedEventName, setSelectedEventName] = React.useState("");
   const [sections, setSections] = React.useState<RuntimeSection[]>(() =>
     MENU_CATALOG.map((section) => ({
       ...section,
@@ -329,23 +333,40 @@ export default function MenuPage() {
 
   React.useEffect(() => {
     setLang(getSavedLang());
+    setSelectedEventId(localStorage.getItem(EVENT_ID_KEY) || "");
+    setSelectedEventName(localStorage.getItem(EVENT_NAME_KEY) || "");
   }, []);
 
   React.useEffect(() => {
     let alive = true;
     async function loadMenuConfig() {
-      const res = await fetch("/api/menu-config", { cache: "no-store" });
+      const query = selectedEventId ? `?eventId=${encodeURIComponent(selectedEventId)}` : "";
+      const res = await fetch(`/api/menu-config${query}`, { cache: "no-store" });
       const data = await res.json().catch(() => null);
       if (!alive) return;
       if (res.ok && data?.ok && Array.isArray(data.sections)) {
         setSections(data.sections as RuntimeSection[]);
+        const selected = data.selectedEvent as { id?: string; name?: string } | null;
+        if (selected?.id && selected?.name) {
+          setSelectedEventId(selected.id);
+          setSelectedEventName(selected.name);
+          localStorage.setItem(EVENT_ID_KEY, selected.id);
+          localStorage.setItem(EVENT_NAME_KEY, selected.name);
+        } else if (!selectedEventId && data.storeConfig?.activeEventId && data.storeConfig?.activeEventName) {
+          setSelectedEventId(String(data.storeConfig.activeEventId));
+          setSelectedEventName(String(data.storeConfig.activeEventName));
+          localStorage.setItem(EVENT_ID_KEY, String(data.storeConfig.activeEventId));
+          localStorage.setItem(EVENT_NAME_KEY, String(data.storeConfig.activeEventName));
+        } else if (!selectedEventId) {
+          window.location.href = "/";
+        }
       }
     }
-    loadMenuConfig();
+    void loadMenuConfig();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [selectedEventId]);
 
   function setLanguage(next: Lang) {
     setLang(next);
@@ -427,7 +448,9 @@ export default function MenuPage() {
                 Menu
               </h1>
               <div style={UI.subtitle} className="af-subtitle">
-                {t.subtitle ?? "Commande digitale (DE / FR / EN)"}
+                {selectedEventName
+                  ? `${t.subtitle ?? "Commande digitale (DE / FR / EN)"} - ${selectedEventName}`
+                  : t.subtitle ?? "Commande digitale (DE / FR / EN)"}
               </div>
             </div>
           </div>
@@ -465,6 +488,43 @@ export default function MenuPage() {
         <p style={{ marginTop: 12, color: "#5f5f5f", fontSize: 14, lineHeight: 1.45 }}>
           <b>{t.legend}:</b> {t.legend_details}
         </p>
+
+        {selectedEventName ? (
+          <section style={UI.section} className="af-section">
+            <h2 style={UI.sectionTitle}>
+              {lang === "fr" ? "Evenement choisi" : lang === "de" ? "Gewahltes Event" : "Selected event"}
+            </h2>
+            <div style={{ marginTop: 12, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderRadius: 16,
+                  border: "1px solid #F1D7C8",
+                  background: "rgba(255,255,255,0.92)",
+                  color: BRAND.black,
+                  fontWeight: 900,
+                }}
+              >
+                {selectedEventName}
+              </div>
+              <Link
+                href="/"
+                className="af-link-btn"
+                style={{
+                  textDecoration: "none",
+                  padding: "12px 16px",
+                  borderRadius: 999,
+                  border: "1px solid #111",
+                  color: "#111",
+                  fontWeight: 800,
+                  background: "white",
+                }}
+              >
+                {lang === "fr" ? "Changer d'evenement" : lang === "de" ? "Event wechseln" : "Change event"}
+              </Link>
+            </div>
+          </section>
+        ) : null}
 
         {/* sections */}
         {sections.map((sec) => (

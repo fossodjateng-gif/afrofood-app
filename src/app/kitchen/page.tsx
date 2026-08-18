@@ -5,12 +5,12 @@ import { useSearchParams } from "next/navigation";
 import type { OrderRow } from "@/lib/schema";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
+import { getSession, getStaffRoleLabel, type StaffRole, updateSessionCashierEventId } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 
 const UI_TEXT: Record<
   Lang,
-  {
+	  {
     title: string;
     subtitle: string;
     back: string;
@@ -18,8 +18,10 @@ const UI_TEXT: Record<
     refreshed: string;
     refresh: string;
     loading: string;
-    noOrders: string;
-    name: string;
+	    noOrders: string;
+      eventAssigned: string;
+      noEventAssigned: string;
+	    name: string;
     unnamed: string;
     ready: string;
     done: string;
@@ -34,8 +36,10 @@ const UI_TEXT: Record<
     refreshed: "Aktualisiert",
     refresh: "Aktualisieren",
     loading: "Laden...",
-    noOrders: "Keine Kuchenbestellung.",
-    name: "Name",
+	    noOrders: "Keine Kuchenbestellung.",
+      eventAssigned: "Zugewiesenes Event",
+      noEventAssigned: "Kein Event fur diese Kuche zugewiesen.",
+	    name: "Name",
     unnamed: "Ohne Name",
     ready: "Fertig",
     done: "Guten Appetit",
@@ -49,8 +53,10 @@ const UI_TEXT: Record<
     refreshed: "Actualise",
     refresh: "Actualiser",
     loading: "Chargement...",
-    noOrders: "Aucune commande cuisine.",
-    name: "Nom",
+	    noOrders: "Aucune commande cuisine.",
+      eventAssigned: "Evenement assigne",
+      noEventAssigned: "Aucun evenement n'est assigne a cette cuisine.",
+	    name: "Nom",
     unnamed: "Sans nom",
     ready: "Pret",
     done: "Bon appetit",
@@ -64,8 +70,10 @@ const UI_TEXT: Record<
     refreshed: "Refreshed",
     refresh: "Refresh",
     loading: "Loading...",
-    noOrders: "No kitchen orders.",
-    name: "Name",
+	    noOrders: "No kitchen orders.",
+      eventAssigned: "Assigned event",
+      noEventAssigned: "No event is assigned to this kitchen.",
+	    name: "Name",
     unnamed: "No name",
     ready: "Ready",
     done: "Done",
@@ -81,6 +89,9 @@ function KitchenPageContent() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [justRefreshed, setJustRefreshed] = useState(false);
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
+  const [assignedEventId, setAssignedEventId] = useState("");
+  const [assignedEventName, setAssignedEventName] = useState("");
+  const [accessError, setAccessError] = useState<string | null>(null);
   const t = UI_TEXT[lang];
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
   const backHref = fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine";
@@ -97,10 +108,13 @@ function KitchenPageContent() {
   async function refresh() {
     try {
       setIsRefreshing(true);
+      setAccessError(null);
+
+      const eventFilter = assignedEventId ? `&eventId=${encodeURIComponent(assignedEventId)}` : "";
 
       const [newRes, readyRes] = await Promise.all([
-        fetch("/api/orders?status=NEW", { cache: "no-store" }),
-        fetch("/api/orders?status=READY", { cache: "no-store" }),
+        fetch(`/api/orders?status=NEW${eventFilter}`, { cache: "no-store" }),
+        fetch(`/api/orders?status=READY${eventFilter}`, { cache: "no-store" }),
       ]);
 
       const newData = await newRes.json();
@@ -120,19 +134,87 @@ function KitchenPageContent() {
   }
 
   useEffect(() => {
-    const s = getSession();
-    if (!s) {
-      window.location.href = "/team/login";
-      return;
+    let alive = true;
+
+    async function boot() {
+      setLang(getSavedLang());
+      const s = getSession();
+      if (!s) {
+        window.location.href = "/team/login";
+        return;
+      }
+      if (s.role !== "admin" && s.role !== "kitchen" && s.role !== "cashier") {
+        window.location.href = "/staff";
+        return;
+      }
+      setStaffRole(s.role);
+
+      if (s.role === "admin") {
+        if (fromCaisse) {
+          const caisseEventId = localStorage.getItem("af_caisse_event_id") || "";
+          let nextEventName = "";
+          if (caisseEventId.trim()) {
+            try {
+              const res = await fetch("/api/menu-config", { cache: "no-store" });
+              const data = await res.json().catch(() => null);
+              const events = Array.isArray(data?.storeConfig?.events) ? data.storeConfig.events : [];
+              nextEventName =
+                String(events.find((event: { id?: string }) => String(event?.id || "").trim() === caisseEventId)?.name || "").trim();
+            } catch {}
+            if (!alive) return;
+            setAssignedEventId(caisseEventId.trim());
+            setAssignedEventName(nextEventName);
+            return;
+          }
+        }
+        if (!alive) return;
+        void refresh();
+        return;
+      }
+
+      let nextEventId = String(s.cashierEventId || "").trim();
+      let nextEventName = "";
+      try {
+        const res = await fetch("/api/menu-config", { cache: "no-store" });
+        const data = await res.json().catch(() => null);
+        const events = Array.isArray(data?.storeConfig?.events)
+          ? data.storeConfig.events
+          : [];
+        if (!nextEventId) {
+          nextEventId = String(data?.storeConfig?.activeEventId || "").trim() || String(events[0]?.id || "").trim();
+          if (nextEventId) updateSessionCashierEventId(nextEventId);
+        }
+        nextEventName =
+          String(events.find((event: { id?: string }) => String(event?.id || "").trim() === nextEventId)?.name || "").trim();
+      } catch {
+        nextEventId = nextEventId || "";
+      }
+
+      if (!nextEventId) {
+        if (!alive) return;
+        setAssignedEventId("");
+        setAssignedEventName("");
+        setAccessError(t.noEventAssigned);
+        setLoading(false);
+        return;
+      }
+
+      if (!alive) return;
+      setAssignedEventId(nextEventId);
+      setAssignedEventName(nextEventName);
     }
-    if (s.role !== "admin" && s.role !== "kitchen" && s.role !== "cashier") {
-      window.location.href = "/staff";
-      return;
-    }
-    setStaffRole(s.role);
-    setLang(getSavedLang());
+
+    void boot();
+    return () => {
+      alive = false;
+    };
+  }, [t.noEventAssigned]);
+
+  useEffect(() => {
+    if (staffRole === null) return;
+    if (staffRole !== "admin" && !assignedEventId) return;
     void refresh();
-  }, []);
+  }, [assignedEventId, staffRole]);
 
   useEffect(() => {
     return subscribeOrderSync((message) => {
@@ -204,6 +286,24 @@ function KitchenPageContent() {
       </div>
       <h1 style={{ margin: "10px 0 0 0", fontSize: 28, fontWeight: 900 }}>{t.title}</h1>
       <p style={{ opacity: 0.75 }}>{t.subtitle}</p>
+      {assignedEventName ? (
+        <div
+          style={{
+            marginTop: 10,
+            display: "inline-flex",
+            gap: 8,
+            alignItems: "center",
+            padding: "8px 12px",
+            borderRadius: 999,
+            background: "rgba(255,255,255,0.9)",
+            border: "1px solid #F1D7C8",
+            fontWeight: 800,
+          }}
+        >
+          <span>{t.eventAssigned}:</span>
+          <span>{assignedEventName}</span>
+        </div>
+      ) : null}
       <button
         className="af-btn"
         onClick={refresh}
@@ -227,8 +327,9 @@ function KitchenPageContent() {
         {isRefreshing ? t.refreshing : justRefreshed ? t.refreshed : t.refresh}
       </button>
 
-      {loading ? <p style={{ marginTop: 12 }}>{t.loading}</p> : null}
-      {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>{t.noOrders}</p> : null}
+	      {loading ? <p style={{ marginTop: 12 }}>{t.loading}</p> : null}
+      {accessError ? <p style={{ marginTop: 12, color: "#b91c1c", fontWeight: 800 }}>{accessError}</p> : null}
+	      {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>{t.noOrders}</p> : null}
 
       <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
         {sortedOrders.map((o) => {

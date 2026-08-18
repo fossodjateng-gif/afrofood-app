@@ -96,6 +96,8 @@ export default function StaffAdminUsersPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<StaffRole>("cashier");
+  const [cashierEventId, setCashierEventId] = useState("");
+  const [eventOptions, setEventOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [sessionRole, setSessionRole] = useState<StaffRole | null>(null);
   const [lang, setLang] = useState<Lang>("fr");
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +113,25 @@ export default function StaffAdminUsersPage() {
       window.location.href = "/staff";
       return;
     }
+    setSessionRole(s.role);
+    void fetch("/api/menu-config", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        const options = Array.isArray(data?.storeConfig?.events)
+          ? data.storeConfig.events
+              .map((event: { id?: string; name?: string }) => ({
+                id: String(event?.id || "").trim(),
+                name: String(event?.name || "").trim(),
+              }))
+              .filter((event: { id: string; name: string }) => event.id && event.name)
+          : [];
+        setEventOptions(options);
+        if (options.length > 0 && !cashierEventId) {
+          setCashierEventId(options[0].id);
+        }
+      })
+      .catch(() => {});
+    reload();
   }, []);
 
   const t = UI_TEXT[lang];
@@ -204,16 +225,30 @@ export default function StaffAdminUsersPage() {
               <option value="cashier">{t.roleCashier}</option>
               <option value="kitchen">{t.roleKitchen}</option>
             </select>
+            {(role === "cashier" || role === "kitchen") && eventOptions.length > 0 ? (
+              <select
+                value={cashierEventId}
+                onChange={(e) => setCashierEventId(e.target.value)}
+                style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", maxWidth: 280 }}
+              >
+                {eventOptions.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {event.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <button
               className="af-btn"
               type="button"
               onClick={() => {
                 try {
                   setError(null);
-                  createUser({ username, password, role });
+                  createUser({ username, password, role, cashierEventId });
                   setUsername("");
                   setPassword("");
                   setRole("cashier");
+                  if (eventOptions.length > 0) setCashierEventId(eventOptions[0].id);
                   reload();
                 } catch (e: unknown) {
                   setError(e instanceof Error ? e.message : t.createError);
@@ -244,6 +279,22 @@ export default function StaffAdminUsersPage() {
                   <option value="cashier">{t.roleCashier}</option>
                   <option value="kitchen">{t.roleKitchen}</option>
                 </select>
+                {(u.role === "cashier" || u.role === "kitchen") && eventOptions.length > 0 ? (
+                  <select
+                    value={u.cashierEventId || ""}
+                    onChange={(e) => {
+                      updateUser(u.id, { cashierEventId: e.target.value });
+                      reload();
+                    }}
+                    style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd" }}
+                  >
+                    {eventOptions.map((event) => (
+                      <option key={event.id} value={event.id}>
+                        {event.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
                 <button
                   className="af-btn"
                   type="button"

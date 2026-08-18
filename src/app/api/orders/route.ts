@@ -66,14 +66,14 @@ export async function GET(req: Request) {
       }
 
       rows = await sql`
-        SELECT id, created_at, customer_name, event_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
         FROM orders
         WHERE id = ${idParam} AND UPPER(status) = ${statusParam}
         ORDER BY created_at DESC
       `;
     } else if (idParam) {
       rows = await sql`
-        SELECT id, created_at, customer_name, event_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
         FROM orders
         WHERE id = ${idParam}
         ORDER BY created_at DESC
@@ -83,18 +83,35 @@ export async function GET(req: Request) {
         return NextResponse.json({ ok: false, error: "Invalid status" }, { status: 400 });
       }
 
-      rows = await sql`
-        SELECT id, created_at, customer_name, event_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
-        FROM orders
-        WHERE UPPER(status) = ${statusParam}
-        ORDER BY created_at DESC
-      `;
+      const eventIdParam = String(searchParams.get("eventId") || "").trim();
+      rows = eventIdParam
+        ? await sql`
+            SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+            FROM orders
+            WHERE UPPER(status) = ${statusParam}
+              AND event_id = ${eventIdParam}
+            ORDER BY created_at DESC
+          `
+        : await sql`
+            SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+            FROM orders
+            WHERE UPPER(status) = ${statusParam}
+            ORDER BY created_at DESC
+          `;
     } else {
-      rows = await sql`
-        SELECT id, created_at, customer_name, event_name, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
-        FROM orders
-        ORDER BY created_at DESC
-      `;
+      const eventIdParam = String(searchParams.get("eventId") || "").trim();
+      rows = eventIdParam
+        ? await sql`
+            SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+            FROM orders
+            WHERE event_id = ${eventIdParam}
+            ORDER BY created_at DESC
+          `
+        : await sql`
+            SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+            FROM orders
+            ORDER BY created_at DESC
+          `;
     }
 
     return NextResponse.json(rows);
@@ -116,9 +133,18 @@ export async function POST(req: Request) {
       body.customerName && String(body.customerName).trim()
         ? String(body.customerName).trim()
         : null;
+    const eventId =
+      body.eventId && String(body.eventId).trim()
+        ? String(body.eventId).trim()
+        : null;
     const eventName =
       body.eventName && String(body.eventName).trim()
         ? String(body.eventName).trim()
+        : null;
+    const reservationRequested = body.reservationRequested === true;
+    const reservationTime =
+      reservationRequested && body.reservationTime && String(body.reservationTime).trim()
+        ? String(body.reservationTime).trim()
         : null;
 
     const payment = String(body.payment || "") as PaymentMethod;
@@ -129,6 +155,12 @@ export async function POST(req: Request) {
     }
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ ok: false, error: "Missing items" }, { status: 400 });
+    }
+    if (reservationRequested && !eventName) {
+      return NextResponse.json({ ok: false, error: "Missing event for reservation" }, { status: 400 });
+    }
+    if (reservationRequested && !reservationTime) {
+      return NextResponse.json({ ok: false, error: "Missing reservation time" }, { status: 400 });
     }
 
     const paymentConfig = await getPaymentConfig();
@@ -146,8 +178,8 @@ export async function POST(req: Request) {
     const amountCents = calculateOrderTotalCents(items);
 
     await sql`
-      INSERT INTO orders (id, created_at, customer_name, event_name, payment, payment_provider, amount_cents, currency, status, items)
-      VALUES (${id}, ${createdAt}::timestamptz, ${customerName}, ${eventName}, ${payment}, NULL, ${amountCents}, 'eur', 'PENDING_PAYMENT', ${JSON.stringify(items)}::jsonb)
+      INSERT INTO orders (id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, amount_cents, currency, status, items)
+      VALUES (${id}, ${createdAt}::timestamptz, ${customerName}, ${eventId}, ${eventName}, ${reservationRequested}, ${reservationTime}::timestamp, ${payment}, NULL, ${amountCents}, 'eur', 'PENDING_PAYMENT', ${JSON.stringify(items)}::jsonb)
     `;
 
     publishOrderEvent({
@@ -163,7 +195,10 @@ export async function POST(req: Request) {
         id,
         createdAt,
         customerName: customerName ?? undefined,
+        eventId: eventId ?? undefined,
         eventName: eventName ?? undefined,
+        reservationRequested,
+        reservationTime: reservationTime ?? undefined,
         payment,
         items,
       },
