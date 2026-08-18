@@ -719,12 +719,6 @@ function AwarenessScreen({
           <Text style={termsAcceptedBySdk ? styles.successText : styles.helpText}>
             {setupLog || t.setupDefault}
           </Text>
-          <Button
-            label={t.openAppleTerms}
-            onPress={() => void Linking.openURL(APPLE_TAP_TO_PAY_TERMS_URL)}
-            kind="secondary"
-            disabled={busy}
-          />
           <Button label={t.logout} onPress={onLogout} kind="secondary" disabled={busy} />
         </Section>
       ) : setupStep === "education" ? (
