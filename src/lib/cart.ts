@@ -3,6 +3,8 @@ export type CartItem = {
   name: string;
   price: number;
   qty: number;
+  note?: string;
+  unitNotes?: string[];
   redSauce: boolean;
   extraRedSauceQty: number;
 };
@@ -15,15 +17,28 @@ function isDip(id: string) {
 
 function cleanText(value: string) {
   return value
-    .replaceAll("GrÃ¼ne", "Grune")
-    .replaceAll("AttiÃ©kÃ©", "Attieke")
-    .replaceAll("HÃ¤hnchenfÃ¼llung", "Hahnchenfullung")
-    .replaceAll("Ã¼", "u")
-    .replaceAll("Ã¤", "a")
-    .replaceAll("Ã¶", "o")
-    .replaceAll("â€“", "-")
-    .replaceAll("â€¢", "-")
-    .replaceAll("â‚¬", "EUR");
+    .replaceAll("GrÃƒÂ¼ne", "Grune")
+    .replaceAll("AttiÃƒÂ©kÃƒÂ©", "Attieke")
+    .replaceAll("HÃƒÂ¤hnchenfÃƒÂ¼llung", "Hahnchenfullung")
+    .replaceAll("ÃƒÂ¼", "u")
+    .replaceAll("ÃƒÂ¤", "a")
+    .replaceAll("ÃƒÂ¶", "o")
+    .replaceAll("Ã¢â‚¬â€œ", "-")
+    .replaceAll("Ã¢â‚¬Â¢", "-")
+    .replaceAll("Ã¢â€šÂ¬", "EUR");
+}
+
+function normalizeUnitNotes(rawNotes: unknown, qty: number, fallbackNote?: string) {
+  const notes = Array.isArray(rawNotes)
+    ? rawNotes.map((note) => String(note || "").trim()).slice(0, qty)
+    : [];
+  while (notes.length < qty) {
+    notes.push("");
+  }
+  if (fallbackNote && !notes.some((note) => note.trim())) {
+    notes[0] = fallbackNote;
+  }
+  return notes;
 }
 
 function sanitizeItem(raw: any): CartItem | null {
@@ -32,12 +47,15 @@ function sanitizeItem(raw: any): CartItem | null {
   const name = cleanText(String(raw.name || "").trim());
   const price = Number(raw.price || 0);
   const qty = Number(raw.qty || 0);
+  const fallbackNote = String(raw.note || "").trim() || undefined;
   if (!id || !name || !Number.isFinite(price) || !Number.isFinite(qty) || qty <= 0) return null;
   return {
     id,
     name,
     price,
     qty,
+    note: fallbackNote,
+    unitNotes: normalizeUnitNotes(raw.unitNotes, qty, fallbackNote),
     redSauce: Boolean(raw.redSauce),
     extraRedSauceQty: Number.isFinite(Number(raw.extraRedSauceQty)) ? Number(raw.extraRedSauceQty) : 0,
   };
@@ -76,6 +94,7 @@ export function addToCart(payload: Omit<CartItem, "qty">) {
     it.name = payload.name;
     it.price = payload.price;
     it.qty += 1;
+    it.unitNotes = normalizeUnitNotes(it.unitNotes, it.qty, it.note);
 
     if (payload.redSauce) {
       if (!it.redSauce) {
@@ -88,6 +107,7 @@ export function addToCart(payload: Omit<CartItem, "qty">) {
     cart.push({
       ...payload,
       qty: 1,
+      unitNotes: normalizeUnitNotes(payload.unitNotes, 1, payload.note),
       redSauce: payload.redSauce,
       extraRedSauceQty: 0,
     });
@@ -109,14 +129,52 @@ export function cartTotal(cart: CartItem[]): number {
 
 export function incrementItem(id: string) {
   const cart = getCart();
-  const next = cart.map((it) => (it.id === id ? { ...it, qty: it.qty + 1 } : it));
+  const next = cart.map((it) =>
+    it.id === id
+      ? {
+          ...it,
+          qty: it.qty + 1,
+          unitNotes: normalizeUnitNotes(it.unitNotes, it.qty + 1, it.note),
+        }
+      : it
+  );
+  write(next);
+}
+
+export function updateItemNote(id: string, note: string) {
+  updateItemUnitNote(id, 0, note);
+}
+
+export function updateItemUnitNote(id: string, index: number, note: string) {
+  const normalized = String(note || "").trim();
+  const cart = getCart();
+  const next = cart.map((it) => {
+    if (it.id !== id) return it;
+    const unitNotes = normalizeUnitNotes(it.unitNotes, it.qty, it.note);
+    if (index < 0 || index >= unitNotes.length) return it;
+    unitNotes[index] = normalized;
+    return {
+      ...it,
+      note: unitNotes[0] || undefined,
+      unitNotes,
+    };
+  });
   write(next);
 }
 
 export function decrementItem(id: string) {
   const cart = getCart();
   const next = cart
-    .map((it) => (it.id === id ? { ...it, qty: it.qty - 1 } : it))
+    .map((it) =>
+      it.id === id
+        ? {
+            ...it,
+            qty: it.qty - 1,
+            unitNotes: normalizeUnitNotes(it.unitNotes, Math.max(0, it.qty - 1), it.note),
+            note: normalizeUnitNotes(it.unitNotes, Math.max(0, it.qty - 1), it.note)[0] || undefined,
+          }
+        : it
+    )
     .filter((it) => it.qty > 0);
   write(next);
 }

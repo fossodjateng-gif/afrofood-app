@@ -1,12 +1,14 @@
 // src/lib/order.ts
 
-export type PaymentMethod = "cash" | "card";
+export type PaymentMethod = "cash" | "card" | "cashless";
 
 export type TicketItem = {
   id?: string;
   name: string;
   qty: number;
   price?: number;
+  note?: string;
+  unitNotes?: string[];
 };
 
 export type Order = {
@@ -44,9 +46,20 @@ export function makeOrderId() {
   return `${todayKey()}-${pad3(seq)}`; // 20260219-003
 }
 
-export function cartToTicketItems(cart: Array<{ id?: string; name: string; qty: number; price?: number }>): TicketItem[] {
+export function cartToTicketItems(
+  cart: Array<{ id?: string; name: string; qty: number; price?: number; note?: string; unitNotes?: string[] }>
+): TicketItem[] {
   // simplifie si ton cart a plus de champs
-  return cart.map((it) => ({ id: it.id, name: it.name, qty: it.qty, price: it.price }));
+  return cart.map((it) => ({
+    id: it.id,
+    name: it.name,
+    qty: it.qty,
+    price: it.price,
+    note: String((it as { note?: string }).note || "").trim() || undefined,
+    unitNotes: Array.isArray(it.unitNotes)
+      ? it.unitNotes.map((note) => String(note || "").trim())
+      : undefined,
+  }));
 }
 
 export function makeQrPayload(order: Order) {

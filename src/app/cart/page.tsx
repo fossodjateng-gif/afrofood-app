@@ -11,6 +11,7 @@ import {
   decrementItem,
   removeItem,
   replaceCart,
+  updateItemUnitNote,
   type CartItem,
 } from "@/lib/cart";
 import type { OrderRow, OrderStatus } from "@/lib/schema";
@@ -244,9 +245,11 @@ export default function CartPage() {
   const [paymentAvailability, setPaymentAvailability] = useState<{
     cashEnabled: boolean;
     cardEnabled: boolean;
+    cashlessEnabled: boolean;
   }>({
     cashEnabled: true,
     cardEnabled: true,
+    cashlessEnabled: true,
   });
   const [customerName, setCustomerName] = useState("");
   const [eventName, setEventName] = useState("");
@@ -282,13 +285,14 @@ export default function CartPage() {
         const data = (await res.json()) as {
           ok?: boolean;
           sections?: Array<{ items?: Array<{ id?: string; price?: number }> }>;
-          paymentConfig?: { cashEnabled?: boolean; cardEnabled?: boolean };
+          paymentConfig?: { cashEnabled?: boolean; cardEnabled?: boolean; cashlessEnabled?: boolean };
           storeConfig?: { activeEventName?: string };
         };
         if (!res.ok || !data?.ok || cancelled) return;
         const next = {
           cashEnabled: data.paymentConfig?.cashEnabled !== false,
           cardEnabled: data.paymentConfig?.cardEnabled !== false,
+          cashlessEnabled: data.paymentConfig?.cashlessEnabled !== false,
         };
         setPaymentAvailability(next);
         const currentLocal = localStorage.getItem(EVENT_NAME_KEY);
@@ -336,11 +340,22 @@ export default function CartPage() {
   }, []);
 
   useEffect(() => {
-    if (payment === "cash" && !paymentAvailability.cashEnabled && paymentAvailability.cardEnabled) {
-      setPayment("card");
+    const firstAvailable = paymentAvailability.cashEnabled
+      ? "cash"
+      : paymentAvailability.cardEnabled
+      ? "card"
+      : paymentAvailability.cashlessEnabled
+      ? "cashless"
+      : null;
+
+    if (payment === "cash" && !paymentAvailability.cashEnabled && firstAvailable) {
+      setPayment(firstAvailable);
     }
-    if (payment === "card" && !paymentAvailability.cardEnabled && paymentAvailability.cashEnabled) {
-      setPayment("cash");
+    if (payment === "card" && !paymentAvailability.cardEnabled && firstAvailable) {
+      setPayment(firstAvailable);
+    }
+    if (payment === "cashless" && !paymentAvailability.cashlessEnabled && firstAvailable) {
+      setPayment(firstAvailable);
     }
   }, [payment, paymentAvailability]);
 
@@ -376,6 +391,11 @@ export default function CartPage() {
       if (pay === "card" && !paymentAvailability.cardEnabled) {
         throw new Error(
           lang === "fr" ? "Paiement carte desactive" : lang === "de" ? "Kartenzahlung deaktiviert" : "Card payment disabled"
+        );
+      }
+      if (pay === "cashless" && !paymentAvailability.cashlessEnabled) {
+        throw new Error(
+          lang === "fr" ? "Paiement cashless desactive" : lang === "de" ? "Cashless-Zahlung deaktiviert" : "Cashless payment disabled"
         );
       }
       setIsCreating(true);
@@ -559,7 +579,7 @@ export default function CartPage() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: -0.2 }}>{it.name}</div>
 
-                  <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+	                  <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <button type="button" className="af-btn" onClick={() => { decrementItem(it.id); refreshCart(); }} style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
                       -
                     </button>
@@ -569,11 +589,39 @@ export default function CartPage() {
                     <button type="button" className="af-btn" onClick={() => { incrementItem(it.id); refreshCart(); }} style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
                       +
                     </button>
-                    <button type="button" className="af-btn" onClick={() => { removeItem(it.id); refreshCart(); }} style={{ marginLeft: 10, padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
-                      {t.cart_remove}
-                    </button>
-                  </div>
-                </div>
+	                    <button type="button" className="af-btn" onClick={() => { removeItem(it.id); refreshCart(); }} style={{ marginLeft: 10, padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
+	                      {t.cart_remove}
+	                    </button>
+	                  </div>
+
+                    <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                      <label style={{ display: "block", fontWeight: 700, marginBottom: 0 }}>
+                        {t.cart_item_note_label}
+                      </label>
+                      {Array.from({ length: it.qty }).map((_, noteIndex) => (
+                        <div key={`${it.id}-note-${noteIndex}`} style={{ display: "grid", gap: 6 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: "#7a4b2f" }}>
+                            {t.cart_item_note_portion} {noteIndex + 1}
+                          </div>
+                          <textarea
+                            value={it.unitNotes?.[noteIndex] || ""}
+                            onChange={(e) => {
+                              updateItemUnitNote(it.id, noteIndex, e.target.value);
+                              refreshCart();
+                            }}
+                            placeholder={t.cart_item_note_placeholder}
+                            rows={2}
+                            style={{
+                              ...UI.input,
+                              minHeight: 70,
+                              resize: "vertical",
+                              fontFamily: "inherit",
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+	                </div>
 
                 <div className="af-price" style={{ fontSize: 22, fontWeight: 900, color: BRAND.black, whiteSpace: "nowrap", letterSpacing: -0.3 }}>
                   {(cartBreakdown.lineTotals[idx] ?? 0).toFixed(2)} EUR
@@ -634,7 +682,13 @@ export default function CartPage() {
                 {t.cart_payment_card}
               </label>
             ) : null}
-            {!paymentAvailability.cashEnabled && !paymentAvailability.cardEnabled ? (
+            {paymentAvailability.cashlessEnabled ? (
+              <label style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 14px", borderRadius: 16, background: "rgba(255,250,246,0.92)", border: "1px solid #F1D7C8" }}>
+                <input type="radio" name="pay" checked={payment === "cashless"} onChange={() => setPayment("cashless")} />
+                {t.cart_payment_cashless}
+              </label>
+            ) : null}
+            {!paymentAvailability.cashEnabled && !paymentAvailability.cardEnabled && !paymentAvailability.cashlessEnabled ? (
               <div style={{ color: "#b91c1c", fontWeight: 700 }}>
                 {lang === "fr"
                   ? "Aucun mode de paiement disponible."
@@ -728,6 +782,14 @@ export default function CartPage() {
               </div>
             </div>
           ) : null}
+          {payment === "cashless" ? (
+            <div style={{ ...UI.notice, background: "rgba(255,255,255,0.92)" }}>
+              <div style={{ fontWeight: 900, marginBottom: 6 }}>{t.cart_cashless_hint_title}</div>
+              <div style={{ opacity: 0.9 }}>
+                {t.cart_cashless_hint_text}
+              </div>
+            </div>
+          ) : null}
           </section>
 
           {order && (orderStatus === "NEW" || orderStatus === "READY" || orderStatus === "CANCELED") ? (
@@ -753,14 +815,30 @@ export default function CartPage() {
                 </div>
 
                 <div className="af-ticket-items">
-                  {order.items.map((it, idx) => (
-                    <div key={idx} className="af-ticket-row">
-                      <div className="af-ticket-name">{it.name}</div>
-                      <div className="af-ticket-qty">
-                        x{it.qty} - {(ticketBreakdown.lineTotals[idx] ?? 0).toFixed(2)} EUR
-                      </div>
-                    </div>
-                  ))}
+	                  {order.items.map((it, idx) => (
+	                    <div key={idx} className="af-ticket-row">
+	                      <div className="af-ticket-name">{it.name}</div>
+	                      <div className="af-ticket-qty">
+	                        x{it.qty} - {(ticketBreakdown.lineTotals[idx] ?? 0).toFixed(2)} EUR
+	                      </div>
+                        {it.note ? (
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.85 }}>
+                            <b>{lang === "fr" ? "Remarque" : lang === "de" ? "Bemerkung" : "Note"}:</b> {it.note}
+                          </div>
+                        ) : null}
+                        {Array.isArray(it.unitNotes) && it.unitNotes.some((note) => String(note || "").trim()) ? (
+                          <div style={{ marginTop: 4, display: "grid", gap: 2, fontSize: 12, opacity: 0.85 }}>
+                            {it.unitNotes.map((note, noteIndex) =>
+                              String(note || "").trim() ? (
+                                <div key={`${idx}-unit-note-${noteIndex}`}>
+                                  <b>{t.cart_item_note_portion} {noteIndex + 1}:</b> {note}
+                                </div>
+                              ) : null
+                            )}
+                          </div>
+                        ) : null}
+	                    </div>
+	                  ))}
                 </div>
 
                 <div className="af-ticket-meta">

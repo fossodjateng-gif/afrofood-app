@@ -29,6 +29,7 @@ type CustomMenuItemRow = {
 export type PaymentConfig = {
   cashEnabled: boolean;
   cardEnabled: boolean;
+  cashlessEnabled: boolean;
 };
 
 export type StoreConfig = {
@@ -50,6 +51,7 @@ const TAP_TO_PAY_CONFIG_KEY = "tap_to_pay_config";
 const DEFAULT_PAYMENT_CONFIG: PaymentConfig = {
   cashEnabled: true,
   cardEnabled: true,
+  cashlessEnabled: true,
 };
 
 const DEFAULT_STORE_CONFIG: StoreConfig = {
@@ -133,6 +135,7 @@ function toPaymentConfig(value: unknown): PaymentConfig {
   return {
     cashEnabled: raw?.cashEnabled !== false,
     cardEnabled: raw?.cardEnabled !== false,
+    cashlessEnabled: raw?.cashlessEnabled !== false,
   };
 }
 

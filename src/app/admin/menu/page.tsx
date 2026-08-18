@@ -34,6 +34,7 @@ type AdminSection = {
 type PaymentConfig = {
   cashEnabled: boolean;
   cardEnabled: boolean;
+  cashlessEnabled: boolean;
 };
 
 type StoreConfig = {
@@ -229,6 +230,7 @@ function AdminMenuPageContent() {
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({
     cashEnabled: true,
     cardEnabled: true,
+    cashlessEnabled: true,
   });
   const [storeConfig, setStoreConfig] = useState<StoreConfig>({
     activeEventName: "",
@@ -565,6 +567,7 @@ function AdminMenuPageContent() {
     setPaymentConfig({
       cashEnabled: incoming?.cashEnabled !== false,
       cardEnabled: incoming?.cardEnabled !== false,
+      cashlessEnabled: incoming?.cashlessEnabled !== false,
     });
     const incomingStore = data.storeConfig as Partial<StoreConfig> | undefined;
     setStoreConfig({
@@ -624,6 +627,7 @@ function AdminMenuPageContent() {
           setting: "payment_config",
           cashEnabled: paymentConfig.cashEnabled,
           cardEnabled: paymentConfig.cardEnabled,
+          cashlessEnabled: paymentConfig.cashlessEnabled,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -1109,6 +1113,19 @@ function AdminMenuPageContent() {
               />
               Carte
             </label>
+            <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 700 }}>
+              <input
+                type="checkbox"
+                checked={paymentConfig.cashlessEnabled}
+                onChange={(e) =>
+                  setPaymentConfig((prev) => ({
+                    ...prev,
+                    cashlessEnabled: e.target.checked,
+                  }))
+                }
+              />
+              Cashless
+            </label>
             <button
               className="af-btn"
               type="button"
@@ -1119,7 +1136,7 @@ function AdminMenuPageContent() {
                   {savingId === "payment-config" ? ui.saving : ui.save}
                 </button>
               </div>
-              {!paymentConfig.cashEnabled && !paymentConfig.cardEnabled ? (
+              {!paymentConfig.cashEnabled && !paymentConfig.cardEnabled && !paymentConfig.cashlessEnabled ? (
                 <div style={{ marginTop: 8, color: "#b45309", fontWeight: 700 }}>
                   {ui.ordersClosed}
                 </div>

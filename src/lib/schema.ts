@@ -5,13 +5,15 @@ export type OrderStatus =
   | "READY"
   | "DONE"
   | "CANCELED";
-export type PaymentMethod = "cash" | "card";
+export type PaymentMethod = "cash" | "card" | "cashless";
 
 export type OrderItem = {
   id?: string;
   name: string;
   qty: number;
   price?: number;
+  note?: string;
+  unitNotes?: string[];
 };
 
 export type OrderRow = {

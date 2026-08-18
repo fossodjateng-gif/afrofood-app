@@ -8,13 +8,6 @@ import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { clearSession, getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
-import {
-  detectClientPlatform,
-  getCashierCreatingCardPaymentLabel,
-  getCashierInitCardPaymentLabel,
-  getCashierWaitingWebhookText,
-  type ClientPlatform,
-} from "@/lib/payment-platform";
 
 const CASHIER_PIN = process.env.NEXT_PUBLIC_CAISSE_PIN || "1955";
 
@@ -43,14 +36,9 @@ const UI_TEXT: Record<
     payment: string;
     validating: string;
     validatePayment: string;
-    initTapToPay: string;
-    creatingTapToPay: string;
-    tapToPayReady: string;
-    tapToPayStatus: string;
-    waitStripeValidation: string;
-    piPlaceholder: string;
-    confirmPi: string;
-    confirmingPi: string;
+    confirmCashPayment: string;
+    confirmCardPayment: string;
+    confirmCashlessPayment: string;
     validated: string;
     total: string;
     ticketTitle: string;
@@ -92,14 +80,6 @@ const UI_TEXT: Record<
     payment: "Zahlung",
     validating: "Validierung...",
     validatePayment: "Barzahlung bestaetigen",
-    initTapToPay: "Tap to Pay auf dem iPhone",
-    creatingTapToPay: "Tap to Pay startet...",
-    tapToPayReady: "PaymentIntent erstellt",
-    tapToPayStatus: "Stripe Status",
-    waitStripeValidation: "Warten auf Stripe Webhook (payment_intent.succeeded)...",
-    piPlaceholder: "PaymentIntent ID (pi_...)",
-    confirmPi: "Kartenzahlung per PI bestaetigen",
-    confirmingPi: "PI wird gepruft...",
     validated: "Validiert",
     total: "Gesamt",
     ticketTitle: "Kundenbeleg",
@@ -113,6 +93,9 @@ const UI_TEXT: Record<
     cancelOrder: "Bestellung stornieren",
     canceling: "Storniere...",
     canceled: "Storniert",
+    confirmCashPayment: "Barzahlung bestaetigen",
+    confirmCardPayment: "Kartenzahlung bestaetigen",
+    confirmCashlessPayment: "Cashless-Zahlung bestaetigen",
     ticketLegend: "(1) Enthalt Gluten - (2) Enthalt Sellerie",
     quickAccess: "Schnellzugriff",
     qaKitchenSpace: "Kuchenbereich",
@@ -140,14 +123,6 @@ const UI_TEXT: Record<
     payment: "Paiement",
     validating: "Validation...",
     validatePayment: "Confirmer paiement espece",
-    initTapToPay: "Tap to Pay sur iPhone",
-    creatingTapToPay: "Demarrage Tap to Pay...",
-    tapToPayReady: "PaymentIntent cree",
-    tapToPayStatus: "Statut Stripe",
-    waitStripeValidation: "En attente du webhook Stripe (payment_intent.succeeded)...",
-    piPlaceholder: "PaymentIntent ID (pi_...)",
-    confirmPi: "Confirmer paiement carte via PI",
-    confirmingPi: "Verification PI...",
     validated: "Validee",
     total: "Total",
     ticketTitle: "Ticket Client",
@@ -161,6 +136,9 @@ const UI_TEXT: Record<
     cancelOrder: "Annuler commande",
     canceling: "Annulation...",
     canceled: "Annulee",
+    confirmCashPayment: "Confirmer paiement espece",
+    confirmCardPayment: "Confirmer paiement carte",
+    confirmCashlessPayment: "Confirmer paiement cashless",
     ticketLegend: "(1) Contient gluten - (2) Contient celeri",
     quickAccess: "Acces rapide",
     qaKitchenSpace: "Espace cuisine",
@@ -188,14 +166,6 @@ const UI_TEXT: Record<
     payment: "Payment",
     validating: "Validating...",
     validatePayment: "Confirm cash payment",
-    initTapToPay: "Tap to Pay on iPhone",
-    creatingTapToPay: "Starting Tap to Pay...",
-    tapToPayReady: "PaymentIntent created",
-    tapToPayStatus: "Stripe status",
-    waitStripeValidation: "Waiting for Stripe webhook (payment_intent.succeeded)...",
-    piPlaceholder: "PaymentIntent ID (pi_...)",
-    confirmPi: "Confirm card payment via PI",
-    confirmingPi: "Checking PI...",
     validated: "Validated",
     total: "Total",
     ticketTitle: "Customer ticket",
@@ -209,6 +179,9 @@ const UI_TEXT: Record<
     cancelOrder: "Cancel order",
     canceling: "Canceling...",
     canceled: "Canceled",
+    confirmCashPayment: "Confirm cash payment",
+    confirmCardPayment: "Confirm card payment",
+    confirmCashlessPayment: "Confirm cashless payment",
     ticketLegend: "(1) Contains gluten - (2) Contains celery",
     quickAccess: "Quick access",
     qaKitchenSpace: "Kitchen space",
@@ -318,26 +291,8 @@ function isTodayOrder(order: OrderRow, todayKey: string) {
   return `${yyyy}${mm}${dd}` === todayKey;
 }
 
-function hasCompletedTapSetup(userId: string) {
-  if (typeof window === "undefined") return false;
-  try {
-    const raw = localStorage.getItem(`af_ttp_setup_progress_${userId}`);
-    if (!raw) return false;
-    const parsed = JSON.parse(raw) as Partial<{
-      awarenessSeen: boolean;
-      termsAccepted: boolean;
-      educationSeen: boolean;
-    }>;
-    return Boolean(parsed.awarenessSeen && parsed.termsAccepted && parsed.educationSeen);
-  } catch {
-    return false;
-  }
-}
-
 export default function CaissePage() {
-  const showStripeDebug = process.env.NODE_ENV !== "production";
   const [lang, setLang] = useState<Lang>("de");
-  const [clientPlatform, setClientPlatform] = useState<ClientPlatform>("other");
   const [pin, setPin] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
@@ -348,20 +303,12 @@ export default function CaissePage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [justRefreshed, setJustRefreshed] = useState(false);
   const [validatingId, setValidatingId] = useState<string | null>(null);
-  const [startingTapToPayId, setStartingTapToPayId] = useState<string | null>(null);
-  const [confirmingPiId, setConfirmingPiId] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLogs, setActionLogs] = useState<string[]>([]);
   const [ticketOrder, setTicketOrder] = useState<OrderRow | null>(null);
-  const [tapToPayInfo, setTapToPayInfo] = useState<Record<string, { paymentIntentId: string; status: string }>>({});
-  const [piByOrder, setPiByOrder] = useState<Record<string, string>>({});
-  const [processingPaymentId, setProcessingPaymentId] = useState<string | null>(null);
 
   const t = UI_TEXT[lang];
-  const initCardPaymentLabel = getCashierInitCardPaymentLabel(lang, clientPlatform);
-  const creatingCardPaymentLabel = getCashierCreatingCardPaymentLabel(lang, clientPlatform);
-  const waitingWebhookLabel = getCashierWaitingWebhookText(lang, clientPlatform);
 
   useEffect(() => {
     const s = getSession();
@@ -370,10 +317,6 @@ export default function CaissePage() {
       return;
     }
     if (s.role === "admin" || s.role === "cashier") {
-      if (!hasCompletedTapSetup(s.userId)) {
-        window.location.href = "/caisse/setup";
-        return;
-      }
       setStaffRole(s.role);
       setIsUnlocked(true);
     } else {
@@ -450,7 +393,6 @@ export default function CaissePage() {
 
   useEffect(() => {
     setLang(getSavedLang());
-    setClientPlatform(detectClientPlatform());
     if (isUnlocked) {
       refresh();
     }
@@ -467,6 +409,12 @@ export default function CaissePage() {
 
   function printTicket() {
     window.print();
+  }
+
+  function getValidatePaymentLabel(payment: OrderRow["payment"]) {
+    if (payment === "card") return t.confirmCardPayment;
+    if (payment === "cashless") return t.confirmCashlessPayment;
+    return t.confirmCashPayment;
   }
 
   async function markPaymentValidated(order: OrderRow) {
@@ -524,135 +472,6 @@ export default function CaissePage() {
       setActionError(e instanceof Error ? e.message : t.unknownError);
     } finally {
       setValidatingId(null);
-    }
-  }
-
-  async function initTapToPay(order: OrderRow) {
-    try {
-      pushLog(
-        txt(
-          `Creation PaymentIntent demarree pour ${order.id}`,
-          `PaymentIntent-Erstellung gestartet fur ${order.id}`,
-          `PaymentIntent creation started for ${order.id}`
-        )
-      );
-      setActionError(null);
-      setStartingTapToPayId(order.id);
-
-      const res = await fetch("/api/stripe/terminal/payment-intent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: order.id }),
-      });
-
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || t.unknownError);
-      }
-
-      setTapToPayInfo((prev) => ({
-        ...prev,
-        [order.id]: {
-          paymentIntentId: String(data.paymentIntentId || ""),
-          status: String(data.status || ""),
-        },
-      }));
-      setPiByOrder((prev) => ({
-        ...prev,
-        [order.id]: String(data.paymentIntentId || ""),
-      }));
-
-      pushLog(
-        txt(
-          `PaymentIntent cree pour ${order.id}: ${String(data.paymentIntentId || "-")}`,
-          `PaymentIntent erstellt fur ${order.id}: ${String(data.paymentIntentId || "-")}`,
-          `PaymentIntent created for ${order.id}: ${String(data.paymentIntentId || "-")}`
-        )
-      );
-
-      refresh();
-    } catch (e: unknown) {
-      pushLog(
-        txt(
-          `Creation PaymentIntent KO pour ${order.id}`,
-          `PaymentIntent-Erstellung FEHLER fur ${order.id}`,
-          `PaymentIntent creation FAILED for ${order.id}`
-        )
-      );
-      setActionError(e instanceof Error ? e.message : t.unknownError);
-    } finally {
-      setStartingTapToPayId(null);
-    }
-  }
-
-  async function confirmCardByPaymentIntent(order: OrderRow) {
-    try {
-      setActionError(null);
-      setConfirmingPiId(order.id);
-      setProcessingPaymentId(order.id);
-      const startedAt = Date.now();
-
-      const paymentIntentId = String(piByOrder[order.id] || "").trim();
-      pushLog(
-        txt(
-          `Confirmation PI demarree pour ${order.id}${paymentIntentId ? ` (${paymentIntentId})` : ""}`,
-          `PI-Bestatigung gestartet fur ${order.id}${paymentIntentId ? ` (${paymentIntentId})` : ""}`,
-          `PI confirmation started for ${order.id}${paymentIntentId ? ` (${paymentIntentId})` : ""}`
-        )
-      );
-      const res = await fetch(`/api/orders/${order.id}/stripe-confirm`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          paymentIntentId ? { paymentIntentId } : {}
-        ),
-      });
-
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || t.validatePaymentError);
-      }
-      const elapsed = Date.now() - startedAt;
-      if (elapsed < 900) {
-        await new Promise((resolve) => setTimeout(resolve, 900 - elapsed));
-      }
-
-      setTicketOrder({
-        ...order,
-        status: "NEW",
-      });
-      pushLog(
-        txt(
-          `Confirmation PI OK pour ${order.id} -> NEW`,
-          `PI-Bestatigung OK fur ${order.id} -> NEW`,
-          `PI confirmation OK for ${order.id} -> NEW`
-        )
-      );
-      setOrders((prev) =>
-        prev.map((it) =>
-          it.id === order.id ? { ...it, status: "NEW", isJustValidated: true } : it
-        )
-      );
-
-      window.setTimeout(() => {
-        window.print();
-      }, 150);
-
-      window.setTimeout(() => {
-        refresh();
-      }, 900);
-    } catch (e: unknown) {
-      pushLog(
-        txt(
-          `Confirmation PI KO pour ${order.id}`,
-          `PI-Bestatigung FEHLER fur ${order.id}`,
-          `PI confirmation FAILED for ${order.id}`
-        )
-      );
-      setActionError(e instanceof Error ? e.message : t.unknownError);
-    } finally {
-      setConfirmingPiId(null);
-      setProcessingPaymentId(null);
     }
   }
 
@@ -964,147 +783,68 @@ export default function CaissePage() {
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-                <div>
-                  <div style={{ fontSize: 20, fontWeight: 900 }}>{o.id}</div>
-                  <div style={{ opacity: 0.9, marginTop: 2 }}>
-                    {o.customer_name ? `${t.name}: ${o.customer_name} - ` : ""}
-                    {t.payment}: {o.payment}
-                  </div>
-                </div>
+	                <div>
+	                  <div style={{ fontSize: 20, fontWeight: 900 }}>{o.id}</div>
+	                  <div style={{ opacity: 0.9, marginTop: 2 }}>
+	                    {o.customer_name ? `${t.name}: ${o.customer_name} - ` : ""}
+	                    {t.payment}: {o.payment}
+	                  </div>
+                    {Array.isArray(o.items) &&
+                    o.items.some(
+                      (item) =>
+                        String(item.note || "").trim() ||
+                        (Array.isArray(item.unitNotes) && item.unitNotes.some((note) => String(note || "").trim()))
+                    ) ? (
+                      <div style={{ marginTop: 8, display: "grid", gap: 4 }}>
+                        {o.items
+                          .filter(
+                            (item) =>
+                              String(item.note || "").trim() ||
+                              (Array.isArray(item.unitNotes) && item.unitNotes.some((note) => String(note || "").trim()))
+                          )
+                          .map((item, index) => (
+                            <div key={`${o.id}-note-${index}`} style={{ fontSize: 13, fontWeight: 700, color: "#7c2d12" }}>
+                              <div>{item.name}</div>
+                              {Array.isArray(item.unitNotes) && item.unitNotes.some((note) => String(note || "").trim()) ? (
+                                <div style={{ display: "grid", gap: 2, marginTop: 2 }}>
+                                  {item.unitNotes.map((note, noteIndex) =>
+                                    String(note || "").trim() ? (
+                                      <div key={`${o.id}-note-${index}-${noteIndex}`} style={{ fontWeight: 600 }}>
+                                        #{noteIndex + 1}: {note}
+                                      </div>
+                                    ) : null
+                                  )}
+                                </div>
+                              ) : item.note ? (
+                                <div style={{ fontWeight: 600, marginTop: 2 }}>{item.note}</div>
+                              ) : null}
+                            </div>
+                          ))}
+                      </div>
+                    ) : null}
+	                </div>
 
                 {isPending ? (
                   <div style={{ display: "grid", gap: 8 }}>
-                    {o.payment === "card" ? (
-                      <>
-                        <button
-                          onClick={() => initTapToPay(o)}
-                          disabled={startingTapToPayId === o.id}
-                          style={{
-                            padding: "16px 22px",
-                            borderRadius: 14,
-                            border: "none",
-                            background:
-                              startingTapToPayId === o.id
-                                ? "linear-gradient(135deg,#f59e0b,#d97706)"
-                                : "linear-gradient(135deg,#2563eb,#1d4ed8)",
-                            color: "white",
-                            fontWeight: 900,
-                            fontSize: 18,
-                            lineHeight: 1.15,
-                            minWidth: 290,
-                            textAlign: "center",
-                            boxShadow: "0 12px 30px rgba(37,99,235,0.28)",
-                            cursor: startingTapToPayId === o.id ? "not-allowed" : "pointer",
-                            opacity: startingTapToPayId === o.id ? 0.8 : 1,
-                          }}
-                        >
-                          {startingTapToPayId === o.id ? creatingCardPaymentLabel : initCardPaymentLabel}
-                        </button>
-
-                        {tapToPayInfo[o.id]?.paymentIntentId ? (
-                          <div
-                            style={{
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid #93c5fd",
-                              background: "rgba(59,130,246,0.12)",
-                              fontSize: 12,
-                              fontWeight: 700,
-                            }}
-                          >
-                            {showStripeDebug ? (
-                              <>
-                                {t.tapToPayReady}: {tapToPayInfo[o.id].paymentIntentId}
-                                <br />
-                                {t.tapToPayStatus}: {tapToPayInfo[o.id].status}
-                                <br />
-                              </>
-                            ) : null}
-                            {waitingWebhookLabel}
-                          </div>
-                        ) : null}
-
-                        <div style={{ display: "grid", gap: 6 }}>
-                          <input
-                            value={piByOrder[o.id] || ""}
-                            onChange={(e) =>
-                              setPiByOrder((prev) => ({
-                                ...prev,
-                                [o.id]: e.target.value,
-                              }))
-                            }
-                            placeholder={t.piPlaceholder}
-                            style={{
-                              width: 320,
-                              maxWidth: "100%",
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid #93c5fd",
-                              background: "white",
-                              color: "#111",
-                              fontWeight: 700,
-                            }}
-                          />
-                          <button
-                            onClick={() => confirmCardByPaymentIntent(o)}
-                            disabled={confirmingPiId === o.id}
-                            type="button"
-                            style={{
-                              padding: "10px 14px",
-                              borderRadius: 12,
-                              border: "none",
-                              background:
-                                confirmingPiId === o.id
-                                  ? "linear-gradient(135deg,#f59e0b,#d97706)"
-                                  : "linear-gradient(135deg,#08a045,#0d8f3f)",
-                              color: "white",
-                              fontWeight: 900,
-                              cursor: confirmingPiId === o.id ? "not-allowed" : "pointer",
-                              opacity: confirmingPiId === o.id ? 0.8 : 1,
-                            }}
-                          >
-                            {confirmingPiId === o.id ? t.confirmingPi : t.confirmPi}
-                          </button>
-                        </div>
-                        {processingPaymentId === o.id ? (
-                          <div
-                            style={{
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid #fcd34d",
-                              background: "rgba(250,204,21,0.15)",
-                              fontWeight: 800,
-                            }}
-                          >
-                            {txt(
-                              "Processing payment...",
-                              "Zahlung wird verarbeitet...",
-                              "Processing payment..."
-                            )}
-                          </div>
-                        ) : null}
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => markPaymentValidated(o)}
-                        disabled={validatingId === o.id}
-                        style={{
-                          padding: "10px 14px",
-                          borderRadius: 12,
-                          border: "none",
-                          background:
-                            validatingId === o.id
-                              ? "linear-gradient(135deg,#f59e0b,#d97706)"
-                              : "linear-gradient(135deg,#08a045,#0d8f3f)",
-                          color: "white",
-                          fontWeight: 900,
-                          cursor: validatingId === o.id ? "not-allowed" : "pointer",
-                          opacity: validatingId === o.id ? 0.8 : 1,
-                        }}
-                      >
-                        {validatingId === o.id ? t.validating : t.validatePayment}
-                      </button>
-                    )}
+                    <button
+                      onClick={() => markPaymentValidated(o)}
+                      disabled={validatingId === o.id}
+                      style={{
+                        padding: "10px 14px",
+                        borderRadius: 12,
+                        border: "none",
+                        background:
+                          validatingId === o.id
+                            ? "linear-gradient(135deg,#f59e0b,#d97706)"
+                            : "linear-gradient(135deg,#08a045,#0d8f3f)",
+                        color: "white",
+                        fontWeight: 900,
+                        cursor: validatingId === o.id ? "not-allowed" : "pointer",
+                        opacity: validatingId === o.id ? 0.8 : 1,
+                      }}
+                    >
+                      {validatingId === o.id ? t.validating : getValidatePaymentLabel(o.payment)}
+                    </button>
                   </div>
                 ) : isCanceled ? (
                   <div

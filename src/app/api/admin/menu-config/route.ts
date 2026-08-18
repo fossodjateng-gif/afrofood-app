@@ -86,7 +86,8 @@ export async function PATCH(req: Request) {
       }
       const cashEnabled = Boolean(body?.cashEnabled);
       const cardEnabled = Boolean(body?.cardEnabled);
-      await upsertPaymentConfig({ cashEnabled, cardEnabled });
+      const cashlessEnabled = body?.cashlessEnabled === undefined ? true : Boolean(body?.cashlessEnabled);
+      await upsertPaymentConfig({ cashEnabled, cardEnabled, cashlessEnabled });
       return NextResponse.json({ ok: true });
     }
 

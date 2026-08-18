@@ -1,0 +1,47 @@
+<svg width="1200" height="1600" viewBox="0 0 1200 1600" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="80" x2="1080" y2="1520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7F2"/>
+      <stop offset="1" stop-color="#FFE4D1"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="180" y1="520" x2="980" y2="1180" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF8A1F"/>
+      <stop offset="1" stop-color="#FF5A1F"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="1600" rx="48" fill="url(#bg)"/>
+  <circle cx="170" cy="1450" r="180" fill="#F9C4B4" fill-opacity="0.35"/>
+  <circle cx="1050" cy="170" r="220" fill="#F8D8CC" fill-opacity="0.35"/>
+  <rect x="120" y="110" width="960" height="80" rx="40" fill="#FFF0E7"/>
+  <text x="600" y="163" text-anchor="middle" font-family="Arial, sans-serif" font-size="46" font-weight="700" fill="#198754">100% VEGAN</text>
+  <text x="600" y="330" text-anchor="middle" font-family="Arial, sans-serif" font-size="122" font-weight="900" fill="#F45D22">BHB</text>
+  <text x="600" y="420" text-anchor="middle" font-family="Arial, sans-serif" font-size="52" font-weight="800" fill="#111111">KAMERUN</text>
+  <text x="600" y="500" text-anchor="middle" font-family="Arial, sans-serif" font-size="42" font-weight="700" fill="#333333">Gewurzter Bohneneintopf mit Maisbrei und Puff-puff</text>
+  <rect x="150" y="585" width="900" height="560" rx="46" fill="url(#panel)"/>
+  <ellipse cx="600" cy="950" rx="360" ry="150" fill="#D67219" fill-opacity="0.35"/>
+  <ellipse cx="600" cy="820" rx="260" ry="190" fill="#7D1F10"/>
+  <g fill="#8F2A15">
+    <circle cx="490" cy="750" r="34"/>
+    <circle cx="560" cy="720" r="32"/>
+    <circle cx="650" cy="735" r="33"/>
+    <circle cx="720" cy="770" r="31"/>
+    <circle cx="470" cy="840" r="30"/>
+    <circle cx="550" cy="815" r="35"/>
+    <circle cx="640" cy="825" r="29"/>
+    <circle cx="730" cy="850" r="32"/>
+    <circle cx="515" cy="905" r="30"/>
+    <circle cx="600" cy="890" r="34"/>
+    <circle cx="690" cy="900" r="31"/>
+  </g>
+  <ellipse cx="600" cy="1020" rx="240" ry="92" fill="#F4D99E"/>
+  <g fill="#D7923E">
+    <circle cx="430" cy="1180" r="64"/>
+    <circle cx="570" cy="1168" r="64"/>
+    <circle cx="720" cy="1182" r="64"/>
+    <circle cx="505" cy="1285" r="64"/>
+    <circle cx="650" cy="1288" r="64"/>
+  </g>
+  <rect x="145" y="1225" width="910" height="180" rx="30" fill="#FFF5F0" stroke="#F2B49B" stroke-width="4"/>
+  <text x="600" y="1298" text-anchor="middle" font-family="Arial, sans-serif" font-size="54" font-weight="800" fill="#111111">Photo du plat a venir</text>
+  <text x="600" y="1366" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="600" fill="#5C4337">Le menu peut deja utiliser ce visuel temporaire pour BHB.</text>
+</svg>

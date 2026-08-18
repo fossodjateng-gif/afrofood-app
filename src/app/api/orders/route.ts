@@ -5,10 +5,10 @@ import { getPaymentConfig } from "@/lib/menu-settings";
 import { calculateOrderTotalCents } from "@/lib/pricing";
 import { ensureOrdersSchema } from "@/lib/orders-schema";
 
-type PaymentMethod = "cash" | "card";
+type PaymentMethod = "cash" | "card" | "cashless";
 type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE" | "CANCELED";
 
-const VALID_PAYMENTS = new Set<PaymentMethod>(["cash", "card"]);
+const VALID_PAYMENTS = new Set<PaymentMethod>(["cash", "card", "cashless"]);
 const VALID_STATUSES = new Set<OrderStatus>([
   "PENDING_PAYMENT",
   "NEW",
@@ -137,6 +137,9 @@ export async function POST(req: Request) {
     }
     if (payment === "card" && !paymentConfig.cardEnabled) {
       return NextResponse.json({ ok: false, error: "Card payment disabled" }, { status: 400 });
+    }
+    if (payment === "cashless" && !paymentConfig.cashlessEnabled) {
+      return NextResponse.json({ ok: false, error: "Cashless payment disabled" }, { status: 400 });
     }
 
     const id = await makeNextOrderId();

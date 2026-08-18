@@ -108,34 +108,39 @@ const UI = {
 
   card: {
     border: `1px solid rgba(17,17,17,0.06)`,
-    borderRadius: 20,
-    padding: 16,
+    borderRadius: 28,
+    padding: 18,
     display: "flex",
     gap: 16,
-    background: "rgba(255,250,246,0.92)",
-    boxShadow: "0 14px 30px rgba(0,0,0,0.24)",
+    background: "linear-gradient(180deg, rgba(255,251,247,0.98), rgba(255,244,236,0.96))",
+    boxShadow: "0 24px 48px rgba(63,27,4,0.16)",
     transition: "all 0.2s ease",
     flexWrap: "wrap",
   } as React.CSSProperties,
 
   imageFrame: {
-    flex: "0 0 180px",
-    width: 180,
-    minHeight: 180,
-    borderRadius: 18,
+    flex: "0 0 210px",
+    width: 210,
+    aspectRatio: "3 / 4",
+    minHeight: 280,
+    borderRadius: 24,
     overflow: "hidden",
     position: "relative",
     background:
       "linear-gradient(135deg, rgba(242,140,40,0.18), rgba(17,17,17,0.08))",
     border: `1px solid ${BRAND.border}`,
     boxShadow: "inset 0 1px 0 rgba(255,255,255,0.65)",
+    cursor: "zoom-in",
+    padding: 0,
+    appearance: "none",
   } as React.CSSProperties,
 
   image: {
     width: "100%",
     height: "100%",
-    minHeight: 180,
+    minHeight: 280,
     objectFit: "cover",
+    objectPosition: "center center",
     display: "block",
   } as React.CSSProperties,
 
@@ -149,6 +154,14 @@ const UI = {
 
   cardText: {
     flex: "1 1 auto",
+  } as React.CSSProperties,
+
+  cardMeta: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    gap: 12,
+    minWidth: 92,
   } as React.CSSProperties,
 
   name: {
@@ -171,6 +184,11 @@ const UI = {
     whiteSpace: "nowrap",
     color: BRAND.black,
     letterSpacing: -0.3,
+    padding: "10px 14px",
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.92)",
+    border: `1px solid ${BRAND.border}`,
+    boxShadow: "0 10px 24px rgba(0,0,0,0.08)",
   } as React.CSSProperties,
 
   btn: {
@@ -203,6 +221,63 @@ const UI = {
     fontWeight: 900,
     letterSpacing: -0.2,
     boxShadow: "0 16px 34px rgba(242,140,40,0.30)",
+  } as React.CSSProperties,
+
+  lightbox: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 120,
+    background: "rgba(12, 9, 7, 0.82)",
+    backdropFilter: "blur(10px)",
+    WebkitBackdropFilter: "blur(10px)",
+    padding: 24,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  } as React.CSSProperties,
+
+  lightboxPanel: {
+    position: "relative",
+    maxWidth: "min(92vw, 980px)",
+    width: "100%",
+    maxHeight: "90vh",
+    borderRadius: 28,
+    overflow: "hidden",
+    background: "linear-gradient(180deg, #fffaf6, #fff1e7)",
+    boxShadow: "0 32px 80px rgba(0,0,0,0.35)",
+    border: `1px solid ${BRAND.border}`,
+  } as React.CSSProperties,
+
+  lightboxImage: {
+    width: "100%",
+    maxHeight: "78vh",
+    objectFit: "contain",
+    display: "block",
+    background: "#fff5ee",
+  } as React.CSSProperties,
+
+  lightboxClose: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    border: "none",
+    borderRadius: 999,
+    width: 42,
+    height: 42,
+    background: "rgba(17,17,17,0.84)",
+    color: "white",
+    fontSize: 24,
+    cursor: "pointer",
+    fontWeight: 700,
+    lineHeight: 1,
+  } as React.CSSProperties,
+
+  lightboxCaption: {
+    padding: "14px 18px",
+    fontWeight: 800,
+    color: BRAND.black,
+    background: "rgba(255,255,255,0.94)",
+    borderTop: `1px solid ${BRAND.border}`,
   } as React.CSSProperties,
 };
 
@@ -239,6 +314,7 @@ function Tag({ label, lang }: { label: MenuTag; lang: Lang }) {
 export default function MenuPage() {
   const [cartCount, setCartCount] = React.useState(0);
   const [lang, setLang] = React.useState<Lang>("de");
+  const [selectedImage, setSelectedImage] = React.useState<{ src: string; alt: string } | null>(null);
   const [sections, setSections] = React.useState<RuntimeSection[]>(() =>
     MENU_CATALOG.map((section) => ({
       ...section,
@@ -277,12 +353,46 @@ export default function MenuPage() {
   }
 
   const t = translations[lang];
+  const previewHint = lang === "fr" ? "Cliquer pour agrandir" : lang === "de" ? "Klicken zum Vergrossern" : "Click to enlarge";
+
+  function getImageStyle(src?: string): React.CSSProperties {
+    const isFallback = !src || src === MENU_IMAGE_FALLBACK;
+    return {
+      ...UI.image,
+      objectFit: isFallback ? "contain" : "cover",
+      objectPosition: isFallback ? "center 42%" : "center center",
+      padding: isFallback ? 18 : 0,
+      background: isFallback
+        ? "radial-gradient(circle at center, rgba(255,255,255,0.98), rgba(255,236,223,0.96))"
+        : "transparent",
+    };
+  }
+
+  function getLightboxImageStyle(src?: string): React.CSSProperties {
+    const isFallback = !src || src === MENU_IMAGE_FALLBACK;
+    return {
+      ...UI.lightboxImage,
+      objectPosition: isFallback ? "center 38%" : "center center",
+      padding: isFallback ? 28 : 0,
+    };
+  }
 
   React.useEffect(() => {
     const cart = getCart();
     const count = cart.reduce((sum, it) => sum + it.qty, 0);
     setCartCount(count);
   }, []);
+
+  React.useEffect(() => {
+    if (!selectedImage) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSelectedImage(null);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedImage]);
 
   return (
     <main style={UI.page} className="af-page">
@@ -366,21 +476,35 @@ export default function MenuPage() {
             <div style={UI.grid}>
               {sec.items.map((it) => (
                 <div key={it.id} style={UI.card} className="af-card">
-                  <div style={UI.imageFrame}>
+                  <button
+                    type="button"
+                    style={UI.imageFrame}
+                    onClick={() =>
+                      setSelectedImage({
+                        src: it.imagePath || MENU_IMAGE_FALLBACK,
+                        alt: it.name[lang],
+                      })
+                    }
+                    aria-label={`Open image for ${it.name[lang]}`}
+                  >
                     <img
                       src={it.imagePath || MENU_IMAGE_FALLBACK}
                       alt={it.name[lang]}
-                      style={UI.image}
+                      style={getImageStyle(it.imagePath)}
                       loading="lazy"
                       onError={(e) => {
                         const img = e.currentTarget;
                         if (!img.dataset.fallbackApplied) {
                           img.dataset.fallbackApplied = "true";
                           img.src = MENU_IMAGE_FALLBACK;
+                          img.style.objectFit = "contain";
+                          img.style.objectPosition = "center 42%";
+                          img.style.padding = "18px";
+                          img.style.background = "radial-gradient(circle at center, rgba(255,255,255,0.98), rgba(255,236,223,0.96))";
                         }
                       }}
                     />
-                  </div>
+                  </button>
 
                   <div style={UI.cardContent}>
                     <div style={UI.cardText}>
@@ -426,8 +550,13 @@ export default function MenuPage() {
                       </button>
                     </div>
 
-                    <div style={UI.price} className="af-price">
-                      {it.price.toFixed(2)} EUR
+                    <div style={UI.cardMeta}>
+                      <div style={UI.price} className="af-price">
+                        {it.price.toFixed(2)} EUR
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#7a4b2f", textAlign: "right" }}>
+                        {previewHint}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -443,6 +572,36 @@ export default function MenuPage() {
           {t.cart ?? "Warenkorb"} ({cartCount})
         </Link>
       </div>
+
+      {selectedImage ? (
+        <div style={UI.lightbox} onClick={() => setSelectedImage(null)}>
+          <div style={UI.lightboxPanel} onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              style={UI.lightboxClose}
+              onClick={() => setSelectedImage(null)}
+              aria-label="Close image preview"
+            >
+              ×
+            </button>
+            <img
+              src={selectedImage.src}
+              alt={selectedImage.alt}
+              style={getLightboxImageStyle(selectedImage.src)}
+              onError={(e) => {
+                const img = e.currentTarget;
+                if (!img.dataset.fallbackApplied) {
+                  img.dataset.fallbackApplied = "true";
+                  img.src = MENU_IMAGE_FALLBACK;
+                  img.style.objectPosition = "center 38%";
+                  img.style.padding = "28px";
+                }
+              }}
+            />
+            <div style={UI.lightboxCaption}>{selectedImage.alt}</div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
