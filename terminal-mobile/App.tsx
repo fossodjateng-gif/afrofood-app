@@ -35,8 +35,10 @@ type OrderRow = {
 
 type CreatePiResponse = {
   ok: boolean;
+  reused?: boolean;
   paymentIntentId?: string;
   clientSecret?: string;
+  status?: string;
   error?: string;
 };
 
@@ -251,6 +253,8 @@ function TerminalScreen({
   const [paymentIntentId, setPaymentIntentId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
+  const [statusMessage, setStatusMessage] = useState(t.ready);
+  const [completedOrderId, setCompletedOrderId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -265,6 +269,7 @@ function TerminalScreen({
   );
 
   function log(line: string) {
+    setStatusMessage(line);
     setLogs((prev) => [`${new Date().toLocaleTimeString()} ${line}`, ...prev].slice(0, 40));
   }
 
@@ -367,19 +372,19 @@ function TerminalScreen({
       log(`Using location: ${TERMINAL_LOCATION_ID}`);
 
       const discovery = await terminal.discoverReaders({
-        discoveryMethod: "localMobile",
+        discoveryMethod: "tapToPay",
         simulated: false,
       });
       if (discovery?.error) throw discovery.error;
 
-      const discoveredReaders = discovery?.readers || terminal.discoveredReaders || [];
+      const discoveredReaders = discovery?.readers || discoveredReadersRef.current || terminal.discoveredReaders || [];
       if (!Array.isArray(discoveredReaders) || discoveredReaders.length === 0) {
         throw new Error("No Tap to Pay reader found on this iPhone");
       }
 
       const reader = discoveredReaders[0];
-      const connection =
-        terminal.connectLocalMobileReader?.({
+      const connectedResult = await terminal.connectReader(
+        {
           reader,
           locationId: TERMINAL_LOCATION_ID,
         }) || terminal.connectReader?.({ reader });
@@ -387,9 +392,11 @@ function TerminalScreen({
       const connectedResult = await connection;
       if (connectedResult?.error) throw connectedResult.error;
       log("Tap to Pay connected");
+      return true;
     } catch (e: any) {
       log(`Connect failed: ${e?.message || "unknown error"}`);
       Alert.alert("Connect error", e?.message || "Unable to connect Tap to Pay");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -409,7 +416,7 @@ function TerminalScreen({
     try {
       setBusy(true);
 
-      const retrieved = await terminal.retrievePaymentIntent(clientSecret.trim());
+      const retrieved = await terminal.retrievePaymentIntent(checkoutClientSecret.trim());
       if (retrieved?.error) throw retrieved.error;
       const intent = retrieved?.paymentIntent;
       if (!intent) throw new Error("No payment intent returned by Terminal SDK");
@@ -421,8 +428,12 @@ function TerminalScreen({
 
       const toProcess = collected?.paymentIntent || intent;
       const processed =
+        (await terminal.confirmPaymentIntent?.({ paymentIntent: toProcess })) ||
         (await terminal.processPayment?.({ paymentIntent: toProcess })) ||
         (await terminal.processPaymentIntent?.({ paymentIntent: toProcess }));
+      if (!processed) {
+        throw new Error("Stripe Terminal payment confirmation is not available in this build");
+      }
       if (processed?.error) throw processed.error;
 
       log(`Payment processed for ${selectedOrder.id}`);
@@ -626,6 +637,55 @@ const styles = StyleSheet.create({
   hero: {
     gap: 4,
     paddingTop: 12,
+  },
+  topBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  topBarMeta: {
+    color: "#475569",
+    fontWeight: "700",
+  },
+  brandText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  logo: {
+    width: 38,
+    height: 38,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: "#F1D7C8",
+    backgroundColor: "#fffaf6",
+  },
+  langRow: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  langButton: {
+    minWidth: 54,
+    borderWidth: 1,
+    borderColor: "#d6c9bb",
+    borderRadius: 999,
+    backgroundColor: "white",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  langButtonActive: {
+    borderColor: "#ff7a00",
+    backgroundColor: "#ff7a00",
+  },
+  langButtonText: {
+    color: "#1f2937",
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  langButtonTextActive: {
+    color: "white",
   },
   topBar: {
     flexDirection: "row",

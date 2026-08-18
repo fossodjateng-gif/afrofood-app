@@ -23,10 +23,14 @@ function getErrorMessage(error: unknown) {
 }
 
 function formatDayKey(d = new Date()) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}${mm}${dd}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const part = (type: string) => parts.find((it) => it.type === type)?.value || "";
+  return `${part("year")}${part("month")}${part("day")}`;
 }
 
 async function makeNextOrderId() {
@@ -172,6 +176,14 @@ export async function POST(req: Request) {
     }
     if (payment === "cashless" && !paymentConfig.cashlessEnabled) {
       return NextResponse.json({ ok: false, error: "Cashless payment disabled" }, { status: 400 });
+    }
+
+    const paymentConfig = await getPaymentConfig();
+    if (payment === "cash" && !paymentConfig.cashEnabled) {
+      return NextResponse.json({ ok: false, error: "Cash payment disabled" }, { status: 400 });
+    }
+    if (payment === "card" && !paymentConfig.cardEnabled) {
+      return NextResponse.json({ ok: false, error: "Card payment disabled" }, { status: 400 });
     }
 
     const id = await makeNextOrderId();

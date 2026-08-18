@@ -22,7 +22,7 @@ export type CatalogSection = {
 export const MENU_CATALOG: CatalogSection[] = [
   {
     id: "dips",
-    title: { de: "Dips", fr: "Dips", en: "Dips" },
+    title: { de: "🥣 Dips", fr: "🥣 Dips", en: "🥣 Dips" },
     items: [
       {
         id: "dip-green",
@@ -60,7 +60,7 @@ export const MENU_CATALOG: CatalogSection[] = [
     items: [
       {
         id: "ingwersaft",
-        name: { de: "Ingwersaft", fr: "Jus de gingembre", en: "Ginger juice" },
+        name: { de: "🫚 Ingwersaft", fr: "🫚 Jus de gingembre", en: "🫚 Ginger juice" },
         basePrice: 5,
         desc: {
           de: "Scharf-wurziger Frischekick",
@@ -70,7 +70,7 @@ export const MENU_CATALOG: CatalogSection[] = [
       },
       {
         id: "hibiskussaft",
-        name: { de: "Hibiskussaft", fr: "Jus d'hibiscus", en: "Hibiscus juice" },
+        name: { de: "🌺 Hibiskussaft", fr: "🌺 Jus d'hibiscus", en: "🌺 Hibiscus juice" },
         basePrice: 5,
         desc: {
           de: "Erfrischend und reich an Antioxidantien",
@@ -82,11 +82,11 @@ export const MENU_CATALOG: CatalogSection[] = [
   },
   {
     id: "finger-food",
-    title: { de: "Fingerfood", fr: "Finger food", en: "Finger food" },
+    title: { de: "🍢 Fingerfood", fr: "🍢 Finger food", en: "🍢 Finger food" },
     items: [
       {
         id: "puff-puff-1",
-        name: { de: "Puff-puff (1)", fr: "Puff-puff (1)", en: "Puff-puff (1)" },
+        name: { de: "🍩 Puff-puff (1)", fr: "🍩 Puff-puff (1)", en: "🍩 Puff-puff (1)" },
         basePrice: 5,
         imagePath: "/assets/menu/puff-puff-1.png",
         desc: {
@@ -98,7 +98,7 @@ export const MENU_CATALOG: CatalogSection[] = [
       },
       {
         id: "plantain-chips",
-        name: { de: "Plantain Chips", fr: "Chips de plantain", en: "Plantain chips" },
+        name: { de: "🥔 Plantain Chips", fr: "🥔 Chips de plantain", en: "🥔 Plantain chips" },
         basePrice: 5,
         imagePath: "/assets/menu/plantain-chips.png",
         desc: {
@@ -132,9 +132,9 @@ export const MENU_CATALOG: CatalogSection[] = [
       {
         id: "attieke-poulet-2-elfenbeinkuste",
         name: {
-          de: "Attieke Poulet (2) (Elfenbeinkuste)",
-          fr: "Attieke Poulet (2) (Cote d'Ivoire)",
-          en: "Attieke Chicken (2) (Ivory Coast)",
+          de: "🇨🇮 Attieke Poulet (2) (Elfenbeinkuste)",
+          fr: "🇨🇮 Attieke Poulet (2) (Cote d'Ivoire)",
+          en: "🇨🇮 Attieke Chicken (2) (Ivory Coast)",
         },
         basePrice: 15,
         imagePath: "/assets/menu/attieke-poulet-2-elfenbeinkuste.png",
@@ -148,9 +148,9 @@ export const MENU_CATALOG: CatalogSection[] = [
       {
         id: "batbout-mit-hahnchenfullung-2-marokko",
         name: {
-          de: "Batbout mit Hahnchenfullung (2) (Marokko)",
-          fr: "Batbout au poulet (2) (Maroc)",
-          en: "Batbout with chicken filling (2) (Morocco)",
+          de: "🇲🇦 Batbout mit Hahnchenfullung (2) (Marokko)",
+          fr: "🇲🇦 Batbout au poulet (2) (Maroc)",
+          en: "🇲🇦 Batbout with chicken filling (2) (Morocco)",
         },
         basePrice: 15,
         imagePath: "/assets/menu/batbout-mit-hahnchenfullung-2-marokko.png",
@@ -165,11 +165,11 @@ export const MENU_CATALOG: CatalogSection[] = [
   },
   {
     id: "fusion",
-    title: { de: "Fusion", fr: "Fusion", en: "Fusion" },
+    title: { de: "🤝 Fusion", fr: "🤝 Fusion", en: "🤝 Fusion" },
     items: [
       {
         id: "pollo-fino-2",
-        name: { de: "Pollo Fino (2)", fr: "Pollo Fino (2)", en: "Pollo Fino (2)" },
+        name: { de: "🍗 Pollo Fino (2)", fr: "🍗 Pollo Fino (2)", en: "🍗 Pollo Fino (2)" },
         basePrice: 10,
         imagePath: "/assets/menu/pollo-fino-2.png",
         desc: {
@@ -181,7 +181,7 @@ export const MENU_CATALOG: CatalogSection[] = [
       },
       {
         id: "bh-1-2",
-        name: { de: "BH (1)(2)", fr: "BH (1)(2)", en: "BH (1)(2)" },
+        name: { de: "🌱 BH (1)(2)", fr: "🌱 BH (1)(2)", en: "🌱 BH (1)(2)" },
         basePrice: 10,
         imagePath: "/assets/menu/bh-1-2.png",
         desc: {
@@ -194,9 +194,9 @@ export const MENU_CATALOG: CatalogSection[] = [
       {
         id: "batbout-mit-bohnenfullung-2",
         name: {
-          de: "Batbout mit Bohnenfullung (2)",
-          fr: "Batbout aux haricots (2)",
-          en: "Batbout with bean filling (2)",
+          de: "🥙 Batbout mit Bohnenfullung (2)",
+          fr: "🥙 Batbout aux haricots (2)",
+          en: "🥙 Batbout with bean filling (2)",
         },
         basePrice: 10,
         imagePath: "/assets/menu/batbout-mit-bohnenfullung-2.png",

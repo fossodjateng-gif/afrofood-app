@@ -41,7 +41,7 @@ Then launch from Xcode/device.
 
 1. Create order in AfroFood (`payment=card`).
 2. In mobile app, enter `orderId`.
-3. Tap `Create PI from Afrofood order`.
+3. Tap `Load/create PI from selected order` to reuse the cashier-created PaymentIntent or create one if missing.
 4. Tap `Connect Tap to Pay`.
 5. Tap `Collect + process payment`.
 6. Check Stripe event `payment_intent.succeeded` and webhook `200`.
