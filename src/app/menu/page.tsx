@@ -281,7 +281,15 @@ const UI = {
   } as React.CSSProperties,
 };
 
-type RuntimeItem = CatalogSection["items"][number] & { price: number; visible: boolean };
+type RuntimeItem = CatalogSection["items"][number] & {
+  price: number;
+  visible: boolean;
+  availability?: {
+    status?: "available" | "limited" | "blocked";
+    remainingQty?: number | null;
+    resumeAt?: string | null;
+  };
+};
 type RuntimeSection = Omit<CatalogSection, "items"> & { items: RuntimeItem[] };
 const MENU_IMAGE_FALLBACK = "/logo-afrofood.png";
 const EVENT_ID_KEY = "af_event_id";
@@ -327,6 +335,7 @@ export default function MenuPage() {
         imagePath: it.imagePath ?? getMenuItemImagePath(it.id),
         price: it.basePrice,
         visible: true,
+        availability: { status: "available", remainingQty: null, resumeAt: null },
       })),
     }))
   );
@@ -396,6 +405,33 @@ export default function MenuPage() {
       objectPosition: isFallback ? "center 38%" : "center center",
       padding: isFallback ? 28 : 0,
     };
+  }
+
+  function getAvailabilityLabel(item: RuntimeItem) {
+    const availability = item.availability;
+    if (!availability || availability.status === "available") return null;
+    if (availability.status === "limited") {
+      const qty = Number(availability.remainingQty ?? 0);
+      const time = availability.resumeAt ? new Date(availability.resumeAt).toLocaleString(lang === "fr" ? "fr-FR" : lang === "de" ? "de-DE" : "en-GB") : "";
+      if (qty > 0) {
+        return lang === "fr"
+          ? `Reste ${qty} portion${qty > 1 ? "s" : ""}${time ? ` - reprise ${time}` : ""}`
+          : lang === "de"
+          ? `Noch ${qty} Portion${qty > 1 ? "en" : ""}${time ? ` - wieder ab ${time}` : ""}`
+          : `${qty} portion${qty > 1 ? "s" : ""} left${time ? ` - back at ${time}` : ""}`;
+      }
+      return lang === "fr"
+        ? `Temporairement indisponible${time ? ` - reprise ${time}` : ""}`
+        : lang === "de"
+        ? `Vorubergehend nicht verfugbar${time ? ` - wieder ab ${time}` : ""}`
+        : `Temporarily unavailable${time ? ` - back at ${time}` : ""}`;
+    }
+    const time = availability.resumeAt ? new Date(availability.resumeAt).toLocaleString(lang === "fr" ? "fr-FR" : lang === "de" ? "de-DE" : "en-GB") : "";
+    return lang === "fr"
+      ? `Indisponible${time ? ` jusqu'au ${time}` : ""}`
+      : lang === "de"
+      ? `Nicht verfugbar${time ? ` bis ${time}` : ""}`
+      : `Unavailable${time ? ` until ${time}` : ""}`;
   }
 
   React.useEffect(() => {
@@ -534,11 +570,19 @@ export default function MenuPage() {
             </h2>
 
             <div style={UI.grid}>
-              {sec.items.map((it) => (
-                <div key={it.id} style={UI.card} className="af-card">
-                  <button
-                    type="button"
-                    style={UI.imageFrame}
+	              {sec.items.map((it) => (
+	                <div key={it.id} style={UI.card} className="af-card">
+                    {(() => {
+                      const availability = it.availability;
+                      const isBlocked =
+                        availability?.status === "blocked" ||
+                        (availability?.status === "limited" && Number(availability.remainingQty ?? 0) <= 0);
+                      const availabilityLabel = getAvailabilityLabel(it);
+                      return (
+                        <>
+	                  <button
+	                    type="button"
+	                    style={UI.imageFrame}
                     onClick={() =>
                       setSelectedImage({
                         src: it.imagePath || MENU_IMAGE_FALLBACK,
@@ -575,18 +619,25 @@ export default function MenuPage() {
                         ))}
                       </div>
 
-                      {it.desc && (
-                        <div style={UI.desc} className="af-desc">
-                          {it.desc[lang]}
-                        </div>
-                      )}
-
-                      <button
-                        className="af-btn"
-                        style={UI.btn}
-                        onClick={() => {
-                          addToCart({
-                            id: it.id,
+	                      {it.desc && (
+	                        <div style={UI.desc} className="af-desc">
+	                          {it.desc[lang]}
+	                        </div>
+	                      )}
+                          {availabilityLabel ? (
+                            <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 12, background: isBlocked ? "#fee2e2" : "#fef3c7", color: isBlocked ? "#991b1b" : "#92400e", fontWeight: 800, fontSize: 13 }}>
+                              {availabilityLabel}
+                            </div>
+                          ) : null}
+	
+	                      <button
+	                        className="af-btn"
+	                        style={UI.btn}
+                            disabled={isBlocked}
+	                        onClick={() => {
+                              if (isBlocked) return;
+	                          addToCart({
+	                            id: it.id,
                             name: it.name[lang],
                             price: it.price,
                             redSauce: false,
@@ -597,18 +648,28 @@ export default function MenuPage() {
                           const count = cart.reduce((sum, x) => sum + x.qty, 0);
                           setCartCount(count);
                         }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = BRAND.orange;
-                          e.currentTarget.style.borderColor = BRAND.orange;
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = BRAND.black;
-                          e.currentTarget.style.borderColor = BRAND.black;
-                        }}
-                      >
-                        {t.add ?? "Hinzufugen"}
-                      </button>
-                    </div>
+	                        onMouseEnter={(e) => {
+                              if (isBlocked) return;
+	                          e.currentTarget.style.background = BRAND.orange;
+	                          e.currentTarget.style.borderColor = BRAND.orange;
+	                        }}
+	                        onMouseLeave={(e) => {
+                              if (isBlocked) return;
+	                          e.currentTarget.style.background = BRAND.black;
+	                          e.currentTarget.style.borderColor = BRAND.black;
+	                        }}
+                            aria-disabled={isBlocked}
+                            title={availabilityLabel || undefined}
+	                      >
+	                        {isBlocked
+                              ? lang === "fr"
+                                ? "Indisponible"
+                                : lang === "de"
+                                ? "Nicht verfugbar"
+                                : "Unavailable"
+                              : t.add ?? "Hinzufugen"}
+	                      </button>
+	                    </div>
 
                     <div style={UI.cardMeta}>
                       <div style={UI.price} className="af-price">
@@ -617,10 +678,13 @@ export default function MenuPage() {
                       <div style={{ fontSize: 12, fontWeight: 700, color: "#7a4b2f", textAlign: "right" }}>
                         {previewHint}
                       </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
+	                      </div>
+	                    </div>
+                        </>
+                      );
+                    })()}
+	                </div>
+	              ))}
             </div>
           </section>
         ))}
@@ -665,5 +729,4 @@ export default function MenuPage() {
     </main>
   );
 }
-
 

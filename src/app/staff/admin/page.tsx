@@ -19,12 +19,10 @@ const UI_TEXT: Record<
     logout: string;
     administration: string;
     cashierSpace: string;
-    statsSection: string;
     users: string;
+    events: string;
     cashier: string;
-    kitchenSpace: string;
     stats: string;
-    settings: string;
   }
 > = {
   fr: {
@@ -34,12 +32,10 @@ const UI_TEXT: Record<
     logout: "Se deconnecter",
     administration: "Administration",
     cashierSpace: "Espace Caisse",
-    statsSection: "Statistique",
     users: "Utilisateurs",
+    events: "Evenements",
     cashier: "Caisse",
-    kitchenSpace: "Espace cuisine",
     stats: "Statistiques",
-    settings: "Parametres",
   },
   de: {
     title: "Administration",
@@ -48,12 +44,10 @@ const UI_TEXT: Record<
     logout: "Abmelden",
     administration: "Administration",
     cashierSpace: "Kassenbereich",
-    statsSection: "Statistik",
     users: "Benutzer",
+    events: "Events",
     cashier: "Kasse",
-    kitchenSpace: "Kuchenbereich",
     stats: "Statistiken",
-    settings: "Einstellungen",
   },
   en: {
     title: "Administration",
@@ -62,12 +56,10 @@ const UI_TEXT: Record<
     logout: "Logout",
     administration: "Administration",
     cashierSpace: "Cashier Space",
-    statsSection: "Statistics",
     users: "Users",
+    events: "Events",
     cashier: "Cashier",
-    kitchenSpace: "Kitchen space",
     stats: "Stats",
-    settings: "Settings",
   },
 };
 
@@ -98,20 +90,14 @@ export default function StaffAdminPage() {
       title: t.administration,
       cards: [
         { href: "/staff/admin/users", label: t.users },
-        { href: "/staff/admin/settings", label: t.settings },
+        { href: "/admin/menu?view=event", label: t.events },
+        { href: "/stats", label: t.stats },
       ],
     },
     {
       title: t.cashierSpace,
       cards: [
         { href: "/staff/caisse", label: t.cashier },
-        { href: "/staff/cuisine", label: t.kitchenSpace },
-      ],
-    },
-    {
-      title: t.statsSection,
-      cards: [
-        { href: "/stats", label: t.stats },
       ],
     },
   ];
@@ -157,10 +143,9 @@ export default function StaffAdminPage() {
               />
               {t.title}
             </h1>
-            <div style={{ opacity: 0.75, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <span>{t.loggedAs}: {username || "-"}</span>
-              {role ? <span className="af-role-badge">Role: {getStaffRoleLabel(role, lang)}</span> : null}
-            </div>
+	            <div style={{ opacity: 0.75, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+	              <span>{t.loggedAs}: {username || "-"}</span>
+	            </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {(["de", "fr", "en"] as Lang[]).map((L) => (

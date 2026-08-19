@@ -28,8 +28,10 @@ const UI_TEXT: Record<
     pinWrong: string;
     validate: string;
     title: string;
-    subtitle: string;
-    refreshing: string;
+	    subtitle: string;
+	    loggedAs: string;
+	    eventAssigned: string;
+	    refreshing: string;
     refreshed: string;
     refresh: string;
     loading: string;
@@ -71,8 +73,10 @@ const UI_TEXT: Record<
     pinPlaceholder: "PIN Code",
     pinWrong: "Falscher Code",
     validate: "Bestatigen",
-    title: "Kasse - Zahlungsfreigabe",
-    subtitle: "Manuelle Freigabe und Weiterleitung an die Kuche",
+	    title: "Kasse - Zahlungsfreigabe",
+	    subtitle: "Manuelle Freigabe und Weiterleitung an die Kuche",
+	    loggedAs: "Angemeldet als",
+	    eventAssigned: "Zugewiesenes Event",
     refreshing: "Aktualisierung...",
     refreshed: "Aktualisiert",
     refresh: "Aktualisieren",
@@ -114,8 +118,10 @@ const UI_TEXT: Record<
     pinPlaceholder: "Code PIN",
     pinWrong: "Code incorrect",
     validate: "Valider",
-    title: "Caisse - Validation Paiement",
-    subtitle: "Validation manuelle puis envoi cuisine",
+	    title: "Caisse - Validation Paiement",
+	    subtitle: "Validation manuelle puis envoi cuisine",
+	    loggedAs: "Connecte en tant que",
+	    eventAssigned: "Evenement assigne",
     refreshing: "Actualisation...",
     refreshed: "Actualise",
     refresh: "Actualiser",
@@ -157,8 +163,10 @@ const UI_TEXT: Record<
     pinPlaceholder: "PIN code",
     pinWrong: "Incorrect code",
     validate: "Validate",
-    title: "Cashier - Payment Validation",
-    subtitle: "Manual validation then send to kitchen",
+	    title: "Cashier - Payment Validation",
+	    subtitle: "Manual validation then send to kitchen",
+	    loggedAs: "Logged in as",
+	    eventAssigned: "Assigned event",
     refreshing: "Refreshing...",
     refreshed: "Refreshed",
     refresh: "Refresh",
@@ -322,6 +330,7 @@ export default function CaissePage() {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
+  const [staffUsername, setStaffUsername] = useState("");
 
   const [orders, setOrders] = useState<CaisseCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -346,6 +355,7 @@ export default function CaissePage() {
       }
       if (s.role === "admin" || s.role === "cashier") {
         setStaffRole(s.role);
+        setStaffUsername(String(s.username || ""));
         setIsUnlocked(true);
       } else {
         window.location.href = "/staff";
@@ -368,7 +378,8 @@ export default function CaissePage() {
         return;
       }
 
-      setStaffRole(s.role);
+	      setStaffRole(s.role);
+	      setStaffUsername(String(s.username || ""));
 
       if (s.role === "cashier") {
         let assignedEventId = String(s.cashierEventId || "").trim();
@@ -883,10 +894,11 @@ export default function CaissePage() {
 	              <img src="/logo-afrofood.png" alt="AfroFood" style={{ width: 30, height: 30, borderRadius: 8, objectFit: "cover", border: "1px solid #F1D7C8" }} />
 	              {t.title}
 	            </h1>
-	            <div style={{ opacity: 0.75, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-	              <span>{t.subtitle}</span>
-	              {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
-	            </div>
+		            <div style={{ opacity: 0.75, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+		              <span>{t.loggedAs}: {staffUsername || "-"}</span>
+		              {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
+		              {selectedEventId ? <span className="af-role-badge">{t.eventAssigned}: {selectedEventId}</span> : null}
+		            </div>
 	          </div>
 	          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
 	            {(["de", "fr", "en"] as Lang[]).map((L) => (
@@ -944,14 +956,20 @@ export default function CaissePage() {
 	            background: "white",
 	          }}
 	        >
-		          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-		            <a className="af-link-btn" href="/staff/cuisine?from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
-		              {t.qaKitchenSpace}
-		            </a>
-		            <a className="af-link-btn" href="/admin/menu?view=payment&from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
-		              {t.qaPayments}
-		            </a>
-		          </div>
+			          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+			            <a className="af-link-btn" href="/staff/cuisine?from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+			              {t.qaKitchenSpace}
+			            </a>
+			            <a className="af-link-btn" href="/admin/menu?view=add&from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+			              {lang === "fr" ? "Ajouter produit" : lang === "de" ? "Produkt hinzufugen" : "Add product"}
+			            </a>
+			            <a className="af-link-btn" href="/admin/menu?view=pricing&from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+			              {lang === "fr" ? "Changer prix / visibilite" : lang === "de" ? "Preis / Sichtbarkeit andern" : "Change price / visibility"}
+			            </a>
+			            <a className="af-link-btn" href="/admin/menu?view=payment&from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+			              {t.qaPayments}
+			            </a>
+			          </div>
 		        </div>
 
 		        {loading ? <p style={{ marginTop: 12 }}>{t.loading}</p> : null}

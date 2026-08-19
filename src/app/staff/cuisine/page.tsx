@@ -9,17 +9,17 @@ import { goBackOr } from "@/lib/client-nav";
 const UI_TEXT: Record<
   Lang,
   {
-    title: string;
-    loggedAs: string;
-    home: string;
-    back: string;
-    logout: string;
-    section: string;
-    kitchen: string;
-    readyOrders: string;
-    addProduct: string;
-    pricing: string;
-  }
+	    title: string;
+	    loggedAs: string;
+	    home: string;
+	    back: string;
+	    logout: string;
+	    section: string;
+	    kitchen: string;
+	    readyOrders: string;
+	    availability: string;
+	    assignedEvent: string;
+	  }
 > = {
   fr: {
     title: "Espace Cuisine",
@@ -27,43 +27,44 @@ const UI_TEXT: Record<
     home: "Accueil",
     back: "Retour",
     logout: "Se deconnecter",
-    section: "Cuisine",
-    kitchen: "Cuisine",
-    readyOrders: "Commande prete",
-    addProduct: "Ajouter produit",
-    pricing: "Changer prix / visibilite",
-  },
+	    section: "Cuisine",
+	    kitchen: "Cuisine",
+	    readyOrders: "Commande prete",
+	    availability: "Disponibilite produits",
+	    assignedEvent: "Evenement assigne",
+	  },
   de: {
     title: "Kuchenbereich",
     loggedAs: "Angemeldet als",
     home: "Start",
     back: "Zuruck",
     logout: "Abmelden",
-    section: "Kuche",
-    kitchen: "Kuche",
-    readyOrders: "Fertige Bestellungen",
-    addProduct: "Produkt hinzufugen",
-    pricing: "Preis / Sichtbarkeit andern",
-  },
+	    section: "Kuche",
+	    kitchen: "Kuche",
+	    readyOrders: "Fertige Bestellungen",
+	    availability: "Produktverfugbarkeit",
+	    assignedEvent: "Zugewiesenes Event",
+	  },
   en: {
     title: "Kitchen Space",
     loggedAs: "Logged in as",
     home: "Home",
     back: "Back",
     logout: "Logout",
-    section: "Kitchen",
-    kitchen: "Kitchen",
-    readyOrders: "Ready Orders",
-    addProduct: "Add product",
-    pricing: "Change price / visibility",
-  },
-};
+	    section: "Kitchen",
+	    kitchen: "Kitchen",
+	    readyOrders: "Ready Orders",
+	    availability: "Product availability",
+	    assignedEvent: "Assigned event",
+	  },
+	};
 
 function StaffCuisinePageContent() {
   const searchParams = useSearchParams();
   const [username, setUsername] = useState("");
   const [lang, setLang] = useState<Lang>("fr");
   const [role, setRole] = useState<"admin" | "cashier" | "kitchen" | null>(null);
+  const [eventName, setEventName] = useState("");
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
 
   useEffect(() => {
@@ -77,23 +78,25 @@ function StaffCuisinePageContent() {
       window.location.href = "/staff";
       return;
     }
-    setUsername(s.username);
-    setRole(s.role);
-  }, []);
+	    setUsername(s.username);
+	    setRole(s.role);
+	    void fetch("/api/menu-config", { cache: "no-store" })
+	      .then((res) => res.json())
+	      .then((data) => {
+	        const assignedId = String(s.cashierEventId || "").trim();
+	        const events = Array.isArray(data?.storeConfig?.events) ? data.storeConfig.events : [];
+	        const match = events.find((event: { id?: string }) => String(event?.id || "").trim() === assignedId);
+	        setEventName(String(match?.name || "").trim());
+	      })
+	      .catch(() => {});
+	  }, []);
   const t = UI_TEXT[lang];
 
-  const canShowCatalogCards = fromCaisse || role === "admin" || role === "kitchen" || role === "cashier";
-
-  const cards = [
-    { href: fromCaisse ? "/kitchen?from=caisse" : "/kitchen", label: t.kitchen },
-    { href: fromCaisse ? "/screen?from=caisse" : "/screen", label: t.readyOrders },
-    ...(canShowCatalogCards
-      ? [
-          { href: fromCaisse ? "/admin/menu?view=add&from=caisse" : "/admin/menu?view=add", label: t.addProduct },
-          { href: fromCaisse ? "/admin/menu?view=pricing&from=caisse" : "/admin/menu?view=pricing", label: t.pricing },
-        ]
-      : []),
-  ];
+	  const cards = [
+	    { href: fromCaisse ? "/kitchen?from=caisse" : "/kitchen", label: t.kitchen },
+	    { href: fromCaisse ? "/screen?from=caisse" : "/screen", label: t.readyOrders },
+	    { href: fromCaisse ? "/staff/cuisine/availability?from=caisse" : "/staff/cuisine/availability", label: t.availability },
+	  ];
 
   return (
     <main
@@ -130,10 +133,11 @@ function StaffCuisinePageContent() {
               <img src="/logo-afrofood.png" alt="AfroFood" style={{ width: 30, height: 30, borderRadius: 8, objectFit: "cover", border: "1px solid #F1D7C8" }} />
               {t.title}
             </h1>
-            <div style={{ opacity: 0.75, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <span>{t.loggedAs}: {username || "-"}</span>
-              {role ? <span className="af-role-badge">Role: {getStaffRoleLabel(role, lang)}</span> : null}
-            </div>
+	            <div style={{ opacity: 0.75, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+	              <span>{t.loggedAs}: {username || "-"}</span>
+	              {role ? <span className="af-role-badge">Role: {getStaffRoleLabel(role, lang)}</span> : null}
+	              {eventName ? <span className="af-role-badge">{t.assignedEvent}: {eventName}</span> : null}
+	            </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {(["de", "fr", "en"] as Lang[]).map((L) => (

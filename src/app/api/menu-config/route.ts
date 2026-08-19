@@ -1,17 +1,27 @@
 import { NextResponse } from "next/server";
-import { getPaymentConfig, getResolvedMenuSections, getStoreConfig, getTapToPayConfig } from "@/lib/menu-settings";
+import {
+  getItemAvailabilityMap,
+  getPaymentConfig,
+  getResolvedMenuSections,
+  getStoreConfig,
+  getTapToPayConfig,
+} from "@/lib/menu-settings";
 
 export async function GET(req: Request) {
   try {
     const storeConfig = await getStoreConfig();
     const { searchParams } = new URL(req.url);
     const eventIdRaw = String(searchParams.get("eventId") || "").trim();
+    const preorderEvents = storeConfig.events.filter((event) => event.preorderEnabled === true);
+    const publicEvents = preorderEvents.length > 0 ? preorderEvents : storeConfig.events;
     const selectedEvent =
-      (eventIdRaw && storeConfig.events.find((event) => event.id === eventIdRaw)) ||
-      (storeConfig.activeEventId && storeConfig.events.find((event) => event.id === storeConfig.activeEventId)) ||
+      (eventIdRaw && publicEvents.find((event) => event.id === eventIdRaw)) ||
+      (storeConfig.activeEventId && publicEvents.find((event) => event.id === storeConfig.activeEventId)) ||
+      publicEvents[0] ||
       null;
     const sections = await getResolvedMenuSections(selectedEvent?.id);
     const paymentConfig = await getPaymentConfig(selectedEvent?.id);
+    const availability = await getItemAvailabilityMap(selectedEvent?.id);
     const tapToPayConfig = await getTapToPayConfig();
     const visibleSections = sections
       .map((section) => ({
@@ -23,6 +33,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       ok: true,
       sections: visibleSections,
+      availability,
       paymentConfig,
       storeConfig,
       tapToPayConfig,

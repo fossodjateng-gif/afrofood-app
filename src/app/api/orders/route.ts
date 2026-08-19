@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
-import { getPaymentConfig } from "@/lib/menu-settings";
+import { consumeItemAvailability, getPaymentConfig } from "@/lib/menu-settings";
 import { calculateOrderTotalCents } from "@/lib/pricing";
 import { ensureOrdersSchema } from "@/lib/orders-schema";
 
@@ -167,7 +167,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Missing reservation time" }, { status: 400 });
     }
 
-    const paymentConfig = await getPaymentConfig();
+    const paymentConfig = await getPaymentConfig(eventId || undefined);
     if (payment === "cash" && !paymentConfig.cashEnabled) {
       return NextResponse.json({ ok: false, error: "Cash payment disabled" }, { status: 400 });
     }
@@ -177,6 +177,8 @@ export async function POST(req: Request) {
     if (payment === "cashless" && !paymentConfig.cashlessEnabled) {
       return NextResponse.json({ ok: false, error: "Cashless payment disabled" }, { status: 400 });
     }
+
+    await consumeItemAvailability(items, eventId || undefined);
 
     const id = await makeNextOrderId();
     const amountCents = calculateOrderTotalCents(items);

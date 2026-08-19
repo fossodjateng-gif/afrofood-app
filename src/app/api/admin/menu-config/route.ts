@@ -4,10 +4,12 @@ import {
   createCustomMenuItem,
   deleteCustomMenuItem,
   getCustomItemIds,
+  getItemAvailabilityMap,
   getPaymentConfig,
   getResolvedMenuSections,
   getStoreConfig,
   getTapToPayConfig,
+  upsertItemAvailability,
   upsertMenuItemSetting,
   upsertPaymentConfig,
   upsertStoreConfig,
@@ -37,10 +39,11 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const eventId = String(searchParams.get("eventId") || "").trim();
     const sections = await getResolvedMenuSections(eventId || undefined);
+    const availability = await getItemAvailabilityMap(eventId || undefined);
     const paymentConfig = await getPaymentConfig(eventId || undefined);
     const storeConfig = await getStoreConfig();
     const tapToPayConfig = await getTapToPayConfig();
-    return NextResponse.json({ ok: true, sections, paymentConfig, storeConfig, tapToPayConfig });
+    return NextResponse.json({ ok: true, sections, availability, paymentConfig, storeConfig, tapToPayConfig });
   } catch (e: unknown) {
     const error = e instanceof Error ? e.message : "Server error";
     return NextResponse.json({ ok: false, error }, { status: 500 });
@@ -69,7 +72,8 @@ export async function PATCH(req: Request) {
       const name = String(body?.name || "").trim();
       const description = String(body?.description || "").trim();
       const price = Number(body?.price);
-      const created = await createCustomMenuItem({ category, name, description, price });
+      const eventId = String(body?.eventId || "").trim();
+      const created = await createCustomMenuItem({ category, name, description, price, eventId: eventId || undefined });
       return NextResponse.json({ ok: true, itemId: created.itemId });
     }
 
@@ -94,6 +98,34 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (setting === "item_availability") {
+      if (!canManageCatalog) {
+        return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+      }
+      const itemId = String(body?.itemId || "").trim();
+      const eventId = String(body?.eventId || "").trim();
+      const status = String(body?.status || "").trim();
+      const remainingQtyRaw = body?.remainingQty;
+      const remainingQty =
+        remainingQtyRaw === null || remainingQtyRaw === undefined || remainingQtyRaw === ""
+          ? null
+          : Number(remainingQtyRaw);
+      const resumeAtRaw = String(body?.resumeAt || "").trim();
+      await upsertItemAvailability(
+        itemId,
+        {
+          status:
+            status === "limited" || status === "blocked" || status === "available"
+              ? status
+              : "available",
+          remainingQty,
+          resumeAt: resumeAtRaw || null,
+        },
+        eventId || undefined
+      );
+      return NextResponse.json({ ok: true });
+    }
+
     if (setting === "store_config") {
       if (!canManageOps) {
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
@@ -102,11 +134,12 @@ export async function PATCH(req: Request) {
       const activeEventName = String(body?.activeEventName || "").trim();
       const events = Array.isArray(body?.events)
         ? body.events
-            .map((event: { id?: string; name?: string }) => ({
+            .map((event: { id?: string; name?: string; preorderEnabled?: boolean }) => ({
               id: String(event?.id || "").trim(),
               name: String(event?.name || "").trim(),
+              preorderEnabled: event?.preorderEnabled === true,
             }))
-            .filter((event: { id: string; name: string }) => event.id && event.name)
+            .filter((event: { id: string; name: string; preorderEnabled?: boolean }) => event.id && event.name)
         : [];
       await upsertStoreConfig({ activeEventId, activeEventName, events });
       return NextResponse.json({ ok: true });

@@ -39,6 +39,14 @@ export type PaymentConfig = {
   cashlessEnabled: boolean;
 };
 
+export type ItemAvailabilityStatus = "available" | "limited" | "blocked";
+
+export type ItemAvailability = {
+  status: ItemAvailabilityStatus;
+  remainingQty: number | null;
+  resumeAt: string | null;
+};
+
 export type StoreConfig = {
   activeEventId: string;
   activeEventName: string;
@@ -48,6 +56,7 @@ export type StoreConfig = {
 export type EventProfile = {
   id: string;
   name: string;
+  preorderEnabled?: boolean;
 };
 
 export type TapToPayConfig = {
@@ -61,6 +70,7 @@ export type TapToPayConfig = {
 const PAYMENT_CONFIG_KEY = "payment_config";
 const STORE_CONFIG_KEY = "store_config";
 const TAP_TO_PAY_CONFIG_KEY = "tap_to_pay_config";
+const ITEM_AVAILABILITY_KEY = "item_availability";
 
 const DEFAULT_PAYMENT_CONFIG: PaymentConfig = {
   cashEnabled: true,
@@ -89,6 +99,7 @@ export type CreateCustomMenuItemInput = {
   name: string;
   description?: string;
   price: number;
+  eventId?: string;
 };
 
 export async function ensureMenuSettingsSchema() {
@@ -171,6 +182,59 @@ function paymentConfigKey(eventId?: string) {
   return normalizedEventId ? `${PAYMENT_CONFIG_KEY}:${normalizedEventId}` : PAYMENT_CONFIG_KEY;
 }
 
+function itemAvailabilityKey(eventId?: string) {
+  const normalizedEventId = String(eventId || "").trim();
+  return normalizedEventId ? `${ITEM_AVAILABILITY_KEY}:${normalizedEventId}` : ITEM_AVAILABILITY_KEY;
+}
+
+function normalizeResumeAt(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const ts = new Date(raw).getTime();
+  return Number.isFinite(ts) ? new Date(ts).toISOString() : null;
+}
+
+function normalizeAvailability(value: unknown): ItemAvailability {
+  const raw = value as Partial<ItemAvailability> | null;
+  const statusRaw = String(raw?.status || "").trim();
+  const remainingQtyRaw = Number(raw?.remainingQty);
+  const remainingQty =
+    Number.isFinite(remainingQtyRaw) && remainingQtyRaw >= 0 ? Math.floor(remainingQtyRaw) : null;
+  const resumeAt = normalizeResumeAt(raw?.resumeAt);
+  const status: ItemAvailabilityStatus =
+    statusRaw === "limited" || statusRaw === "blocked" || statusRaw === "available"
+      ? (statusRaw as ItemAvailabilityStatus)
+      : "available";
+
+  if (resumeAt) {
+    const resumeTs = new Date(resumeAt).getTime();
+    if (Number.isFinite(resumeTs) && resumeTs <= Date.now()) {
+      return { status: "available", remainingQty: null, resumeAt: null };
+    }
+  }
+
+  if (status === "available") {
+    return { status: "available", remainingQty: null, resumeAt: null };
+  }
+
+  return {
+    status,
+    remainingQty,
+    resumeAt,
+  };
+}
+
+function normalizeAvailabilityMap(value: unknown): Record<string, ItemAvailability> {
+  const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const result: Record<string, ItemAvailability> = {};
+  for (const [itemId, entry] of Object.entries(raw)) {
+    const cleanId = String(itemId || "").trim();
+    if (!cleanId) continue;
+    result[cleanId] = normalizeAvailability(entry);
+  }
+  return result;
+}
+
 export async function getPaymentConfig(eventId?: string): Promise<PaymentConfig> {
   await ensureMenuSettingsSchema();
   const key = paymentConfigKey(eventId);
@@ -203,6 +267,108 @@ export async function upsertPaymentConfig(config: PaymentConfig, eventId?: strin
   `;
 }
 
+export async function getItemAvailabilityMap(eventId?: string): Promise<Record<string, ItemAvailability>> {
+  await ensureMenuSettingsSchema();
+  const key = itemAvailabilityKey(eventId);
+  const rows = (await sql`
+    SELECT setting_value
+    FROM app_settings
+    WHERE setting_key = ${key}
+    LIMIT 1
+  `) as Array<{ setting_value: unknown }>;
+
+  if (rows.length === 0) return {};
+  return normalizeAvailabilityMap(rows[0]?.setting_value);
+}
+
+async function saveItemAvailabilityMap(entries: Record<string, ItemAvailability>, eventId?: string) {
+  await ensureMenuSettingsSchema();
+  const key = itemAvailabilityKey(eventId);
+  await sql`
+    INSERT INTO app_settings (setting_key, setting_value, updated_at)
+    VALUES (${key}, ${JSON.stringify(entries)}::jsonb, NOW())
+    ON CONFLICT (setting_key)
+    DO UPDATE SET
+      setting_value = EXCLUDED.setting_value,
+      updated_at = NOW()
+  `;
+}
+
+export async function upsertItemAvailability(
+  itemIdInput: string,
+  availability: Partial<ItemAvailability>,
+  eventId?: string
+) {
+  const itemId = String(itemIdInput || "").trim();
+  if (!itemId) throw new Error("Missing itemId");
+  const current = await getItemAvailabilityMap(eventId);
+  const next = {
+    ...current,
+    [itemId]: normalizeAvailability({
+      ...current[itemId],
+      ...availability,
+    }),
+  };
+  await saveItemAvailabilityMap(next, eventId);
+}
+
+export async function consumeItemAvailability(
+  itemsInput: Array<{ id?: string; qty?: number }>,
+  eventId?: string
+) {
+  const current = await getItemAvailabilityMap(eventId);
+  if (Object.keys(current).length === 0) return;
+  const next = { ...current };
+
+  for (const raw of itemsInput) {
+    const itemId = String(raw?.id || "").trim();
+    const qty = Math.max(0, Number(raw?.qty || 0));
+    if (!itemId || qty <= 0) continue;
+    const entry = normalizeAvailability(next[itemId]);
+    if (entry.status === "available") continue;
+
+    if (entry.status === "blocked") {
+      throw new Error(`Item unavailable: ${itemId}`);
+    }
+
+    const remaining = Number(entry.remainingQty ?? 0);
+    if (remaining < qty) {
+      throw new Error(`Item limited: ${itemId}`);
+    }
+
+    next[itemId] = normalizeAvailability({
+      ...entry,
+      remainingQty: remaining - qty,
+    });
+  }
+
+  await saveItemAvailabilityMap(next, eventId);
+}
+
+export async function restoreItemAvailability(
+  itemsInput: Array<{ id?: string; qty?: number }>,
+  eventId?: string
+) {
+  const current = await getItemAvailabilityMap(eventId);
+  if (Object.keys(current).length === 0) return;
+  const next = { ...current };
+
+  for (const raw of itemsInput) {
+    const itemId = String(raw?.id || "").trim();
+    const qty = Math.max(0, Number(raw?.qty || 0));
+    if (!itemId || qty <= 0) continue;
+    const entry = normalizeAvailability(next[itemId]);
+    if (entry.status !== "limited") continue;
+
+    next[itemId] = normalizeAvailability({
+      ...entry,
+      remainingQty: Math.max(0, Number(entry.remainingQty ?? 0) + qty),
+    });
+  }
+
+  await saveItemAvailabilityMap(next, eventId);
+}
+
 function toStoreConfig(value: unknown): StoreConfig {
   const raw = value as Partial<StoreConfig> | null;
   const rawEvents = Array.isArray(raw?.events) ? raw?.events : [];
@@ -211,7 +377,11 @@ function toStoreConfig(value: unknown): StoreConfig {
     const id = String((entry as Partial<EventProfile>)?.id || "").trim();
     const name = String((entry as Partial<EventProfile>)?.name || "").trim();
     if (!id || !name || eventMap.has(id)) continue;
-    eventMap.set(id, { id, name });
+    eventMap.set(id, {
+      id,
+      name,
+      preorderEnabled: (entry as Partial<EventProfile>)?.preorderEnabled === true,
+    });
   }
   const activeEventId = String(raw?.activeEventId || "").trim();
   const activeEventName = String(raw?.activeEventName || "").trim();
@@ -315,6 +485,7 @@ export async function getResolvedMenuSections(eventId?: string) {
     FROM custom_menu_items
     ORDER BY created_at ASC
   `) as CustomMenuItemRow[];
+  const availabilityMap = await getItemAvailabilityMap(eventId);
 
   const settingsMap = new Map<string, { price: number; visible: boolean }>();
   for (const raw of rows as MenuSettingsRow[]) {
@@ -344,6 +515,7 @@ export async function getResolvedMenuSections(eventId?: string) {
         imagePath: item.imagePath ?? getMenuItemImagePath(item.id),
         price: setting ? Number(setting.price) : Number(item.basePrice),
         visible: setting ? Boolean(setting.visible) : true,
+        availability: availabilityMap[item.id] ?? normalizeAvailability(null),
       };
     }),
   }));
@@ -376,6 +548,7 @@ export async function getResolvedMenuSections(eventId?: string) {
       basePrice: Number(row.price),
       price: setting ? Number(setting.price) : Number(row.price),
       visible: setting ? Boolean(setting.visible) : Boolean(row.visible),
+      availability: availabilityMap[row.item_id] ?? normalizeAvailability(null),
     });
   }
 
@@ -437,6 +610,7 @@ export async function createCustomMenuItem(input: CreateCustomMenuItemInput) {
   const description = String(input.description || "").trim();
   const price = Number(input.price);
   const category = input.category;
+  const eventId = String(input.eventId || "").trim();
 
   if (!name) throw new Error("Missing name");
   if (!Number.isFinite(price) || price < 0) throw new Error("Invalid price");
@@ -461,11 +635,20 @@ export async function createCustomMenuItem(input: CreateCustomMenuItemInput) {
       ${description || null},
       ${description || null},
       ${price},
-      true,
+      ${eventId ? false : true},
       NOW(),
       NOW()
     )
   `;
+
+  if (eventId) {
+    await upsertMenuItemSetting({
+      itemId,
+      price,
+      visible: true,
+      eventId,
+    });
+  }
 
   return { itemId };
 }
@@ -496,6 +679,11 @@ export async function deleteCustomMenuItem(itemIdInput: string) {
 
   await sql`
     DELETE FROM menu_item_settings
+    WHERE item_id = ${itemId}
+  `;
+
+  await sql`
+    DELETE FROM event_menu_item_settings
     WHERE item_id = ${itemId}
   `;
 }

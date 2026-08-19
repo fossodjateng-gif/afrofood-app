@@ -11,6 +11,7 @@ const LAST_ORDER_KEY = "af_last_order_id";
 type EventOption = {
   id: string;
   name: string;
+  preorderEnabled?: boolean;
 };
 
 export default function Home() {
@@ -38,19 +39,24 @@ export default function Home() {
         if (!alive) return;
 
         const nextEvents = Array.isArray(data?.storeConfig?.events)
-          ? (data.storeConfig.events as Array<{ id?: string; name?: string }>)
+          ? (data.storeConfig.events as Array<{ id?: string; name?: string; preorderEnabled?: boolean }>)
               .map((event) => ({
                 id: String(event?.id || "").trim(),
                 name: String(event?.name || "").trim(),
+                preorderEnabled: event?.preorderEnabled === true,
               }))
               .filter((event) => event.id && event.name)
           : [];
+        const publicEvents = nextEvents.some((event) => event.preorderEnabled)
+          ? nextEvents.filter((event) => event.preorderEnabled)
+          : nextEvents;
 
-        setEvents(nextEvents);
+        setEvents(publicEvents);
 
-        if (!selectedEventId && nextEvents.length > 0) {
+        if (!selectedEventId && publicEvents.length > 0) {
           const activeId = String(data?.storeConfig?.activeEventId || "").trim();
-          setSelectedEventId(activeId || nextEvents[0].id);
+          const activePublicId = publicEvents.find((event) => event.id === activeId)?.id || "";
+          setSelectedEventId(activePublicId || publicEvents[0].id);
         }
       } finally {
         if (alive) setLoadingEvents(false);
@@ -164,10 +170,10 @@ export default function Home() {
             </div>
             <div style={{ marginTop: 8, color: "#5f5f5f", fontSize: 14 }}>
               {lang === "fr"
-                ? "Le menu et les prix s'afficheront ensuite pour cet evenement."
+                ? "Seuls les evenements ouverts a la precommande s'affichent ici. Le menu et les prix seront ensuite charges pour cet evenement."
                 : lang === "de"
-                ? "Danach werden Menu und Preise fur dieses Event geladen."
-                : "The menu and prices will then load for this event."}
+                ? "Hier werden nur Events mit geoffneter Vorbestellung angezeigt. Danach werden Menu und Preise fur dieses Event geladen."
+                : "Only events open for preorder are shown here. The menu and prices will then load for this event."}
             </div>
             <select
               value={selectedEventId}

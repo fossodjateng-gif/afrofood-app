@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
+import { getSession, getStaffRoleLabel, getUsers, type StaffRole } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 
 const STATS_PERIOD_KEY = "af_stats_period";
@@ -44,6 +44,28 @@ type StatsResponse = {
   availableEvents: string[];
 };
 
+type EventSummarySection = {
+  id: string;
+  title: Record<Lang, string>;
+  items: Array<{
+    id: string;
+    name: Record<Lang, string>;
+    price: number;
+    visible: boolean;
+  }>;
+};
+
+type EventSummary = {
+  eventId: string;
+  eventName: string;
+  sections: EventSummarySection[];
+  paymentConfig: {
+    cashEnabled: boolean;
+    cardEnabled: boolean;
+    cashlessEnabled: boolean;
+  };
+};
+
 const UI_TEXT: Record<
   Lang,
   {
@@ -71,6 +93,16 @@ const UI_TEXT: Record<
     share: string;
     salesTodayByHour: string;
     salesByEvent: string;
+    eventOverview: string;
+    eventOverviewSub: string;
+    visibleProducts: string;
+    allowedPayments: string;
+    assignedCashiers: string;
+    assignedKitchen: string;
+    noAssignedCashiers: string;
+    noAssignedKitchen: string;
+    menuCount: string;
+    activeBadge: string;
     eventName: string;
     filteredSummary: string;
     canceledOrders: string;
@@ -102,6 +134,16 @@ const UI_TEXT: Record<
     share: "Anteil",
     salesTodayByHour: "Heutige Verkaufe pro Stunde",
     salesByEvent: "Verkaufe pro Event",
+    eventOverview: "Event-Ubersicht",
+    eventOverviewSub: "Sichtbare Produkte, erlaubte Zahlungen und zugewiesene Teams pro Event.",
+    visibleProducts: "Sichtbare Produkte",
+    allowedPayments: "Erlaubte Zahlungen",
+    assignedCashiers: "Zugewiesene Kassen",
+    assignedKitchen: "Zugewiesene Kuche",
+    noAssignedCashiers: "Keine Kasse zugewiesen",
+    noAssignedKitchen: "Keine Kuche zugewiesen",
+    menuCount: "Gerichte im Menu",
+    activeBadge: "Aktiv",
     eventName: "Event",
     filteredSummary: "Gefilterte Zusammenfassung",
     canceledOrders: "Stornierte Bestellungen",
@@ -132,6 +174,16 @@ const UI_TEXT: Record<
     share: "Part",
     salesTodayByHour: "Ventes par heure aujourd'hui",
     salesByEvent: "Ventes par evenement",
+    eventOverview: "Vue d'ensemble des evenements",
+    eventOverviewSub: "Produits visibles, paiements autorises et equipes assignees par evenement.",
+    visibleProducts: "Produits visibles",
+    allowedPayments: "Paiements autorises",
+    assignedCashiers: "Caissiers assignes",
+    assignedKitchen: "Cuisine assignee",
+    noAssignedCashiers: "Aucune caisse assignee",
+    noAssignedKitchen: "Aucune cuisine assignee",
+    menuCount: "Produits au menu",
+    activeBadge: "Actif",
     eventName: "Evenement",
     filteredSummary: "Resume filtre",
     canceledOrders: "Commandes annulees",
@@ -162,6 +214,16 @@ const UI_TEXT: Record<
     share: "Share",
     salesTodayByHour: "Today's sales by hour",
     salesByEvent: "Sales by event",
+    eventOverview: "Event overview",
+    eventOverviewSub: "Visible products, allowed payments, and assigned teams for each event.",
+    visibleProducts: "Visible products",
+    allowedPayments: "Allowed payments",
+    assignedCashiers: "Assigned cashiers",
+    assignedKitchen: "Assigned kitchen",
+    noAssignedCashiers: "No cashier assigned",
+    noAssignedKitchen: "No kitchen assigned",
+    menuCount: "Menu items",
+    activeBadge: "Active",
     eventName: "Event",
     filteredSummary: "Filtered summary",
     canceledOrders: "Canceled orders",
@@ -202,6 +264,9 @@ export default function StatsPage() {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
+  const [eventSummaries, setEventSummaries] = useState<EventSummary[]>([]);
+  const [storeEvents, setStoreEvents] = useState<Array<{ id: string; name: string }>>([]);
+  const [activeEventId, setActiveEventId] = useState("");
 
   useEffect(() => {
     setLang(getSavedLang());
@@ -235,6 +300,15 @@ export default function StatsPage() {
 
   const t = UI_TEXT[lang];
 
+  const staffAssignments = useMemo(() => {
+    const users = getUsers();
+    return storeEvents.map((event) => ({
+      eventId: event.id,
+      cashiers: users.filter((user) => user.active && user.role === "cashier" && user.cashierEventId === event.id),
+      kitchen: users.filter((user) => user.active && user.role === "kitchen" && user.cashierEventId === event.id),
+    }));
+  }, [storeEvents]);
+
   const fetchStats = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -258,6 +332,64 @@ export default function StatsPage() {
   useEffect(() => {
     void fetchStats();
   }, [fetchStats]);
+
+  useEffect(() => {
+    if (!isUnlocked) return;
+    let cancelled = false;
+
+    async function loadEventOverview() {
+      try {
+        const baseRes = await fetch("/api/menu-config", { cache: "no-store" });
+        const baseData = await baseRes.json().catch(() => null);
+        const events = Array.isArray(baseData?.storeConfig?.events)
+          ? (baseData.storeConfig.events as Array<{ id?: string; name?: string }>)
+              .map((event) => ({
+                id: String(event?.id || "").trim(),
+                name: String(event?.name || "").trim(),
+              }))
+              .filter((event) => event.id && event.name)
+          : [];
+        if (!cancelled) {
+          setStoreEvents(events);
+          setActiveEventId(String(baseData?.storeConfig?.activeEventId || "").trim());
+        }
+        const summaries = await Promise.all(
+          events.map(async (event) => {
+            const res = await fetch(`/api/admin/menu-config?eventId=${encodeURIComponent(event.id)}`, {
+              headers: { "x-staff-role": "admin" },
+              cache: "no-store",
+            });
+            const data = await res.json().catch(() => null);
+            if (!res.ok || !data?.ok) {
+              throw new Error(data?.error || "overview_failed");
+            }
+            return {
+              eventId: event.id,
+              eventName: event.name,
+              sections: Array.isArray(data.sections) ? (data.sections as EventSummarySection[]) : [],
+              paymentConfig: {
+                cashEnabled: data?.paymentConfig?.cashEnabled !== false,
+                cardEnabled: data?.paymentConfig?.cardEnabled !== false,
+                cashlessEnabled: data?.paymentConfig?.cashlessEnabled !== false,
+              },
+            } satisfies EventSummary;
+          })
+        );
+        if (!cancelled) {
+          setEventSummaries(summaries);
+        }
+      } catch {
+        if (!cancelled) {
+          setEventSummaries([]);
+        }
+      }
+    }
+
+    void loadEventOverview();
+    return () => {
+      cancelled = true;
+    };
+  }, [isUnlocked]);
 
   const maxHourTx = useMemo(() => {
     if (!stats?.salesByHour?.length) return 1;
@@ -710,6 +842,139 @@ export default function StatsPage() {
                   ) : null}
                 </tbody>
               </table>
+            </section>
+
+            <section
+              style={{
+                marginTop: 14,
+                background: "white",
+                border: "1px solid #F1D7C8",
+                borderRadius: 12,
+                padding: 14,
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>{t.eventOverview}</h2>
+              <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>{t.eventOverviewSub}</div>
+              <div style={{ marginTop: 12, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}>
+                {eventSummaries.map((summary) => {
+                  const assignment = staffAssignments.find((entry) => entry.eventId === summary.eventId);
+                  const visibleItems = summary.sections.flatMap((section) =>
+                    section.items
+                      .filter((item) => item.visible)
+                      .map((item) => ({
+                        sectionTitle: section.title[lang],
+                        itemName: item.name[lang],
+                        price: item.price,
+                      }))
+                  );
+                  const paymentBadges = [
+                    summary.paymentConfig.cashEnabled ? "Cash" : null,
+                    summary.paymentConfig.cardEnabled ? "Carte" : null,
+                    summary.paymentConfig.cashlessEnabled ? "Cashless" : null,
+                  ].filter(Boolean);
+
+                  return (
+                    <div
+                      key={summary.eventId}
+                      style={{
+                        border: "1px solid #F1D7C8",
+                        borderRadius: 14,
+                        padding: 14,
+                        background: summary.eventId === activeEventId ? "#fff7ed" : "#fffaf6",
+                      }}
+                    >
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
+                        <div>
+                          <div style={{ fontWeight: 900, fontSize: 18 }}>{summary.eventName}</div>
+                          <div style={{ fontSize: 12, opacity: 0.6 }}>{summary.eventId}</div>
+                        </div>
+                        {summary.eventId === activeEventId ? (
+                          <div style={{ padding: "6px 10px", borderRadius: 999, background: "#111", color: "white", fontWeight: 800, fontSize: 12 }}>
+                            {t.activeBadge}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                        <div>
+                          <div style={{ fontWeight: 800, marginBottom: 6 }}>{t.allowedPayments}</div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {paymentBadges.length > 0 ? (
+                              paymentBadges.map((label) => (
+                                <span key={`${summary.eventId}-${label}`} style={{ padding: "6px 10px", borderRadius: 999, background: "#dcfce7", color: "#166534", fontWeight: 800, fontSize: 12 }}>
+                                  {label}
+                                </span>
+                              ))
+                            ) : (
+                              <span style={{ padding: "6px 10px", borderRadius: 999, background: "#fee2e2", color: "#991b1b", fontWeight: 800, fontSize: 12 }}>
+                                {lang === "fr" ? "Commandes fermees" : lang === "de" ? "Bestellungen geschlossen" : "Orders closed"}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div style={{ fontWeight: 800, marginBottom: 6 }}>{t.assignedCashiers}</div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {assignment && assignment.cashiers.length > 0 ? (
+                              assignment.cashiers.map((user) => (
+                                <span key={user.id} style={{ padding: "6px 10px", borderRadius: 999, background: "#dbeafe", color: "#1d4ed8", fontWeight: 800, fontSize: 12 }}>
+                                  {user.username}
+                                </span>
+                              ))
+                            ) : (
+                              <span style={{ opacity: 0.75 }}>{t.noAssignedCashiers}</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div style={{ fontWeight: 800, marginBottom: 6 }}>{t.assignedKitchen}</div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {assignment && assignment.kitchen.length > 0 ? (
+                              assignment.kitchen.map((user) => (
+                                <span key={user.id} style={{ padding: "6px 10px", borderRadius: 999, background: "#fef3c7", color: "#92400e", fontWeight: 800, fontSize: 12 }}>
+                                  {user.username}
+                                </span>
+                              ))
+                            ) : (
+                              <span style={{ opacity: 0.75 }}>{t.noAssignedKitchen}</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                            {t.visibleProducts} ({t.menuCount}: {visibleItems.length})
+                          </div>
+                          <div style={{ display: "grid", gap: 6 }}>
+                            {visibleItems.map((item, index) => (
+                              <div
+                                key={`${summary.eventId}-${item.itemName}-${index}`}
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: 10,
+                                  padding: "8px 10px",
+                                  borderRadius: 10,
+                                  background: "rgba(255,255,255,0.9)",
+                                  border: "1px solid #F3E2D6",
+                                }}
+                              >
+                                <div>
+                                  <div style={{ fontWeight: 700 }}>{item.itemName}</div>
+                                  <div style={{ fontSize: 12, opacity: 0.65 }}>{item.sectionTitle}</div>
+                                </div>
+                                <div style={{ fontWeight: 900, whiteSpace: "nowrap" }}>{item.price.toFixed(2)} EUR</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </section>
 
             <section

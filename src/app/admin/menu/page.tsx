@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import type { Lang } from "@/lib/translations";
 import { getSavedLang, saveLang } from "@/lib/translations";
 import { detectClientPlatform, type ClientPlatform } from "@/lib/payment-platform";
-import { getSession, getStaffRoleLabel } from "@/lib/staff-auth";
+import { getSession, getStaffRoleLabel, getUsers } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 import {
   APPLE_TTP_ASSET_PATHS,
@@ -31,6 +31,13 @@ type AdminSection = {
   items: AdminItem[];
 };
 
+type EventSummary = {
+  eventId: string;
+  eventName: string;
+  sections: AdminSection[];
+  paymentConfig: PaymentConfig;
+};
+
 type PaymentConfig = {
   cashEnabled: boolean;
   cardEnabled: boolean;
@@ -40,7 +47,7 @@ type PaymentConfig = {
 type StoreConfig = {
   activeEventId: string;
   activeEventName: string;
-  events: Array<{ id: string; name: string }>;
+  events: Array<{ id: string; name: string; preorderEnabled?: boolean }>;
 };
 
 type TapToPayConfig = {
@@ -52,6 +59,7 @@ type TapToPayConfig = {
 };
 
 type CustomItemCategory = "dish" | "drink" | "dip";
+type CustomItemScope = "event" | "all";
 type TapSetupStep = "awareness" | "terms" | "education" | "prepare";
 const CAISSE_EVENT_ID_KEY = "af_caisse_event_id";
 
@@ -229,6 +237,7 @@ function AdminMenuPageContent() {
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [sections, setSections] = useState<AdminSection[]>([]);
+  const [eventSummaries, setEventSummaries] = useState<EventSummary[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({
     cashEnabled: true,
@@ -243,6 +252,7 @@ function AdminMenuPageContent() {
   const [pricingEventId, setPricingEventId] = useState("");
   const [newEventName, setNewEventName] = useState("");
   const [newItemCategory, setNewItemCategory] = useState<CustomItemCategory>("dish");
+  const [newItemScope, setNewItemScope] = useState<CustomItemScope>("event");
   const [newItemName, setNewItemName] = useState("");
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemPrice, setNewItemPrice] = useState("0");
@@ -345,12 +355,21 @@ function AdminMenuPageContent() {
     : "/staff";
   const isFocusedView = isAddView || isPricingView || isPaymentView || isEventView || isTapView;
   const showPaymentSection = canManageOps && (isPaymentView || (!isFocusedView && !isKitchenScopedView));
-  const showEventSection = canManageOps && (isEventView || (!isFocusedView && !isKitchenScopedView));
+  const showEventSection = !fromCaisse && canManageOps && (isEventView || (!isFocusedView && !isKitchenScopedView));
   const showTapSections = canManageTapToPay && (isTapView || (!isFocusedView && !isKitchenScopedView));
   const showGuideSection = showTapSections;
   const showMarketingSection = canManageTapToPay && (isTapView || (!isFocusedView && !isKitchenScopedView));
   const showAddSection = canManageCatalog && !isPricingView && !isPaymentView && !isEventView && !isTapView;
   const showPricingSection = canManageCatalog && !isAddView && !isPaymentView && !isEventView && !isTapView;
+  const showEventSummary = false;
+  const staffAssignments = useMemo(() => {
+    const users = getUsers();
+    return storeConfig.events.map((event) => ({
+      eventId: event.id,
+      cashiers: users.filter((user) => user.active && user.role === "cashier" && user.cashierEventId === event.id),
+      kitchen: users.filter((user) => user.active && user.role === "kitchen" && user.cashierEventId === event.id),
+    }));
+  }, [storeConfig.events]);
 
   useEffect(() => {
     if (!fromCaisse) return;
@@ -359,6 +378,16 @@ function AdminMenuPageContent() {
       setPricingEventId(caisseEventId.trim());
     }
   }, [fromCaisse]);
+
+  useEffect(() => {
+    if (storeConfig.events.length === 0) {
+      setNewItemScope("all");
+      return;
+    }
+    if (!pricingEventId && newItemScope === "event") {
+      setNewItemScope("all");
+    }
+  }, [pricingEventId, storeConfig.events.length, newItemScope]);
 
   useEffect(() => {
     if (!isTapView) return;
@@ -376,6 +405,55 @@ function AdminMenuPageContent() {
     }
     setTapFlowStep("prepare");
   }, [isTapView, tapToPayConfig.awarenessSeen, tapToPayConfig.termsAccepted, tapToPayConfig.educationSeen]);
+
+  useEffect(() => {
+    if (!isUnlocked) return;
+    if (storeConfig.events.length === 0) {
+      setEventSummaries([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadEventSummaries() {
+      try {
+        const summaries = await Promise.all(
+          storeConfig.events.map(async (event) => {
+            const res = await fetch(`/api/admin/menu-config?eventId=${encodeURIComponent(event.id)}`, {
+              headers: buildAuthHeaders(),
+              cache: "no-store",
+            });
+            const data = await res.json().catch(() => null);
+            if (!res.ok || !data?.ok) {
+              throw new Error(data?.error || "Summary load failed");
+            }
+            return {
+              eventId: event.id,
+              eventName: event.name,
+              sections: Array.isArray(data.sections) ? (data.sections as AdminSection[]) : [],
+              paymentConfig: {
+                cashEnabled: data?.paymentConfig?.cashEnabled !== false,
+                cardEnabled: data?.paymentConfig?.cardEnabled !== false,
+                cashlessEnabled: data?.paymentConfig?.cashlessEnabled !== false,
+              },
+            } satisfies EventSummary;
+          })
+        );
+        if (!cancelled) {
+          setEventSummaries(summaries);
+        }
+      } catch {
+        if (!cancelled) {
+          setEventSummaries([]);
+        }
+      }
+    }
+
+    void loadEventSummaries();
+    return () => {
+      cancelled = true;
+    };
+  }, [isUnlocked, storeConfig.events, staffRoleSession, pin]);
   const ui = {
     paymentAllowed: lang === "de" ? "Zugelassene Zahlungen" : lang === "en" ? "Allowed payments" : "Paiements autorises",
     save: lang === "de" ? "Speichern" : lang === "en" ? "Save" : "Sauvegarder",
@@ -432,6 +510,39 @@ function AdminMenuPageContent() {
         : lang === "en"
         ? "Edit products: price, visibility, and delete custom items."
         : "Modifier les produits: prix, visibilite et suppression des produits ajoutes.",
+    summaryTitle: lang === "de" ? "Event-Ubersicht" : lang === "en" ? "Event overview" : "Vue d'ensemble des evenements",
+    summarySub:
+      lang === "de"
+        ? "Zeigt pro Event die sichtbaren Produkte, Preise, erlaubten Zahlungen und zugewiesenen Teams."
+        : lang === "en"
+        ? "Shows visible products, prices, allowed payments, and assigned teams for each event."
+        : "Affiche pour chaque evenement les produits visibles, les prix, les paiements autorises et les equipes assignees.",
+    summaryLoading: lang === "de" ? "Ubersicht wird geladen..." : lang === "en" ? "Loading overview..." : "Chargement de la vue d'ensemble...",
+    summaryEmpty:
+      lang === "de"
+        ? "Noch kein Event konfiguriert."
+        : lang === "en"
+        ? "No event configured yet."
+        : "Aucun evenement configure pour le moment.",
+    visibleProducts: lang === "de" ? "Sichtbare Produkte" : lang === "en" ? "Visible products" : "Produits visibles",
+    allowedPayments: lang === "de" ? "Erlaubte Zahlungen" : lang === "en" ? "Allowed payments" : "Paiements autorises",
+    assignedCashiers: lang === "de" ? "Zugewiesene Kassen" : lang === "en" ? "Assigned cashiers" : "Caissiers assignes",
+    assignedKitchen: lang === "de" ? "Zugewiesene Kuche" : lang === "en" ? "Assigned kitchen" : "Cuisine assignee",
+    noAssignedCashiers:
+      lang === "de" ? "Keine Kasse zugewiesen" : lang === "en" ? "No cashier assigned" : "Aucune caisse assignee",
+    noAssignedKitchen:
+      lang === "de" ? "Keine Kuche zugewiesen" : lang === "en" ? "No kitchen assigned" : "Aucune cuisine assignee",
+    menuCount: lang === "de" ? "Gerichte im Menu" : lang === "en" ? "Menu items" : "Produits au menu",
+    activeBadge: lang === "de" ? "Aktiv" : lang === "en" ? "Active" : "Actif",
+    preorderBadge: lang === "de" ? "Vorbestellung offen" : lang === "en" ? "Preorder open" : "Precommande ouverte",
+    preorderToggle:
+      lang === "de" ? "Vorbestellung aktivieren" : lang === "en" ? "Enable preorder" : "Ouvrir la precommande",
+    preorderHelp:
+      lang === "de"
+        ? "Mehrere Events konnen gleichzeitig fur Vorbestellungen geoffnet sein."
+        : lang === "en"
+        ? "Several events can be open for preorder at the same time."
+        : "Plusieurs evenements peuvent etre ouverts en meme temps pour la precommande.",
     addBtn: lang === "de" ? "Hinzufugen" : lang === "en" ? "Add" : "Ajouter",
     addSaving: lang === "de" ? "Hinzufugen..." : lang === "en" ? "Adding..." : "Ajout...",
     saveItem: lang === "de" ? "Speichern" : lang === "en" ? "Save" : "Sauvegarder",
@@ -604,6 +715,7 @@ function AdminMenuPageContent() {
             .map((event) => ({
               id: String((event as { id?: string })?.id || "").trim(),
               name: String((event as { name?: string })?.name || "").trim(),
+              preorderEnabled: (event as { preorderEnabled?: boolean })?.preorderEnabled === true,
             }))
             .filter((event) => event.id && event.name)
         : [],
@@ -728,6 +840,7 @@ function AdminMenuPageContent() {
           name: newItemName,
           description: newItemDesc,
           price: Number(newItemPrice),
+          eventId: newItemScope === "event" ? pricingEventId || undefined : undefined,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -1301,6 +1414,26 @@ function AdminMenuPageContent() {
                       />
                       <span>{event.name}</span>
                       <span style={{ fontSize: 12, opacity: 0.6 }}>{event.id}</span>
+                      {event.preorderEnabled ? (
+                        <span style={{ padding: "4px 8px", borderRadius: 999, background: "#dcfce7", color: "#166534", fontSize: 12, fontWeight: 800 }}>
+                          {ui.preorderBadge}
+                        </span>
+                      ) : null}
+                    </label>
+                    <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 700, color: "#374151" }}>
+                      <input
+                        type="checkbox"
+                        checked={event.preorderEnabled === true}
+                        onChange={(e) =>
+                          setStoreConfig((prev) => ({
+                            ...prev,
+                            events: prev.events.map((entry) =>
+                              entry.id === event.id ? { ...entry, preorderEnabled: e.target.checked } : entry
+                            ),
+                          }))
+                        }
+                      />
+                      <span>{ui.preorderToggle}</span>
                     </label>
                     <button
                       className="af-btn"
@@ -1312,21 +1445,155 @@ function AdminMenuPageContent() {
                     </button>
                   </div>
                 ))}
-              </div>
-	            <button
-	              className="af-btn"
-	              type="button"
+	              </div>
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.75 }}>{ui.preorderHelp}</div>
+		            <button
+		              className="af-btn"
+		              type="button"
               onClick={saveStoreConfig}
               disabled={savingId === "store-config"}
               style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "#111", color: "white", fontWeight: 800 }}
             >
 	              {savingId === "store-config" ? ui.saving : ui.save}
-	            </button>
-	          </div>
-	        </div>
-            ) : null}
+		            </button>
+		          </div>
+		        </div>
+	            ) : null}
 
-        {showTapSections ? (
+	        {showEventSummary ? (
+	          <div style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12, marginTop: 12 }}>
+	            <div style={{ fontWeight: 900 }}>{ui.summaryTitle}</div>
+	            <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>{ui.summarySub}</div>
+	            {storeConfig.events.length === 0 ? (
+	              <div style={{ marginTop: 10, opacity: 0.8 }}>{ui.summaryEmpty}</div>
+	            ) : eventSummaries.length === 0 ? (
+	              <div style={{ marginTop: 10, opacity: 0.8 }}>{ui.summaryLoading}</div>
+	            ) : (
+	              <div style={{ marginTop: 12, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}>
+	                {eventSummaries.map((summary) => {
+	                  const assignment = staffAssignments.find((entry) => entry.eventId === summary.eventId);
+	                  const visibleItems = summary.sections.flatMap((section) =>
+	                    section.items
+	                      .filter((item) => item.visible)
+	                      .map((item) => ({
+	                        sectionTitle: section.title[lang],
+	                        itemName: item.name[lang],
+	                        price: item.price,
+	                      }))
+	                  );
+	                  const paymentBadges = [
+	                    summary.paymentConfig.cashEnabled ? "Cash" : null,
+	                    summary.paymentConfig.cardEnabled ? "Carte" : null,
+	                    summary.paymentConfig.cashlessEnabled ? "Cashless" : null,
+	                  ].filter(Boolean);
+
+	                  return (
+	                    <div
+	                      key={summary.eventId}
+	                      style={{
+	                        border: "1px solid #F1D7C8",
+	                        borderRadius: 14,
+	                        padding: 14,
+	                        background: summary.eventId === storeConfig.activeEventId ? "#fff7ed" : "#fffaf6",
+	                      }}
+	                    >
+	                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
+	                        <div>
+	                          <div style={{ fontWeight: 900, fontSize: 18 }}>{summary.eventName}</div>
+	                          <div style={{ fontSize: 12, opacity: 0.6 }}>{summary.eventId}</div>
+	                        </div>
+	                        {summary.eventId === storeConfig.activeEventId ? (
+	                          <div style={{ padding: "6px 10px", borderRadius: 999, background: "#111", color: "white", fontWeight: 800, fontSize: 12 }}>
+	                            {ui.activeBadge}
+	                          </div>
+	                        ) : null}
+	                      </div>
+
+	                      <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+	                        <div>
+	                          <div style={{ fontWeight: 800, marginBottom: 6 }}>{ui.allowedPayments}</div>
+	                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+	                            {paymentBadges.length > 0 ? (
+	                              paymentBadges.map((label) => (
+	                                <span key={`${summary.eventId}-${label}`} style={{ padding: "6px 10px", borderRadius: 999, background: "#dcfce7", color: "#166534", fontWeight: 800, fontSize: 12 }}>
+	                                  {label}
+	                                </span>
+	                              ))
+	                            ) : (
+	                              <span style={{ padding: "6px 10px", borderRadius: 999, background: "#fee2e2", color: "#991b1b", fontWeight: 800, fontSize: 12 }}>
+	                                {ui.ordersClosed}
+	                              </span>
+	                            )}
+	                          </div>
+	                        </div>
+
+	                        <div>
+	                          <div style={{ fontWeight: 800, marginBottom: 6 }}>{ui.assignedCashiers}</div>
+	                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+	                            {assignment && assignment.cashiers.length > 0 ? (
+	                              assignment.cashiers.map((user) => (
+	                                <span key={user.id} style={{ padding: "6px 10px", borderRadius: 999, background: "#dbeafe", color: "#1d4ed8", fontWeight: 800, fontSize: 12 }}>
+	                                  {user.username}
+	                                </span>
+	                              ))
+	                            ) : (
+	                              <span style={{ opacity: 0.75 }}>{ui.noAssignedCashiers}</span>
+	                            )}
+	                          </div>
+	                        </div>
+
+	                        <div>
+	                          <div style={{ fontWeight: 800, marginBottom: 6 }}>{ui.assignedKitchen}</div>
+	                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+	                            {assignment && assignment.kitchen.length > 0 ? (
+	                              assignment.kitchen.map((user) => (
+	                                <span key={user.id} style={{ padding: "6px 10px", borderRadius: 999, background: "#fef3c7", color: "#92400e", fontWeight: 800, fontSize: 12 }}>
+	                                  {user.username}
+	                                </span>
+	                              ))
+	                            ) : (
+	                              <span style={{ opacity: 0.75 }}>{ui.noAssignedKitchen}</span>
+	                            )}
+	                          </div>
+	                        </div>
+
+	                        <div>
+	                          <div style={{ fontWeight: 800, marginBottom: 6 }}>
+	                            {ui.visibleProducts} ({ui.menuCount}: {visibleItems.length})
+	                          </div>
+	                          <div style={{ display: "grid", gap: 6 }}>
+	                            {visibleItems.map((item, index) => (
+	                              <div
+	                                key={`${summary.eventId}-${item.itemName}-${index}`}
+	                                style={{
+	                                  display: "flex",
+	                                  justifyContent: "space-between",
+	                                  gap: 10,
+	                                  padding: "8px 10px",
+	                                  borderRadius: 10,
+	                                  background: "rgba(255,255,255,0.9)",
+	                                  border: "1px solid #F3E2D6",
+	                                }}
+	                              >
+	                                <div>
+	                                  <div style={{ fontWeight: 700 }}>{item.itemName}</div>
+	                                  <div style={{ fontSize: 12, opacity: 0.65 }}>{item.sectionTitle}</div>
+	                                </div>
+	                                <div style={{ fontWeight: 900, whiteSpace: "nowrap" }}>{item.price.toFixed(2)} EUR</div>
+	                              </div>
+	                            ))}
+	                          </div>
+	                        </div>
+	                      </div>
+	                    </div>
+	                  );
+	                })}
+	              </div>
+	            )}
+	          </div>
+	        ) : null}
+
+	        {showTapSections ? (
           isTapView ? (
             <>
               {tapFlowStep === "awareness" ? (
@@ -1681,6 +1948,37 @@ function AdminMenuPageContent() {
               <option value="drink">{ui.categoryDrink}</option>
               <option value="dip">{ui.categoryDip}</option>
             </select>
+            {storeConfig.events.length > 0 ? (
+              <select
+                value={newItemScope}
+                onChange={(e) => setNewItemScope(e.target.value as CustomItemScope)}
+                style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", maxWidth: 320 }}
+              >
+                <option value="event" disabled={!pricingEventId}>
+                  {lang === "fr"
+                    ? `Seulement pour l'evenement en cours${pricingEventId ? "" : " (selectionner un evenement)"}`
+                    : lang === "de"
+                    ? `Nur fur das aktuelle Event${pricingEventId ? "" : " (Event auswahlen)"}`
+                    : `Only for the current event${pricingEventId ? "" : " (select an event)"}`}
+                </option>
+                <option value="all">
+                  {lang === "fr"
+                    ? "Disponible sur tous les evenements"
+                    : lang === "de"
+                    ? "Fur alle Events verfugbar"
+                    : "Available on all events"}
+                </option>
+              </select>
+            ) : null}
+            {newItemScope === "event" && pricingEventId ? (
+              <div style={{ fontSize: 13, opacity: 0.8 }}>
+                {lang === "fr"
+                  ? "Ce produit sera cree cache par defaut ailleurs et visible seulement sur l'evenement en edition."
+                  : lang === "de"
+                  ? "Dieses Produkt wird andernorts standardmassig verborgen und nur fur das bearbeitete Event sichtbar erstellt."
+                  : "This product will be hidden by default elsewhere and created as visible only for the event being edited."}
+              </div>
+            ) : null}
             <input
               type="text"
               value={newItemName}

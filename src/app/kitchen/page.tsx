@@ -88,7 +88,8 @@ function KitchenPageContent() {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [justRefreshed, setJustRefreshed] = useState(false);
-  const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
+	  const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
+	  const [staffUsername, setStaffUsername] = useState("");
   const [assignedEventId, setAssignedEventId] = useState("");
   const [assignedEventName, setAssignedEventName] = useState("");
   const [accessError, setAccessError] = useState<string | null>(null);
@@ -147,7 +148,8 @@ function KitchenPageContent() {
         window.location.href = "/staff";
         return;
       }
-      setStaffRole(s.role);
+	      setStaffRole(s.role);
+	      setStaffUsername(String(s.username || ""));
 
       if (s.role === "admin") {
         if (fromCaisse) {
@@ -282,7 +284,8 @@ function KitchenPageContent() {
             {L.toUpperCase()}
           </button>
         ))}
-        {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
+	        <span>{t.name}: {staffUsername || "-"}</span>
+	        {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
       </div>
       <h1 style={{ margin: "10px 0 0 0", fontSize: 28, fontWeight: 900 }}>{t.title}</h1>
       <p style={{ opacity: 0.75 }}>{t.subtitle}</p>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getSession } from "@/lib/staff-auth";
+import { goBackOr } from "@/lib/client-nav";
 
 const CAISSE_EVENT_ID_KEY = "af_caisse_event_id";
 
@@ -50,6 +51,14 @@ export default function StaffCaissePage() {
   return (
     <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24, fontFamily: "system-ui", background: "#FFF3E6" }}>
       <div style={{ width: "100%", maxWidth: 420, background: "white", border: "1px solid #F1D7C8", borderRadius: 16, padding: 18 }}>
+        <button
+          type="button"
+          onClick={() => goBackOr("/staff/admin")}
+          className="af-link-btn"
+          style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, cursor: "pointer" }}
+        >
+          Retour
+        </button>
         <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900 }}>Choix de l'evenement</h1>
         <p style={{ marginTop: 8, opacity: 0.8 }}>Choisissez l'evenement de cette caisse. La cuisine ouverte depuis cette caisse suivra ce meme evenement.</p>
         <select

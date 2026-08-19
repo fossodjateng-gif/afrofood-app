@@ -30,6 +30,8 @@ const UI_TEXT: Record<
     activate: string;
     deactivate: string;
     resetPassword: string;
+    changePassword: string;
+    newPasswordPlaceholder: string;
     deleteUser: string;
     active: string;
     inactive: string;
@@ -49,6 +51,8 @@ const UI_TEXT: Record<
     activate: "Activer",
     deactivate: "Desactiver",
     resetPassword: "Reset MDP (0603)",
+    changePassword: "Changer MDP",
+    newPasswordPlaceholder: "Nouveau mot de passe",
     deleteUser: "Supprimer",
     active: "Actif",
     inactive: "Inactif",
@@ -67,6 +71,8 @@ const UI_TEXT: Record<
     activate: "Aktivieren",
     deactivate: "Deaktivieren",
     resetPassword: "Passwort reset (0603)",
+    changePassword: "Passwort andern",
+    newPasswordPlaceholder: "Neues Passwort",
     deleteUser: "Loschen",
     active: "Aktiv",
     inactive: "Inaktiv",
@@ -85,6 +91,8 @@ const UI_TEXT: Record<
     activate: "Activate",
     deactivate: "Deactivate",
     resetPassword: "Reset password (0603)",
+    changePassword: "Change password",
+    newPasswordPlaceholder: "New password",
     deleteUser: "Delete",
     active: "Active",
     inactive: "Inactive",
@@ -101,6 +109,7 @@ export default function StaffAdminUsersPage() {
   const [sessionRole, setSessionRole] = useState<StaffRole | null>(null);
   const [lang, setLang] = useState<Lang>("fr");
   const [error, setError] = useState<string | null>(null);
+  const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setLang(getSavedLang());
@@ -215,9 +224,18 @@ export default function StaffAdminUsersPage() {
           }}
         />
 
-        <div style={{ marginTop: 12, background: "white", border: "1px solid #F1D7C8", borderRadius: 12, padding: 12 }}>
-          <div style={{ fontWeight: 900, fontSize: 22 }}>{t.createUser}</div>
-          <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+	        <div style={{ marginTop: 12, background: "white", border: "1px solid #F1D7C8", borderRadius: 12, padding: 12 }}>
+	          <div style={{ fontWeight: 900, fontSize: 22 }}>{t.createUser}</div>
+	          {eventOptions.length > 0 ? (
+	            <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+	              {lang === "fr"
+	                ? "Plusieurs utilisateurs caisse ou cuisine peuvent etre assignes au meme evenement."
+	                : lang === "de"
+	                ? "Mehrere Kassen- oder Kuchenbenutzer konnen demselben Event zugewiesen werden."
+	                : "Multiple cashier or kitchen users can be assigned to the same event."}
+	            </div>
+	          ) : null}
+	          <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
             <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t.username} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd" }} />
             <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t.password} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd" }} />
             <select value={role} onChange={(e) => setRole(e.target.value as StaffRole)} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", maxWidth: 220 }}>
@@ -238,9 +256,9 @@ export default function StaffAdminUsersPage() {
                 ))}
               </select>
             ) : null}
-            <button
-              className="af-btn"
-              type="button"
+	                <button
+	                  className="af-btn"
+	                  type="button"
               onClick={() => {
                 try {
                   setError(null);
@@ -279,9 +297,9 @@ export default function StaffAdminUsersPage() {
                   <option value="cashier">{t.roleCashier}</option>
                   <option value="kitchen">{t.roleKitchen}</option>
                 </select>
-                {(u.role === "cashier" || u.role === "kitchen") && eventOptions.length > 0 ? (
-                  <select
-                    value={u.cashierEventId || ""}
+	                {(u.role === "cashier" || u.role === "kitchen") && eventOptions.length > 0 ? (
+	                  <select
+	                    value={u.cashierEventId || ""}
                     onChange={(e) => {
                       updateUser(u.id, { cashierEventId: e.target.value });
                       reload();
@@ -292,10 +310,15 @@ export default function StaffAdminUsersPage() {
                       <option key={event.id} value={event.id}>
                         {event.name}
                       </option>
-                    ))}
-                  </select>
-                ) : null}
-                <button
+	                    ))}
+	                  </select>
+	                ) : null}
+	                {(u.role === "cashier" || u.role === "kitchen") && u.cashierEventId ? (
+	                  <div style={{ padding: "6px 10px", borderRadius: 999, background: "#fff7ed", color: "#9a3412", fontWeight: 800 }}>
+	                    {(eventOptions.find((event) => event.id === u.cashierEventId)?.name || u.cashierEventId)}
+	                  </div>
+	                ) : null}
+	                <button
                   className="af-btn"
                   type="button"
                   onClick={() => {
@@ -314,12 +337,41 @@ export default function StaffAdminUsersPage() {
                     reload();
                   }}
                   style={{ padding: "10px 14px", borderRadius: 10, border: "none", background: "#1d4ed8", color: "white", fontWeight: 800 }}
-                >
-                  {t.resetPassword}
-                </button>
-                <button
-                  className="af-btn"
-                  type="button"
+	                >
+	                  {t.resetPassword}
+	                </button>
+                  <input
+                    type="password"
+                    value={passwordDrafts[u.id] || ""}
+                    onChange={(e) =>
+                      setPasswordDrafts((prev) => ({
+                        ...prev,
+                        [u.id]: e.target.value,
+                      }))
+                    }
+                    placeholder={t.newPasswordPlaceholder}
+                    style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", minWidth: 180 }}
+                  />
+	                <button
+	                  className="af-btn"
+	                  type="button"
+                    onClick={() => {
+                      const nextPassword = String(passwordDrafts[u.id] || "").trim();
+                      if (!nextPassword) return;
+                      updateUser(u.id, { password: nextPassword });
+                      setPasswordDrafts((prev) => ({
+                        ...prev,
+                        [u.id]: "",
+                      }));
+                      reload();
+                    }}
+	                  style={{ padding: "10px 14px", borderRadius: 10, border: "none", background: "#7c3aed", color: "white", fontWeight: 800 }}
+	                >
+	                  {t.changePassword}
+	                </button>
+	                <button
+	                  className="af-btn"
+	                  type="button"
                   onClick={() => {
                     deleteUser(u.id);
                     reload();

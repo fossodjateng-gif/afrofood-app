@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
+import { restoreItemAvailability } from "@/lib/menu-settings";
 
 type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE" | "CANCELED";
 
@@ -31,7 +32,7 @@ export async function PATCH(
     }
 
     const beforeRows = await sql`
-      SELECT UPPER(status) AS status
+      SELECT UPPER(status) AS status, event_id, items
       FROM orders
       WHERE id = ${id}
       LIMIT 1
@@ -42,6 +43,10 @@ export async function PATCH(
     }
 
     const previousStatus = String((beforeRows[0] as { status?: string }).status || "");
+    const previousEventId = String((beforeRows[0] as { event_id?: string | null }).event_id || "").trim();
+    const previousItems = Array.isArray((beforeRows[0] as { items?: unknown[] }).items)
+      ? ((beforeRows[0] as { items?: Array<{ id?: string; qty?: number }> }).items ?? [])
+      : [];
 
     const rows = await sql`
       UPDATE orders
@@ -88,6 +93,10 @@ export async function PATCH(
         status,
         previousStatus,
       });
+    }
+
+    if (status === "CANCELED" && previousStatus !== "CANCELED") {
+      await restoreItemAvailability(previousItems, previousEventId || undefined);
     }
 
     return NextResponse.json({ ok: true, order: rows[0] });
