@@ -23,10 +23,6 @@ export default function Home() {
 
   React.useEffect(() => {
     setLang(getSavedLang());
-    const savedId = localStorage.getItem(EVENT_ID_KEY) || "";
-    if (savedId.trim()) {
-      setSelectedEventId(savedId.trim());
-    }
   }, []);
 
   React.useEffect(() => {
@@ -53,10 +49,14 @@ export default function Home() {
 
         setEvents(publicEvents);
 
-        if (!selectedEventId && publicEvents.length > 0) {
+        if (publicEvents.length > 0) {
+          const savedId = (localStorage.getItem(EVENT_ID_KEY) || "").trim();
           const activeId = String(data?.storeConfig?.activeEventId || "").trim();
+          const savedPublicId = publicEvents.find((event) => event.id === savedId)?.id || "";
           const activePublicId = publicEvents.find((event) => event.id === activeId)?.id || "";
-          setSelectedEventId(activePublicId || publicEvents[0].id);
+          setSelectedEventId(savedPublicId || activePublicId || publicEvents[0].id);
+        } else {
+          setSelectedEventId("");
         }
       } finally {
         if (alive) setLoadingEvents(false);
@@ -67,7 +67,7 @@ export default function Home() {
     return () => {
       alive = false;
     };
-  }, [selectedEventId]);
+  }, []);
 
   function continueToMenu() {
     const chosen = events.find((event) => event.id === selectedEventId);
