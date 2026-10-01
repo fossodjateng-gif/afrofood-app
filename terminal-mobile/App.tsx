@@ -1044,6 +1044,31 @@ function TerminalScreen({
     }
   }
 
+  async function waitForStripeWebhook(orderId: string) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const res = await fetch(`${API_BASE_URL}/api/orders?id=${encodeURIComponent(orderId)}`, {
+        cache: "no-store",
+      });
+      const data = (await res.json()) as OrderRow[] | { error?: string };
+      if (!res.ok || !Array.isArray(data)) {
+        throw new Error(
+          !Array.isArray(data) && data?.error
+            ? data.error
+            : "Unable to verify payment status"
+        );
+      }
+
+      const order = data[0];
+      if (order && order.status !== "PENDING_PAYMENT") {
+        return order;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+
+    return null;
+  }
+
   useEffect(() => {
     void refreshOrders();
   }, []);
@@ -1230,19 +1255,14 @@ function TerminalScreen({
           ""
       ).trim();
 
-      const confirmRes = await fetch(`${API_BASE_URL}/api/orders/${selectedOrder.id}/stripe-confirm`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          confirmedPaymentIntentId ? { paymentIntentId: confirmedPaymentIntentId } : {}
-        ),
-      });
-      const confirmData = await confirmRes.json().catch(() => null);
-      const alreadyConfirmed =
-        !confirmRes.ok &&
-        /not waiting for payment/i.test(String(confirmData?.error || ""));
-      if ((!confirmRes.ok || !confirmData?.ok) && !alreadyConfirmed) {
-        throw new Error(confirmData?.error || "Payment processed, but cashier confirmation failed");
+      log(
+        confirmedPaymentIntentId
+          ? `Payment processed by Terminal: ${confirmedPaymentIntentId}`
+          : "Payment processed by Terminal"
+      );
+      const webhookOrder = await waitForStripeWebhook(selectedOrder.id);
+      if (!webhookOrder || webhookOrder.status !== "NEW") {
+        throw new Error("Payment processed, but Stripe webhook has not validated the order yet");
       }
 
       log(`Payment confirmed for ${selectedOrder.id}`);

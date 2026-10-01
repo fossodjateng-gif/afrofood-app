@@ -20,14 +20,11 @@
 5. Webhook updates order to `NEW`.
 6. Kitchen sees the order and can move `NEW -> READY -> DONE`.
 
-## 3) If payment was done outside Afrofood
+## 3) Card payment safety
 
-Use `/caisse` fallback for card orders:
-
-1. Copy Stripe `PaymentIntent` id (`pi_...`).
-2. On the order card, paste `pi_...` in the input.
-3. Click `Confirmer paiement carte via PI`.
-4. If Stripe confirms `succeeded`, order moves to `NEW`.
+Card orders must not be manually moved from `PENDING_PAYMENT` to `NEW`.
+Only the Stripe `payment_intent.succeeded` webhook should validate a card order
+after Tap to Pay / Terminal has processed the payment.
 
 ## 4) Incident checks
 
@@ -37,7 +34,7 @@ Use `/caisse` fallback for card orders:
 - Stripe Webhooks: delivery must be `200`.
 - If webhook says `order_not_found`:
   - Payment is not linked to Afrofood order.
-  - Use fallback `Confirmer paiement carte via PI` in `/caisse`.
+  - Keep the order in `PENDING_PAYMENT` and investigate the missing PaymentIntent link.
 
 ### B) Webhook delivery failed
 
@@ -62,7 +59,7 @@ Use `/caisse` fallback for card orders:
 ### C) Tap to Pay button creates PI only
 
 - Expected if terminal collection is not integrated on the same device.
-- Complete payment externally, then confirm with PI in `/caisse`.
+- Do not manually confirm the card order. Complete the payment through Terminal and wait for the Stripe webhook.
 
 ## 5) Go-live safety
 

@@ -12,7 +12,16 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "distribution": "store",
+      "developmentClient": false,
+      "environment": "production",
+      "autoIncrement": true,
+      "ios": {
+        "image": "macos-sequoia-15.6-xcode-26.2",
+        "buildConfiguration": "Release",
+        "scheme": "AfroFoodTerminal",
+        "credentialsSource": "remote"
+      }
     }
   },
   "submit": {

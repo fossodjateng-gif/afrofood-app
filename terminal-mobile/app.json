@@ -5,6 +5,7 @@
     "version": "1.0.0",
     "scheme": "afrofoodterminal",
     "ios": {
+      "appleTeamId": "633W6Z7TF2",
       "supportsTablet": false,
       "bundleIdentifier": "com.afrofood.terminal",
       "entitlements": {

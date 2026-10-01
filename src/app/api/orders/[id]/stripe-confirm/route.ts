@@ -18,6 +18,16 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    if (process.env.AFROFOOD_ENABLE_STRIPE_CONFIRM_FALLBACK !== "true") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Manual Stripe confirmation is disabled. Use Tap to Pay Terminal.",
+        },
+        { status: 403 }
+      );
+    }
+
     await ensureOrdersSchema();
     const { id: rawId } = await context.params;
     const orderId = String(rawId || "").trim();

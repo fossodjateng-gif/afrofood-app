@@ -31,7 +31,7 @@ export async function PATCH(
     }
 
     const beforeRows = await sql`
-      SELECT UPPER(status) AS status
+      SELECT payment, UPPER(status) AS status
       FROM orders
       WHERE id = ${id}
       LIMIT 1
@@ -41,7 +41,19 @@ export async function PATCH(
       return NextResponse.json({ ok: false, error: "Order not found" }, { status: 404 });
     }
 
-    const previousStatus = String((beforeRows[0] as { status?: string }).status || "");
+    const previousRow = beforeRows[0] as { payment?: string; status?: string };
+    const previousStatus = String(previousRow.status || "");
+    const payment = String(previousRow.payment || "").toLowerCase();
+
+    if (payment === "card" && previousStatus === "PENDING_PAYMENT" && status === "NEW") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Card orders must be validated by Stripe Terminal webhook",
+        },
+        { status: 403 }
+      );
+    }
 
     const rows = await sql`
       UPDATE orders
