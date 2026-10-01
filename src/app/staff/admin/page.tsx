@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   clearSession,
   getSession,
@@ -18,12 +19,10 @@ const UI_TEXT: Record<
     logout: string;
     administration: string;
     cashierSpace: string;
-    statsSection: string;
     users: string;
+    events: string;
     cashier: string;
-    kitchenSpace: string;
     stats: string;
-    settings: string;
   }
 > = {
   fr: {
@@ -33,12 +32,10 @@ const UI_TEXT: Record<
     logout: "Se deconnecter",
     administration: "Administration",
     cashierSpace: "Espace Caisse",
-    statsSection: "Statistique",
     users: "Utilisateurs",
+    events: "Evenements",
     cashier: "Caisse",
-    kitchenSpace: "Espace cuisine",
     stats: "Statistiques",
-    settings: "Parametres",
   },
   de: {
     title: "Administration",
@@ -47,12 +44,10 @@ const UI_TEXT: Record<
     logout: "Abmelden",
     administration: "Administration",
     cashierSpace: "Kassenbereich",
-    statsSection: "Statistik",
     users: "Benutzer",
+    events: "Events",
     cashier: "Kasse",
-    kitchenSpace: "Kuchenbereich",
     stats: "Statistiken",
-    settings: "Einstellungen",
   },
   en: {
     title: "Administration",
@@ -61,12 +56,10 @@ const UI_TEXT: Record<
     logout: "Logout",
     administration: "Administration",
     cashierSpace: "Cashier Space",
-    statsSection: "Statistics",
     users: "Users",
+    events: "Events",
     cashier: "Cashier",
-    kitchenSpace: "Kitchen space",
     stats: "Stats",
-    settings: "Settings",
   },
 };
 
@@ -97,20 +90,14 @@ export default function StaffAdminPage() {
       title: t.administration,
       cards: [
         { href: "/staff/admin/users", label: t.users },
-        { href: "/staff/admin/settings", label: t.settings },
+        { href: "/admin/menu?view=event", label: t.events },
+        { href: "/stats", label: t.stats },
       ],
     },
     {
       title: t.cashierSpace,
       cards: [
         { href: "/staff/caisse", label: t.cashier },
-        { href: "/staff/cuisine", label: t.kitchenSpace },
-      ],
-    },
-    {
-      title: t.statsSection,
-      cards: [
-        { href: "/stats", label: t.stats },
       ],
     },
   ];
@@ -156,10 +143,9 @@ export default function StaffAdminPage() {
               />
               {t.title}
             </h1>
-            <div style={{ opacity: 0.75, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <span>{t.loggedAs}: {username || "-"}</span>
-              {role ? <span className="af-role-badge">Role: {getStaffRoleLabel(role, lang)}</span> : null}
-            </div>
+	            <div style={{ opacity: 0.75, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+	              <span>{t.loggedAs}: {username || "-"}</span>
+	            </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {(["de", "fr", "en"] as Lang[]).map((L) => (
@@ -175,13 +161,13 @@ export default function StaffAdminPage() {
                 {L.toUpperCase()}
               </button>
             ))}
-            <a
+            <Link
               href="/"
               className="af-link-btn"
               style={{ textDecoration: "none", padding: "8px 12px", borderRadius: 10, border: "1px solid #111", color: "#111", fontWeight: 800 }}
             >
               {t.home}
-            </a>
+            </Link>
             <button
               className="af-btn"
               type="button"
@@ -210,7 +196,7 @@ export default function StaffAdminPage() {
         <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
           {sections.map((section) => (
             <div key={section.title} style={{ background: "white", border: "1px solid #F1D7C8", borderRadius: 12, padding: 12 }}>
-              <div style={{ fontWeight: 900, fontSize: 22 }}>{section.title}</div>
+              <div style={{ fontWeight: 900, fontSize: 22, color: "#111", textTransform: "uppercase", letterSpacing: 0.4 }}>{section.title}</div>
               <div style={{ marginTop: 10, display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
                 {section.cards.map((c) => (
                   <a

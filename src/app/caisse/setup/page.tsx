@@ -418,7 +418,18 @@ export default function CaisseSetupPage() {
         throw new Error(data?.error || "Unauthorized");
       }
       const incoming = data.tapToPayConfig as Partial<TapToPayConfig> | undefined;
-      setActiveEventName(String(data.storeConfig?.activeEventName || "").trim());
+      const currentSession = getSession();
+      const selectedEventId = String(
+        currentSession?.cashierEventId ||
+          localStorage.getItem("af_caisse_event_id") ||
+          data.storeConfig?.activeEventId ||
+          ""
+      ).trim();
+      const selectedEvent = (
+        data.storeConfig?.events as Array<{ id: string; name: string }> | undefined
+      )?.find((event) => event.id === selectedEventId);
+      if (selectedEventId) localStorage.setItem("af_caisse_event_id", selectedEventId);
+      setActiveEventName(String(selectedEvent?.name || data.storeConfig?.activeEventName || "").trim());
       const serverProgress: TapToPayConfig = {
         awarenessSeen: Boolean(incoming?.awarenessSeen),
         termsViewed: Boolean(incoming?.termsViewed),

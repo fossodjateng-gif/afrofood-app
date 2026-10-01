@@ -15,39 +15,35 @@ const UI_TEXT: Record<
     title: string;
     subtitle: string;
     back: string;
-    settings: string;
-    payments: string;
-    event: string;
-    tap: string;
-  }
-> = {
+	    settings: string;
+	    payments: string;
+	    event: string;
+	  }
+	> = {
   fr: {
     title: "Parametres",
     subtitle: "Acces direct aux reglages globaux sans dupliquer les autres espaces.",
     back: "Retour",
-    settings: "Reglages globaux",
-    payments: "Paiements",
-    event: "Evenement / Marche",
-    tap: "Tap to Pay / Admin Menu",
-  },
+	    settings: "Reglages globaux",
+	    payments: "Paiements",
+	    event: "Evenement",
+	  },
   de: {
     title: "Einstellungen",
     subtitle: "Direkter Zugriff auf globale Einstellungen ohne die anderen Bereiche zu duplizieren.",
     back: "Zuruck",
-    settings: "Globale Einstellungen",
-    payments: "Zahlungen",
-    event: "Event / Markt",
-    tap: "Tap to Pay / Admin Menu",
-  },
+	    settings: "Globale Einstellungen",
+	    payments: "Zahlungen",
+	    event: "Event",
+	  },
   en: {
     title: "Settings",
     subtitle: "Direct access to global settings without duplicating the other staff spaces.",
     back: "Back",
-    settings: "Global settings",
-    payments: "Payments",
-    event: "Event / Market",
-    tap: "Tap to Pay / Admin Menu",
-  },
+	    settings: "Global settings",
+	    payments: "Payments",
+	    event: "Event",
+	  },
 };
 
 export default function StaffAdminSettingsPage() {
@@ -150,7 +146,7 @@ export default function StaffAdminSettingsPage() {
         />
 
         <div style={{ marginTop: 12, background: "white", border: "1px solid #F1D7C8", borderRadius: 12, padding: 14 }}>
-          <div style={{ fontWeight: 900, fontSize: 22 }}>{t.settings}</div>
+          <div style={{ fontWeight: 900, fontSize: 22, color: "#111", textTransform: "uppercase", letterSpacing: 0.4 }}>{t.settings}</div>
           <p style={{ marginTop: 8, opacity: 0.8 }}>{t.subtitle}</p>
           <div style={{ marginTop: 10, display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
             <a
@@ -160,22 +156,15 @@ export default function StaffAdminSettingsPage() {
             >
               {t.payments}
             </a>
-            <a
-              href="/admin/menu?view=event"
-              className="af-link-btn"
-              style={{ textDecoration: "none", color: "#111", background: "#fffaf6", border: "1px solid #F1D7C8", borderRadius: 12, padding: 14, fontWeight: 900 }}
-            >
-              {t.event}
-            </a>
-            <a
-              href="/admin/menu?view=tap"
-              className="af-link-btn"
-              style={{ textDecoration: "none", color: "#111", background: "#fffaf6", border: "1px solid #F1D7C8", borderRadius: 12, padding: 14, fontWeight: 900 }}
-            >
-              {t.tap}
-            </a>
-          </div>
-        </div>
+	            <a
+	              href="/admin/menu?view=event"
+	              className="af-link-btn"
+	              style={{ textDecoration: "none", color: "#111", background: "#fffaf6", border: "1px solid #F1D7C8", borderRadius: 12, padding: 14, fontWeight: 900 }}
+	            >
+	              {t.event}
+	            </a>
+	          </div>
+	        </div>
       </div>
     </main>
   );

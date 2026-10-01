@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { translations, type Lang, getSavedLang, saveLang } from "@/lib/translations";
 import { makeOrderId, cartToTicketItems, makeQrPayload, type PaymentMethod, type Order } from "@/lib/order";
 import { QRCodeCanvas } from "qrcode.react";
@@ -11,6 +11,7 @@ import {
   decrementItem,
   removeItem,
   replaceCart,
+  updateItemUnitNote,
   type CartItem,
 } from "@/lib/cart";
 import type { OrderRow, OrderStatus } from "@/lib/schema";
@@ -34,7 +35,7 @@ const UI = {
     margin: "0 auto",
     backgroundColor: BRAND.orangeSoft,
     backgroundImage:
-      "linear-gradient(180deg, rgba(255,243,230,0.82) 0%, rgba(255,243,230,0.9) 100%), url('/logo-afrofood.png')",
+          "linear-gradient(180deg, rgba(255,243,230,0.82) 0%, rgba(255,243,230,0.9) 100%), url('/logo-afrofood.png')",
     backgroundRepeat: "no-repeat",
     backgroundPosition: "center",
     backgroundSize: "cover, min(64vw, 420px)",
@@ -47,9 +48,9 @@ const UI = {
     gap: 12,
     padding: "14px 16px",
     borderRadius: 20,
-    border: "1px solid rgba(17,17,17,0.08)",
-    boxShadow: "0 18px 38px rgba(15,23,42,0.10)",
-    background: "rgba(255,255,255,0.88)",
+    border: "1px solid #111",
+    boxShadow: "0 18px 38px rgba(0,0,0,0.36)",
+    background: "white",
     backdropFilter: "blur(18px)",
     WebkitBackdropFilter: "blur(18px)",
     marginBottom: 12,
@@ -73,18 +74,18 @@ const UI = {
   } as const,
   subtitle: {
     marginTop: 4,
-    color: "#666",
+    color: "#5f5f5f",
     fontSize: 13,
   } as const,
   section: {
     marginTop: 22,
     padding: "16px 18px",
     borderRadius: 22,
-    border: "1px solid rgba(17,17,17,0.06)",
-    background: "rgba(255,255,255,0.82)",
+    border: "1px solid #F1D7C8",
+    background: "rgba(255,255,255,0.9)",
     backdropFilter: "blur(18px)",
     WebkitBackdropFilter: "blur(18px)",
-    boxShadow: "0 18px 38px rgba(15,23,42,0.07)",
+    boxShadow: "0 18px 38px rgba(0,0,0,0.28)",
   } as const,
   sectionTitle: {
     fontSize: 22,
@@ -96,34 +97,35 @@ const UI = {
     color: BRAND.black,
   } as const,
   card: {
-    border: "1px solid rgba(17,17,17,0.06)",
+    border: "1px solid #F1D7C8",
     borderRadius: 20,
     padding: 16,
     display: "flex",
     justifyContent: "space-between",
     gap: 16,
     background: "rgba(255,250,246,0.92)",
-    boxShadow: "0 14px 30px rgba(15,23,42,0.05)",
+    boxShadow: "0 14px 30px rgba(0,0,0,0.24)",
   } as const,
   input: {
     width: "100%",
     padding: "12px 14px",
     borderRadius: 14,
-    border: "1px solid rgba(17,17,17,0.10)",
+    border: "1px solid #F1D7C8",
     background: "rgba(255,255,255,0.92)",
     color: BRAND.black,
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.4)",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
   } as const,
   notice: {
     marginTop: 12,
     padding: "14px 16px",
     borderRadius: 16,
-    border: "1px solid rgba(17,17,17,0.08)",
-    background: "rgba(255,255,255,0.76)",
+    border: "1px solid #111",
+    background: "rgba(28,21,16,0.88)",
   } as const,
 };
 
 const LAST_ORDER_KEY = "af_last_order_id";
+const EVENT_ID_KEY = "af_event_id";
 const EVENT_NAME_KEY = "af_event_name";
 const DEFAULT_EVENT_NAME = process.env.NEXT_PUBLIC_ACTIVE_EVENT || "";
 const FALLBACK_PRICE_BY_NAME = new Map<string, number>([
@@ -161,10 +163,25 @@ function mapRowToOrder(row: OrderRow): Order {
     id: row.id,
     createdAt: row.created_at,
     customerName: row.customer_name || undefined,
+    eventId: row.event_id || undefined,
     eventName: row.event_name || undefined,
+    reservationRequested: row.reservation_requested === true,
+    reservationTime: row.reservation_time || undefined,
     payment: row.payment,
     items: Array.isArray(row.items) ? row.items : [],
   };
+}
+
+function formatReservationDateTime(value: string, lang: Lang) {
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return value;
+  return dt.toLocaleString(lang === "fr" ? "fr-FR" : lang === "de" ? "de-DE" : "en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function normalizeItemName(name?: string) {
@@ -244,15 +261,22 @@ export default function CartPage() {
   const [paymentAvailability, setPaymentAvailability] = useState<{
     cashEnabled: boolean;
     cardEnabled: boolean;
+    cashlessEnabled: boolean;
   }>({
     cashEnabled: true,
     cardEnabled: true,
+    cashlessEnabled: true,
   });
   const [customerName, setCustomerName] = useState("");
+  const [eventId, setEventId] = useState("");
   const [eventName, setEventName] = useState("");
+  const [reserveOrder, setReserveOrder] = useState(false);
+  const [reservationTime, setReservationTime] = useState("");
 
   const [order, setOrder] = useState<Order | null>(null);
   const [orderStatus, setOrderStatus] = useState<OrderStatus | null>(null);
+  const [hasAutoPrinted, setHasAutoPrinted] = useState(false);
+  const prevOrderStatus = useRef<OrderStatus | null>(null);
 
   const [isCreating, setIsCreating] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
@@ -263,7 +287,11 @@ export default function CartPage() {
     setLang(getSavedLang());
     setClientPlatform(detectClientPlatform());
     setCart(getCart());
+    const savedEventId = localStorage.getItem(EVENT_ID_KEY);
     const savedEvent = localStorage.getItem(EVENT_NAME_KEY);
+    if (savedEventId && savedEventId.trim()) {
+      setEventId(savedEventId.trim());
+    }
     if (savedEvent && savedEvent.trim()) {
       setEventName(savedEvent.trim());
     } else if (DEFAULT_EVENT_NAME.trim()) {
@@ -276,26 +304,44 @@ export default function CartPage() {
 
     async function loadPaymentConfig() {
       try {
-        const res = await fetch("/api/menu-config", { cache: "no-store" });
+        const query = eventId ? `?eventId=${encodeURIComponent(eventId)}` : "";
+        const res = await fetch(`/api/menu-config${query}`, { cache: "no-store" });
         const data = (await res.json()) as {
           ok?: boolean;
           sections?: Array<{ items?: Array<{ id?: string; price?: number }> }>;
-          paymentConfig?: { cashEnabled?: boolean; cardEnabled?: boolean };
-          storeConfig?: { activeEventName?: string };
+          paymentConfig?: { cashEnabled?: boolean; cardEnabled?: boolean; cashlessEnabled?: boolean };
+          storeConfig?: { activeEventId?: string; activeEventName?: string; events?: Array<{ id?: string; name?: string }> };
+          selectedEvent?: { id?: string; name?: string } | null;
         };
         if (!res.ok || !data?.ok || cancelled) return;
         const next = {
           cashEnabled: data.paymentConfig?.cashEnabled !== false,
           cardEnabled: data.paymentConfig?.cardEnabled !== false,
+          cashlessEnabled: data.paymentConfig?.cashlessEnabled !== false,
         };
         setPaymentAvailability(next);
+        const selected = data.selectedEvent;
+        if (selected?.id && selected?.name) {
+          setEventId(String(selected.id));
+          setEventName(String(selected.name));
+          localStorage.setItem(EVENT_ID_KEY, String(selected.id));
+          localStorage.setItem(EVENT_NAME_KEY, String(selected.name));
+        }
         const currentLocal = localStorage.getItem(EVENT_NAME_KEY);
-        if (!currentLocal?.trim()) {
+        if (!currentLocal?.trim() && !selected?.id) {
           const adminDefault = String(data.storeConfig?.activeEventName || "").trim();
           if (adminDefault) {
             setEventName(adminDefault);
             localStorage.setItem(EVENT_NAME_KEY, adminDefault);
           }
+          const adminDefaultId = String(data.storeConfig?.activeEventId || "").trim();
+          if (adminDefaultId) {
+            setEventId(adminDefaultId);
+            localStorage.setItem(EVENT_ID_KEY, adminDefaultId);
+          }
+        }
+        if (!selected?.id && !eventId && !String(data.storeConfig?.activeEventId || "").trim()) {
+          window.location.href = "/";
         }
 
         const priceById = new Map<string, number>();
@@ -331,16 +377,35 @@ export default function CartPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [eventId]);
 
   useEffect(() => {
-    if (payment === "cash" && !paymentAvailability.cashEnabled && paymentAvailability.cardEnabled) {
-      setPayment("card");
+    const firstAvailable = paymentAvailability.cashEnabled
+      ? "cash"
+      : paymentAvailability.cardEnabled
+      ? "card"
+      : paymentAvailability.cashlessEnabled
+      ? "cashless"
+      : null;
+
+    if (payment === "cash" && !paymentAvailability.cashEnabled && firstAvailable) {
+      setPayment(firstAvailable);
     }
-    if (payment === "card" && !paymentAvailability.cardEnabled && paymentAvailability.cashEnabled) {
-      setPayment("cash");
+    if (payment === "card" && !paymentAvailability.cardEnabled && firstAvailable) {
+      setPayment(firstAvailable);
+    }
+    if (payment === "cashless" && !paymentAvailability.cashlessEnabled && firstAvailable) {
+      setPayment(firstAvailable);
     }
   }, [payment, paymentAvailability]);
+
+  useEffect(() => {
+    if (order && orderStatus === "READY" && prevOrderStatus.current !== "READY" && !hasAutoPrinted) {
+      window.print();
+      setHasAutoPrinted(true);
+    }
+    prevOrderStatus.current = orderStatus;
+  }, [order, orderStatus, hasAutoPrinted]);
 
   const t = translations[lang];
   const cardPaymentHintText = getCardPaymentHintText(lang, clientPlatform);
@@ -368,6 +433,17 @@ export default function CartPage() {
           lang === "fr" ? "Paiement carte desactive" : lang === "de" ? "Kartenzahlung deaktiviert" : "Card payment disabled"
         );
       }
+      if (pay === "cashless" && !paymentAvailability.cashlessEnabled) {
+        throw new Error(
+          lang === "fr" ? "Paiement cashless desactive" : lang === "de" ? "Cashless-Zahlung deaktiviert" : "Cashless payment disabled"
+        );
+      }
+      if (reserveOrder && !eventName.trim()) {
+        throw new Error(t.cart_reserve_missing_event);
+      }
+      if (reserveOrder && !reservationTime.trim()) {
+        throw new Error(t.cart_reserve_missing_time);
+      }
       setIsCreating(true);
       setApiError(null);
 
@@ -375,7 +451,10 @@ export default function CartPage() {
         id: makeOrderId(),
         createdAt: new Date().toISOString(),
         customerName: customerName.trim() ? customerName.trim() : undefined,
+        eventId: eventId.trim() ? eventId.trim() : undefined,
         eventName: eventName.trim() ? eventName.trim() : undefined,
+        reservationRequested: reserveOrder,
+        reservationTime: reserveOrder && reservationTime.trim() ? new Date(reservationTime).toISOString() : undefined,
         items: cartToTicketItems(getCart()),
         payment: pay,
       };
@@ -509,7 +588,7 @@ export default function CartPage() {
             }}
           />
           <div>
-            <h1 className="af-title" style={UI.title}>
+            <h1 style={UI.title}>
               {t.cart_title}
             </h1>
             <div style={UI.subtitle}>{t.cart_payment_title}</div>
@@ -549,21 +628,49 @@ export default function CartPage() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: -0.2 }}>{it.name}</div>
 
-                  <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <button type="button" className="af-btn" onClick={() => { decrementItem(it.id); refreshCart(); }} style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid rgba(17,17,17,0.08)", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
+	                  <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <button type="button" className="af-btn" onClick={() => { decrementItem(it.id); refreshCart(); }} style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
                       -
                     </button>
-                    <div style={{ minWidth: 90, textAlign: "center", fontWeight: 800, padding: "6px 12px", borderRadius: 999, border: "1px solid rgba(17,17,17,0.08)", background: "rgba(255,255,255,0.7)" }}>
+                    <div style={{ minWidth: 90, textAlign: "center", fontWeight: 800, padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.7)" }}>
                       x{it.qty}
                     </div>
-                    <button type="button" className="af-btn" onClick={() => { incrementItem(it.id); refreshCart(); }} style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid rgba(17,17,17,0.08)", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
+                    <button type="button" className="af-btn" onClick={() => { incrementItem(it.id); refreshCart(); }} style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
                       +
                     </button>
-                    <button type="button" className="af-btn" onClick={() => { removeItem(it.id); refreshCart(); }} style={{ marginLeft: 10, padding: "6px 12px", borderRadius: 999, border: "1px solid rgba(17,17,17,0.08)", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
-                      {t.cart_remove}
-                    </button>
-                  </div>
-                </div>
+	                    <button type="button" className="af-btn" onClick={() => { removeItem(it.id); refreshCart(); }} style={{ marginLeft: 10, padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
+	                      {t.cart_remove}
+	                    </button>
+	                  </div>
+
+                    <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                      <label style={{ display: "block", fontWeight: 700, marginBottom: 0 }}>
+                        {t.cart_item_note_label}
+                      </label>
+                      {Array.from({ length: it.qty }).map((_, noteIndex) => (
+                        <div key={`${it.id}-note-${noteIndex}`} style={{ display: "grid", gap: 6 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: "#7a4b2f" }}>
+                            {t.cart_item_note_portion} {noteIndex + 1}
+                          </div>
+                          <textarea
+                            value={it.unitNotes?.[noteIndex] || ""}
+                            onChange={(e) => {
+                              updateItemUnitNote(it.id, noteIndex, e.target.value);
+                              refreshCart();
+                            }}
+                            placeholder={t.cart_item_note_placeholder}
+                            rows={2}
+                            style={{
+                              ...UI.input,
+                              minHeight: 70,
+                              resize: "vertical",
+                              fontFamily: "inherit",
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+	                </div>
 
                 <div className="af-price" style={{ fontSize: 22, fontWeight: 900, color: BRAND.black, whiteSpace: "nowrap", letterSpacing: -0.3 }}>
                   {(cartBreakdown.lineTotals[idx] ?? 0).toFixed(2)} EUR
@@ -613,18 +720,24 @@ export default function CartPage() {
 
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             {paymentAvailability.cashEnabled ? (
-              <label style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 14px", borderRadius: 16, background: "rgba(255,250,246,0.92)", border: "1px solid rgba(17,17,17,0.06)" }}>
+              <label style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 14px", borderRadius: 16, background: "rgba(255,250,246,0.92)", border: "1px solid #F1D7C8" }}>
                 <input type="radio" name="pay" checked={payment === "cash"} onChange={() => setPayment("cash")} />
                 {t.cart_payment_cash}
               </label>
             ) : null}
             {paymentAvailability.cardEnabled ? (
-              <label style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 14px", borderRadius: 16, background: "rgba(255,250,246,0.92)", border: "1px solid rgba(17,17,17,0.06)" }}>
+              <label style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 14px", borderRadius: 16, background: "rgba(255,250,246,0.92)", border: "1px solid #F1D7C8" }}>
                 <input type="radio" name="pay" checked={payment === "card"} onChange={() => setPayment("card")} />
                 {t.cart_payment_card}
               </label>
             ) : null}
-            {!paymentAvailability.cashEnabled && !paymentAvailability.cardEnabled ? (
+            {paymentAvailability.cashlessEnabled ? (
+              <label style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 14px", borderRadius: 16, background: "rgba(255,250,246,0.92)", border: "1px solid #F1D7C8" }}>
+                <input type="radio" name="pay" checked={payment === "cashless"} onChange={() => setPayment("cashless")} />
+                {t.cart_payment_cashless}
+              </label>
+            ) : null}
+            {!paymentAvailability.cashEnabled && !paymentAvailability.cardEnabled && !paymentAvailability.cashlessEnabled ? (
               <div style={{ color: "#b91c1c", fontWeight: 700 }}>
                 {lang === "fr"
                   ? "Aucun mode de paiement disponible."
@@ -649,28 +762,86 @@ export default function CartPage() {
             <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>
               {lang === "de" ? "Event / Markt" : lang === "fr" ? "Evenement / Marche" : "Event / Market"}
             </label>
-            <input
-              value={eventName}
-              onChange={(e) => {
-                const value = e.target.value;
-                setEventName(value);
-                localStorage.setItem(EVENT_NAME_KEY, value);
+            <div
+              style={{
+                ...UI.input,
+                fontWeight: 800,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
               }}
-              placeholder={
-                lang === "de"
-                  ? "z.B. Stadtfest Offenburg"
-                  : lang === "fr"
-                  ? "ex. Festival Offenburg"
-                  : "e.g. Stadtfest Offenburg"
-              }
-              style={UI.input}
-            />
+            >
+              <span>{eventName || "-"}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = "/";
+                }}
+                style={{
+                  border: "1px solid #111",
+                  background: "white",
+                  color: "#111",
+                  borderRadius: 999,
+                  padding: "6px 12px",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                {lang === "fr" ? "Changer" : lang === "de" ? "Wechseln" : "Change"}
+              </button>
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: 14,
+              padding: "14px 16px",
+              borderRadius: 18,
+              border: "1px solid #F1D7C8",
+              background: "rgba(255,250,246,0.92)",
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontWeight: 800 }}>
+              <input
+                type="checkbox"
+                checked={reserveOrder}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setReserveOrder(checked);
+                  if (!checked) {
+                    setReservationTime("");
+                  }
+                }}
+                style={{ marginTop: 3 }}
+              />
+              <span>{t.cart_reserve_label}</span>
+            </label>
+            <div style={{ fontSize: 13, color: "#6b4d3b" }}>{t.cart_reserve_help}</div>
+            {reserveOrder ? (
+              <div style={{ display: "grid", gap: 8 }}>
+                <label style={{ display: "block", fontWeight: 700 }}>
+                  {t.cart_reserve_time_label}
+                </label>
+                <input
+                  type="datetime-local"
+                  value={reservationTime}
+                  onChange={(e) => setReservationTime(e.target.value)}
+                  style={UI.input}
+                />
+                <div style={{ fontSize: 12, color: "#6b4d3b" }}>{t.cart_reserve_time_hint}</div>
+              </div>
+            ) : null}
           </div>
 
           <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button className="af-btn" onClick={() => createOrderInDb(payment)} disabled={isCreating} style={confirmButtonStyle} type="button">
               {isCreating
                 ? t.cart_creating
+                : reserveOrder && orderStatus !== "NEW" && orderStatus !== "READY"
+                ? t.cart_confirm_reservation_action
                 : orderStatus === "NEW" || orderStatus === "READY"
                 ? t.cart_confirmed
                 : orderStatus === "PENDING_PAYMENT"
@@ -686,7 +857,7 @@ export default function CartPage() {
                 style={{
                   padding: "11px 16px",
                   borderRadius: 999,
-                  border: "1px solid rgba(17,17,17,0.08)",
+                  border: "1px solid #111",
                   background: isCheckingStatus ? "rgba(148,163,184,0.88)" : "rgba(255,255,255,0.96)",
                   color: BRAND.black,
                   fontWeight: 900,
@@ -700,7 +871,7 @@ export default function CartPage() {
 
           {orderStatus === "PENDING_PAYMENT" ? (
             <div style={{ ...UI.notice, borderColor: "#f59e0b", background: "#fff7ed", color: "#9a3412", fontWeight: 700 }}>
-              {t.cart_pending_message}
+              {order?.reservationRequested ? t.cart_pending_reservation_message : t.cart_pending_message}
             </div>
           ) : null}
 
@@ -715,6 +886,14 @@ export default function CartPage() {
               <div style={{ fontWeight: 900, marginBottom: 6 }}>{t.cart_card_hint_title}</div>
               <div style={{ opacity: 0.9 }}>
                 {cardPaymentHintText}
+              </div>
+            </div>
+          ) : null}
+          {payment === "cashless" ? (
+            <div style={{ ...UI.notice, background: "rgba(255,255,255,0.92)" }}>
+              <div style={{ fontWeight: 900, marginBottom: 6 }}>{t.cart_cashless_hint_title}</div>
+              <div style={{ opacity: 0.9 }}>
+                {t.cart_cashless_hint_text}
               </div>
             </div>
           ) : null}
@@ -740,17 +919,43 @@ export default function CartPage() {
                       <b>{lang === "de" ? "Event" : lang === "fr" ? "Evenement" : "Event"}:</b> {order.eventName}
                     </div>
                   ) : null}
+                  {order.reservationRequested ? (
+                    <div>
+                      <b>{t.cart_ticket_reservation}:</b> {lang === "fr" ? "Oui" : lang === "de" ? "Ja" : "Yes"}
+                    </div>
+                  ) : null}
+                  {order.reservationTime ? (
+                    <div>
+                      <b>{t.cart_ticket_pickup_time}:</b> {formatReservationDateTime(order.reservationTime, lang)}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="af-ticket-items">
-                  {order.items.map((it, idx) => (
-                    <div key={idx} className="af-ticket-row">
-                      <div className="af-ticket-name">{it.name}</div>
-                      <div className="af-ticket-qty">
-                        x{it.qty} - {(ticketBreakdown.lineTotals[idx] ?? 0).toFixed(2)} EUR
-                      </div>
-                    </div>
-                  ))}
+	                  {order.items.map((it, idx) => (
+	                    <div key={idx} className="af-ticket-row">
+	                      <div className="af-ticket-name">{it.name}</div>
+	                      <div className="af-ticket-qty">
+	                        x{it.qty} - {(ticketBreakdown.lineTotals[idx] ?? 0).toFixed(2)} EUR
+	                      </div>
+                        {it.note ? (
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.85 }}>
+                            <b>{lang === "fr" ? "Remarque" : lang === "de" ? "Bemerkung" : "Note"}:</b> {it.note}
+                          </div>
+                        ) : null}
+                        {Array.isArray(it.unitNotes) && it.unitNotes.some((note) => String(note || "").trim()) ? (
+                          <div style={{ marginTop: 4, display: "grid", gap: 2, fontSize: 12, opacity: 0.85 }}>
+                            {it.unitNotes.map((note, noteIndex) =>
+                              String(note || "").trim() ? (
+                                <div key={`${idx}-unit-note-${noteIndex}`}>
+                                  <b>{t.cart_item_note_portion} {noteIndex + 1}:</b> {note}
+                                </div>
+                              ) : null
+                            )}
+                          </div>
+                        ) : null}
+	                    </div>
+	                  ))}
                 </div>
 
                 <div className="af-ticket-meta">

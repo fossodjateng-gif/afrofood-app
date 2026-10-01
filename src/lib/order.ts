@@ -1,19 +1,24 @@
 // src/lib/order.ts
 
-export type PaymentMethod = "cash" | "card";
+export type PaymentMethod = "cash" | "card" | "cashless";
 
 export type TicketItem = {
   id?: string;
   name: string;
   qty: number;
   price?: number;
+  note?: string;
+  unitNotes?: string[];
 };
 
 export type Order = {
   id: string;            // ex: 20260219-003
   createdAt: string;     // ISO
   customerName?: string;
+  eventId?: string;
   eventName?: string;
+  reservationRequested?: boolean;
+  reservationTime?: string;
   items: TicketItem[];
   payment: PaymentMethod;
 };
@@ -44,9 +49,20 @@ export function makeOrderId() {
   return `${todayKey()}-${pad3(seq)}`; // 20260219-003
 }
 
-export function cartToTicketItems(cart: Array<{ id?: string; name: string; qty: number; price?: number }>): TicketItem[] {
+export function cartToTicketItems(
+  cart: Array<{ id?: string; name: string; qty: number; price?: number; note?: string; unitNotes?: string[] }>
+): TicketItem[] {
   // simplifie si ton cart a plus de champs
-  return cart.map((it) => ({ id: it.id, name: it.name, qty: it.qty, price: it.price }));
+  return cart.map((it) => ({
+    id: it.id,
+    name: it.name,
+    qty: it.qty,
+    price: it.price,
+    note: String((it as { note?: string }).note || "").trim() || undefined,
+    unitNotes: Array.isArray(it.unitNotes)
+      ? it.unitNotes.map((note) => String(note || "").trim())
+      : undefined,
+  }));
 }
 
 export function makeQrPayload(order: Order) {
@@ -56,7 +72,10 @@ export function makeQrPayload(order: Order) {
     `AFROFOOD|${order.id}`,
     `DATE:${order.createdAt}`,
     order.customerName ? `NAME:${order.customerName}` : "",
+    order.eventId ? `EVENT_ID:${order.eventId}` : "",
     order.eventName ? `EVENT:${order.eventName}` : "",
+    order.reservationRequested ? "RESERVATION:YES" : "",
+    order.reservationTime ? `PICKUP:${order.reservationTime}` : "",
     `PAY:${order.payment}`,
     ...order.items.map((it) => `ITEM:${it.qty}x ${it.name}`),
   ].filter(Boolean);

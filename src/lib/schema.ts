@@ -5,13 +5,15 @@ export type OrderStatus =
   | "READY"
   | "DONE"
   | "CANCELED";
-export type PaymentMethod = "cash" | "card";
+export type PaymentMethod = "cash" | "card" | "cashless";
 
 export type OrderItem = {
   id?: string;
   name: string;
   qty: number;
   price?: number;
+  note?: string;
+  unitNotes?: string[];
 };
 
 export type OrderRow = {
@@ -25,7 +27,10 @@ export type OrderRow = {
   currency?: string | null;
   paid_at?: string | null;
   payment_error?: string | null;
+  event_id?: string | null;
   event_name?: string | null;
+  reservation_requested?: boolean | null;
+  reservation_time?: string | null;
   status: OrderStatus;
   items: OrderItem[];        // JSON
 };

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
+import { restoreItemAvailability } from "@/lib/menu-settings";
 
 type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE" | "CANCELED";
 
@@ -31,7 +32,7 @@ export async function PATCH(
     }
 
     const beforeRows = await sql`
-      SELECT payment, UPPER(status) AS status
+      SELECT payment, UPPER(status) AS status, event_id, items
       FROM orders
       WHERE id = ${id}
       LIMIT 1
@@ -41,9 +42,16 @@ export async function PATCH(
       return NextResponse.json({ ok: false, error: "Order not found" }, { status: 404 });
     }
 
-    const previousRow = beforeRows[0] as { payment?: string; status?: string };
+    const previousRow = beforeRows[0] as {
+      payment?: string;
+      status?: string;
+      event_id?: string | null;
+      items?: Array<{ id?: string; qty?: number }>;
+    };
     const previousStatus = String(previousRow.status || "");
     const payment = String(previousRow.payment || "").toLowerCase();
+    const previousEventId = String(previousRow.event_id || "").trim();
+    const previousItems = Array.isArray(previousRow.items) ? previousRow.items : [];
 
     if (payment === "card" && previousStatus === "PENDING_PAYMENT" && status === "NEW") {
       return NextResponse.json(
@@ -100,6 +108,10 @@ export async function PATCH(
         status,
         previousStatus,
       });
+    }
+
+    if (status === "CANCELED" && previousStatus !== "CANCELED") {
+      await restoreItemAvailability(previousItems, previousEventId || undefined);
     }
 
     return NextResponse.json({ ok: true, order: rows[0] });

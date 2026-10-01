@@ -37,25 +37,24 @@ export function getTapToPayOnIphoneLabel(lang: Lang) {
 }
 
 export function getMarketingHeroCopy(lang: Lang) {
-  const product = getTapToPayOnIphoneLabel(lang);
   if (lang === "fr") {
     return {
-      title: `${product} est disponible`,
-      body: "Acceptez les paiements sans contact directement sur iPhone, sans terminal supplementaire.",
-      cta: "Activer maintenant",
+      title: "AfroFood Terminal est disponible",
+      body: "Les paiements sans contact sont geres sur le terminal AfroFood, tandis que la caisse web reste simple et rapide.",
+      cta: "Voir le terminal",
     };
   }
   if (lang === "de") {
     return {
-      title: `${product} ist verfugbar`,
-      body: "Nehmen Sie kontaktlose Zahlungen direkt auf dem iPhone an - ohne zusatzliches Lesegerat.",
-      cta: "Jetzt aktivieren",
+      title: "AfroFood Terminal ist verfugbar",
+      body: "Kontaktlose Zahlungen laufen uber das AfroFood Terminal, wahrend die Web-Kasse bewusst einfach bleibt.",
+      cta: "Terminal ansehen",
     };
   }
   return {
-    title: `${product} is available`,
-    body: "Accept contactless payments directly on iPhone, with no additional card reader.",
-    cta: "Enable now",
+    title: "AfroFood Terminal is available",
+    body: "Contactless payments run on the AfroFood terminal while the web cashier stays intentionally simple.",
+    cta: "View terminal",
   };
 }
 
