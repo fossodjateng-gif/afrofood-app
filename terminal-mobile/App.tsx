@@ -93,6 +93,8 @@ const APPLE_TAP_TO_PAY_HIG_URL =
   "https://developer.apple.com/design/human-interface-guidelines/tap-to-pay-on-iphone";
 const APPLE_TAP_TO_PAY_TERMS_URL =
   "https://www.apple.com/legal/internet-services/business-services/tap-to-pay-on-iphone/terms-en.html";
+const PRIVACY_POLICY_URL = "https://www.afrofoodoffenburg.de/privacy";
+const SUPPORT_URL = "https://www.afrofoodoffenburg.de/support";
 
 const NATIVE_DEMO_USERS: NativeUser[] = [
   { username: "admin", password: "0603", role: "admin" },
@@ -812,6 +814,29 @@ function EducationScreen({
   );
 }
 
+function HelpAndInformation({ lang }: { lang: NativeLang }) {
+  const labels = {
+    fr: { title: "Aide et informations", privacy: "Politique de confidentialité", support: "Assistance", error: "Impossible d’ouvrir ce lien. Réessayez depuis votre navigateur." },
+    de: { title: "Hilfe und Informationen", privacy: "Datenschutzerklärung", support: "Support", error: "Der Link konnte nicht geöffnet werden. Versuchen Sie es in Ihrem Browser." },
+    en: { title: "Help and information", privacy: "Privacy Policy", support: "Support", error: "Unable to open this link. Please try in your browser." },
+  }[lang];
+
+  async function openLink(url: string) {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert(labels.title, labels.error);
+    }
+  }
+
+  return (
+    <Section title={labels.title}>
+      <Button label={labels.privacy} onPress={() => void openLink(PRIVACY_POLICY_URL)} kind="secondary" />
+      <Button label={labels.support} onPress={() => void openLink(SUPPORT_URL)} kind="secondary" />
+    </Section>
+  );
+}
+
 function LoginScreen({
   onLogin,
   lang,
@@ -849,7 +874,7 @@ function LoginScreen({
   }
 
   return (
-    <View style={styles.screen}>
+    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <BrandHeader
         title={t.loginTitle}
         subtitle={t.loginSubtitle}
@@ -887,7 +912,8 @@ function LoginScreen({
           </Text>
         ))}
       </Section>
-    </View>
+      <HelpAndInformation lang={lang} />
+    </ScrollView>
   );
 }
 
@@ -912,7 +938,7 @@ function HomeScreen({
 }) {
   const t = NATIVE_TEXT[lang];
   return (
-    <View style={styles.screen}>
+    <ScrollView contentContainerStyle={styles.container}>
       <BrandHeader
         title={t.homeTitle}
         subtitle={`${t.homeSubtitle} ${session.username} (${roleLabel(session.role)})`}
@@ -935,7 +961,8 @@ function HomeScreen({
         <Text style={styles.orderItem}>{t.educationSeen}: {merchantEducationSeen ? "yes" : "no"}</Text>
         <Text style={styles.orderItem}>PaymentIntent retrieval, collection, and confirmation</Text>
       </Section>
-    </View>
+      <HelpAndInformation lang={lang} />
+    </ScrollView>
   );
 }
 
