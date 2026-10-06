@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { OrderRow } from "@/lib/schema";
 import { subscribeOrderSync } from "@/lib/order-sync";
@@ -84,13 +84,15 @@ const UI_TEXT: Record<
 function KitchenPageContent() {
   const searchParams = useSearchParams();
   const [lang, setLang] = useState<Lang>("de");
-  const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [orderResult, setOrderResult] = useState<{ eventId: string; rows: OrderRow[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [justRefreshed, setJustRefreshed] = useState(false);
 	  const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
 	  const [staffUsername, setStaffUsername] = useState("");
   const [assignedEventId, setAssignedEventId] = useState("");
+  const [eventContextReady, setEventContextReady] = useState(false);
+  const refreshRequestRef = useRef<AbortController | null>(null);
   const [assignedEventName, setAssignedEventName] = useState("");
   const [accessError, setAccessError] = useState<string | null>(null);
   const t = UI_TEXT[lang];
@@ -98,15 +100,22 @@ function KitchenPageContent() {
   const backHref = fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine";
 
   const sortedOrders = useMemo(() => {
+    const orders = orderResult?.eventId === assignedEventId ? orderResult.rows : [];
     return [...orders].sort((a, b) => {
       const aRank = a.status === "NEW" ? 0 : 1;
       const bRank = b.status === "NEW" ? 0 : 1;
       if (aRank !== bRank) return aRank - bRank;
       return String(a.created_at).localeCompare(String(b.created_at));
     });
-  }, [orders]);
+  }, [orderResult, assignedEventId]);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
+    if (!eventContextReady || staffRole === null) return;
+    if (!assignedEventId && (staffRole !== "admin" || fromCaisse)) return;
+
+    refreshRequestRef.current?.abort();
+    const controller = new AbortController();
+    refreshRequestRef.current = controller;
     try {
       setIsRefreshing(true);
       setAccessError(null);
@@ -114,25 +123,33 @@ function KitchenPageContent() {
       const eventFilter = assignedEventId ? `&eventId=${encodeURIComponent(assignedEventId)}` : "";
 
       const [newRes, readyRes] = await Promise.all([
-        fetch(`/api/orders?status=NEW${eventFilter}`, { cache: "no-store" }),
-        fetch(`/api/orders?status=READY${eventFilter}`, { cache: "no-store" }),
+        fetch(`/api/orders?status=NEW${eventFilter}`, { cache: "no-store", signal: controller.signal }),
+        fetch(`/api/orders?status=READY${eventFilter}`, { cache: "no-store", signal: controller.signal }),
       ]);
 
       const newData = await newRes.json();
       const readyData = await readyRes.json();
 
-      setOrders([
-        ...(Array.isArray(newData) ? newData : []),
-        ...(Array.isArray(readyData) ? readyData : []),
-      ]);
+      if (controller.signal.aborted) return;
+      setOrderResult({
+        eventId: assignedEventId,
+        rows: [
+          ...(Array.isArray(newData) ? newData : []),
+          ...(Array.isArray(readyData) ? readyData : []),
+        ],
+      });
 
       setJustRefreshed(true);
       window.setTimeout(() => setJustRefreshed(false), 1200);
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
     } finally {
-      setIsRefreshing(false);
-      setLoading(false);
+      if (!controller.signal.aborted) {
+        setIsRefreshing(false);
+        setLoading(false);
+      }
     }
-  }
+  }, [assignedEventId, eventContextReady, staffRole, fromCaisse]);
 
   useEffect(() => {
     let alive = true;
@@ -170,7 +187,6 @@ function KitchenPageContent() {
           }
         }
         if (!alive) return;
-        void refresh();
         return;
       }
 
@@ -206,17 +222,18 @@ function KitchenPageContent() {
       setAssignedEventName(nextEventName);
     }
 
-    void boot();
+    void boot().then(() => {
+      if (alive) setEventContextReady(true);
+    });
     return () => {
       alive = false;
     };
-  }, [t.noEventAssigned]);
+  }, [t.noEventAssigned, fromCaisse]);
 
   useEffect(() => {
-    if (staffRole === null) return;
-    if (staffRole !== "admin" && !assignedEventId) return;
     void refresh();
-  }, [assignedEventId, staffRole]);
+    return () => refreshRequestRef.current?.abort();
+  }, [refresh]);
 
   useEffect(() => {
     return subscribeOrderSync((message) => {
@@ -228,7 +245,7 @@ function KitchenPageContent() {
         refresh();
       }
     });
-  }, []);
+  }, [refresh]);
 
   async function updateStatus(id: string, status: "READY" | "DONE") {
     await fetch(`/api/orders/${id}/status`, {

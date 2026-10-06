@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { OrderRow } from "@/lib/schema";
 import { subscribeOrderSync } from "@/lib/order-sync";
@@ -66,36 +66,54 @@ const UI_TEXT: Record<
 function ScreenPageContent() {
   const searchParams = useSearchParams();
   const [lang, setLang] = useState<Lang>("de");
-  const [preparing, setPreparing] = useState<OrderRow[]>([]);
-  const [ready, setReady] = useState<OrderRow[]>([]);
+  const [orderResult, setOrderResult] = useState<{ eventId: string; preparing: OrderRow[]; ready: OrderRow[] } | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [justRefreshed, setJustRefreshed] = useState(false);
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
   const [assignedEventId, setAssignedEventId] = useState("");
+  const [eventContextReady, setEventContextReady] = useState(false);
+  const refreshRequestRef = useRef<AbortController | null>(null);
   const t = UI_TEXT[lang];
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
   const backHref = fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine";
 
-  async function refresh() {
+  const preparing = orderResult?.eventId === assignedEventId ? orderResult.preparing : [];
+  const ready = orderResult?.eventId === assignedEventId ? orderResult.ready : [];
+
+  const refresh = useCallback(async () => {
+    if (!eventContextReady || staffRole === null) return;
+    if (!assignedEventId && (staffRole !== "admin" || fromCaisse)) return;
+
+    refreshRequestRef.current?.abort();
+    const controller = new AbortController();
+    refreshRequestRef.current = controller;
     try {
       setIsRefreshing(true);
       const eventFilter = assignedEventId ? `&eventId=${encodeURIComponent(assignedEventId)}` : "";
       const [preparingRes, readyRes] = await Promise.all([
-        fetch(`/api/orders?status=NEW${eventFilter}`, { cache: "no-store" }),
-        fetch(`/api/orders?status=READY${eventFilter}`, { cache: "no-store" }),
+        fetch(`/api/orders?status=NEW${eventFilter}`, { cache: "no-store", signal: controller.signal }),
+        fetch(`/api/orders?status=READY${eventFilter}`, { cache: "no-store", signal: controller.signal }),
       ]);
 
       const preparingData = await preparingRes.json();
       const readyData = await readyRes.json();
 
-      setPreparing(Array.isArray(preparingData) ? preparingData : []);
-      setReady(Array.isArray(readyData) ? readyData : []);
+      if (controller.signal.aborted) return;
+      setOrderResult({
+        eventId: assignedEventId,
+        preparing: Array.isArray(preparingData) ? preparingData : [],
+        ready: Array.isArray(readyData) ? readyData : [],
+      });
       setJustRefreshed(true);
       window.setTimeout(() => setJustRefreshed(false), 1200);
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
     } finally {
-      setIsRefreshing(false);
+      if (!controller.signal.aborted) {
+        setIsRefreshing(false);
+      }
     }
-  }
+  }, [assignedEventId, eventContextReady, staffRole, fromCaisse]);
 
   useEffect(() => {
     let alive = true;
@@ -124,7 +142,6 @@ function ScreenPageContent() {
 
       if (s.role === "admin") {
         if (!alive) return;
-        void refresh();
         return;
       }
 
@@ -143,18 +160,18 @@ function ScreenPageContent() {
       setAssignedEventId(nextEventId);
     }
 
-    void boot();
+    void boot().then(() => {
+      if (alive) setEventContextReady(true);
+    });
     return () => {
       alive = false;
     };
   }, [fromCaisse]);
 
   useEffect(() => {
-    if (staffRole === null) return;
-    if (staffRole !== "admin" && !assignedEventId) return;
-    if (staffRole === "admin" && fromCaisse && !assignedEventId) return;
     void refresh();
-  }, [assignedEventId, staffRole, fromCaisse]);
+    return () => refreshRequestRef.current?.abort();
+  }, [refresh]);
 
   useEffect(() => {
     return subscribeOrderSync((message) => {
@@ -166,7 +183,7 @@ function ScreenPageContent() {
         refresh();
       }
     });
-  }, []);
+  }, [refresh]);
 
   return (
     <main
