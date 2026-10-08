@@ -1,5 +1,6 @@
 import { makeNextOrderId } from "@/lib/order-number";
 import { createPosCashOrder } from "@/lib/pos-cash-server";
+import { createPosCardOrder } from "@/lib/pos-card-server";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
@@ -133,6 +134,15 @@ export async function POST(req: Request) {
     }
     if (reservationRequested && !reservationTime) {
       return NextResponse.json({ ok: false, error: "Missing reservation time" }, { status: 400 });
+    }
+
+    if (body.posCardKey !== undefined) {
+      const userId = String(body.userId || "").trim();
+      const username = String(body.username || "").trim().toLowerCase();
+      if (body.posCashKey !== undefined || payment !== "card" || !eventId || !userId || !username || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(String(body.posCardKey)) || !/^[a-f0-9]{64}$/.test(String(body.fingerprint)) || items.some((item) => !item || typeof item.id !== "string" || !item.id || !Number.isSafeInteger(item.qty) || item.qty <= 0) || !["admin", "cashier"].includes(req.headers.get("x-staff-role") || "")) {
+        return NextResponse.json({ ok: false, error: "Invalid POS card request" }, { status: 400 });
+      }
+      return await createPosCardOrder({ key: String(body.posCardKey), fingerprint: String(body.fingerprint), userId, username, eventId, items });
     }
 
     if (body.posCashKey !== undefined) {

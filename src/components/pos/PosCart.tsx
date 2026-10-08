@@ -3,7 +3,9 @@ import styles from "./pos.module.css";
 import { getDipPriceLabel, isDipItem } from "@/lib/pricing";
 import { translations, type Lang } from "@/lib/translations";
 
-export function PosCart({ lang, items, products, onIncrease, onDecrease, onRemove, onCash, cashDisabled }: {
+export function PosCart({ lang, items, products, onIncrease, onDecrease, onRemove, onCash, cashDisabled, onCard, cardDisabled }: {
+  onCard: () => void;
+  cardDisabled: boolean;
   onCash: () => void;
   cashDisabled: boolean;
   lang: Lang;
@@ -54,7 +56,7 @@ export function PosCart({ lang, items, products, onIncrease, onDecrease, onRemov
         <p className={styles.pricingNote}>{getDipPriceLabel(lang)}</p>
         <div className={styles.paymentButtons}>
           <button className="af-btn" type="button" disabled={cashDisabled} onClick={onCash}>Barzahlung</button>
-          <button className="af-btn" type="button" disabled>Kartenzahlung</button>
+          <button className="af-btn" type="button" disabled={cardDisabled} onClick={onCard}>Kartenzahlung</button>
         </div>
         <p className={styles.checkoutNote}>Kartenzahlung ist noch nicht verfügbar.</p>
       </div>

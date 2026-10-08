@@ -34,7 +34,7 @@ export async function PATCH(
 
     await ensureOrdersSchema();
     const beforeRows = await sql`
-      SELECT payment, UPPER(status) AS status, event_id, items, amount_cents, cash_received_cents, change_given_cents, pos_cash_key, pos_cash_state
+      SELECT payment, UPPER(status) AS status, event_id, items, amount_cents, cash_received_cents, change_given_cents, pos_cash_key, pos_cash_state, pos_card_key
       FROM orders
       WHERE id = ${id}
       LIMIT 1
@@ -50,6 +50,7 @@ export async function PATCH(
       change_given_cents?: number | null;
       pos_cash_key?: string | null;
       pos_cash_state?: string | null;
+      pos_card_key?: string | null;
       payment?: string;
       status?: string;
       event_id?: string | null;
@@ -92,7 +93,7 @@ export async function PATCH(
       return NextResponse.json({ ok: true, order: paid[0] });
     }
 
-    if (payment === "card" && previousStatus === "PENDING_PAYMENT" && status === "NEW") {
+    if (payment === "card" && ((previousStatus === "PENDING_PAYMENT" && ["NEW", "IN_PROGRESS", "READY", "DONE"].includes(status)) || (previousRow.pos_card_key && status === "CANCELED"))) {
       return NextResponse.json(
         {
           ok: false,

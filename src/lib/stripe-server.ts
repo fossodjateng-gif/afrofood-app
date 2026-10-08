@@ -15,13 +15,15 @@ function toBody(data: Record<string, string | number | boolean | undefined>) {
 
 export async function stripePost<T = unknown>(
   path: string,
-  data: Record<string, string | number | boolean | undefined>
+  data: Record<string, string | number | boolean | undefined>,
+  idempotencyKey?: string
 ) {
   const res = await fetch(`https://api.stripe.com/v1${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${getStripeSecretKey()}`,
       "Content-Type": "application/x-www-form-urlencoded",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     body: toBody(data),
     cache: "no-store",

@@ -20,6 +20,8 @@ type OrderLike = {
   items: Array<{ id?: string; name: string; qty: number; price?: number }>;
   stripe_payment_intent_id: string | null;
   amount_cents: number | null;
+  pos_card_key: string | null;
+  pos_card_state: string | null;
 };
 
 export async function POST(req: Request) {
@@ -33,7 +35,7 @@ export async function POST(req: Request) {
     }
 
     const rows = await sql`
-      SELECT id, payment, UPPER(status) AS status, items, stripe_payment_intent_id, amount_cents
+      SELECT id, payment, UPPER(status) AS status, items, stripe_payment_intent_id, amount_cents, pos_card_key, pos_card_state
       FROM orders
       WHERE id = ${orderId}
       LIMIT 1
@@ -55,6 +57,9 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+    if (order.pos_card_key && order.pos_card_state !== "ready") {
+      return NextResponse.json({ ok: false, error: "POS order creation not confirmed" }, { status: 409 });
+    }
 
     const storedAmountCents = Number(order.amount_cents || 0);
     const calculatedAmountCents = calculateOrderTotalCents(
@@ -74,7 +79,7 @@ export async function POST(req: Request) {
         `/payment_intents/${encodeURIComponent(existingPiId)}`
       );
       const metadataOrderId = String(existingPi.metadata?.order_id || "").trim();
-      if (metadataOrderId && metadataOrderId !== order.id) {
+      if (metadataOrderId !== order.id || existingPi.currency !== "eur" || existingPi.status === "canceled") {
         return NextResponse.json(
           { ok: false, error: `PaymentIntent is linked to another order (${metadataOrderId})` },
           { status: 400 }
@@ -108,38 +113,53 @@ export async function POST(req: Request) {
         reused: true,
         orderId: order.id,
         paymentIntentId: existingPi.id,
-        clientSecret: existingPi.client_secret,
+        clientSecret: body?.includeClientSecret === false ? undefined : existingPi.client_secret,
         amount: existingPi.amount,
         currency: existingPi.currency,
         status: existingPi.status,
       });
     }
 
+    // Persist the first request time before Stripe. Its key may be pruned after
+    // 24h: never blindly create again outside this conservative retry window.
+    const started = await sql`
+      UPDATE orders SET stripe_pi_started_at = COALESCE(stripe_pi_started_at, NOW())
+      WHERE id = ${order.id} AND UPPER(status) = 'PENDING_PAYMENT'
+      RETURNING stripe_pi_started_at
+    `;
+    const firstRequest = new Date(String(started[0]?.stripe_pi_started_at || "")).getTime();
+    if (!Number.isFinite(firstRequest) || Date.now() - firstRequest > 23 * 60 * 60 * 1000) {
+      return NextResponse.json({ ok: false, error: "PaymentIntent result requires verification; no new payment created" }, { status: 409 });
+    }
     const pi = await stripePost<PaymentIntentResponse>("/payment_intents", {
       amount: amountCents,
       currency: "eur",
       "payment_method_types[0]": "card_present",
       capture_method: "automatic",
       "metadata[order_id]": order.id,
-    });
+    }, `afrofood-terminal:${order.id}:v1`);
 
-    await sql`
+    const linked = await sql`
       UPDATE orders
       SET
         payment_provider = 'stripe',
-        stripe_payment_intent_id = ${pi.id},
+        stripe_payment_intent_id = COALESCE(stripe_payment_intent_id, ${pi.id}),
         amount_cents = ${amountCents},
         currency = 'eur',
         payment_error = NULL
-      WHERE id = ${order.id}
+      WHERE id = ${order.id} AND (stripe_payment_intent_id IS NULL OR stripe_payment_intent_id = ${pi.id})
+      RETURNING stripe_payment_intent_id
     `;
+    if (!linked.length || linked[0].stripe_payment_intent_id !== pi.id) {
+      return NextResponse.json({ ok: false, error: "PaymentIntent link changed; verify the existing payment" }, { status: 409 });
+    }
 
     return NextResponse.json({
       ok: true,
       reused: false,
       orderId: order.id,
       paymentIntentId: pi.id,
-      clientSecret: pi.client_secret,
+      clientSecret: body?.includeClientSecret === false ? undefined : pi.client_secret,
       amount: pi.amount,
       currency: pi.currency,
       status: pi.status,

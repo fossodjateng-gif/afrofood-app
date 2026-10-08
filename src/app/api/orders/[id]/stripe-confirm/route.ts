@@ -39,7 +39,7 @@ export async function PATCH(
     }
 
     const rows = await sql`
-      SELECT id, payment, UPPER(status) AS status, amount_cents, stripe_payment_intent_id
+      SELECT id, payment, UPPER(status) AS status, amount_cents, stripe_payment_intent_id, pos_card_key
       FROM orders
       WHERE id = ${orderId}
       LIMIT 1
@@ -54,8 +54,12 @@ export async function PATCH(
       status: string;
       amount_cents: number | null;
       stripe_payment_intent_id: string | null;
+      pos_card_key?: string | null;
     };
 
+    if (row.pos_card_key) {
+      return NextResponse.json({ ok: false, error: "POS card payments require the Stripe webhook" }, { status: 403 });
+    }
     if (row.payment !== "card") {
       return NextResponse.json(
         { ok: false, error: "Order payment is not card" },

@@ -1,5 +1,7 @@
 "use client";
 
+import { prepareTerminalCheckout } from "@/lib/terminal-checkout";
+
 import { getOrderBreakdownEur } from "@/lib/pricing";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -681,16 +683,7 @@ export default function CaissePage() {
       setStartingTapToPayId(order.id);
       setActiveTerminalOrderId(order.id);
 
-      const res = await fetch("/api/stripe/terminal/payment-intent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: order.id }),
-      });
-
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || t.unknownError);
-      }
+      const data = await prepareTerminalCheckout({ orderId: order.id, username: session?.username || staffSession?.username || "cashier", userId: session?.userId || staffSession?.userId || "", role: staffRole || "", eventName: activeEventName });
 
       setTapToPayInfo((prev) => ({
         ...prev,
@@ -708,25 +701,6 @@ export default function CaissePage() {
           `PaymentIntent created for ${order.id}: ${String(data.paymentIntentId || "-")}`
         )
       );
-
-      const terminalRes = await fetch("/api/terminal-active-order", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-staff-role": staffRole || "",
-        },
-        body: JSON.stringify({
-          username: session?.username || staffSession?.username || "cashier",
-          userId: session?.userId || staffSession?.userId || null,
-          eventName: activeEventName,
-          orderId: order.id,
-          paymentIntentId: String(data.paymentIntentId || ""),
-        }),
-      });
-      const terminalData = await terminalRes.json().catch(() => null);
-      if (!terminalRes.ok || !terminalData?.ok) {
-        throw new Error(terminalData?.error || t.unknownError);
-      }
 
       pushLog(
         txt(

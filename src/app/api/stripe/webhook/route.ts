@@ -12,6 +12,8 @@ type StripeEvent = {
       id?: string;
       metadata?: Record<string, string>;
       status?: string;
+      amount_received?: number;
+      currency?: string;
     };
   };
 };
@@ -100,7 +102,7 @@ export async function POST(req: Request) {
     }
 
     const beforeRows = await sql`
-      SELECT UPPER(status) AS status
+      SELECT UPPER(status) AS status, payment, stripe_payment_intent_id, amount_cents, currency
       FROM orders
       WHERE id = ${orderId}
       LIMIT 1
@@ -112,9 +114,13 @@ export async function POST(req: Request) {
         orderId,
       });
     }
-    const previousStatus = String((beforeRows[0] as { status?: string }).status || "");
+    const row = beforeRows[0];
+    if (row.payment !== "card" || !piId || row.stripe_payment_intent_id !== piId || metadataOrderId !== orderId || obj.status !== "succeeded" || !Number.isSafeInteger(obj.amount_received) || obj.amount_received !== row.amount_cents || obj.currency !== row.currency) {
+      return NextResponse.json({ ok: false, error: "Stripe payment does not match the order" }, { status: 400 });
+    }
+    const previousStatus = String(row.status || "");
 
-    await sql`
+    const updated = await sql`
       UPDATE orders
       SET
         payment_provider = 'stripe',
@@ -122,16 +128,12 @@ export async function POST(req: Request) {
         paid_at = COALESCE(paid_at, NOW()),
         payment_error = NULL,
         status = CASE WHEN UPPER(status) = 'PENDING_PAYMENT' THEN 'NEW' ELSE status END
-      WHERE id = ${orderId}
+      WHERE id = ${orderId} AND payment = 'card' AND stripe_payment_intent_id = ${piId}
+        AND amount_cents = ${obj.amount_received} AND currency = ${obj.currency}
+        AND UPPER(status) = 'PENDING_PAYMENT'
+      RETURNING UPPER(status) AS status
     `;
-
-    const afterRows = await sql`
-      SELECT UPPER(status) AS status
-      FROM orders
-      WHERE id = ${orderId}
-      LIMIT 1
-    `;
-    const status = String((afterRows[0] as { status?: string }).status || "");
+    const status = String(updated[0]?.status || previousStatus);
 
     if (status !== previousStatus) {
       publishOrderEvent({
@@ -142,7 +144,7 @@ export async function POST(req: Request) {
         previousStatus,
       });
     }
-    if (previousStatus === "PENDING_PAYMENT" && status === "NEW") {
+    if (updated.length && previousStatus === "PENDING_PAYMENT" && status === "NEW") {
       publishOrderEvent({
         type: "PAYMENT_VALIDATED",
         orderId,

@@ -51,6 +51,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, activeOrder });
   } catch (e: unknown) {
     const error = e instanceof Error ? e.message : "Server error";
-    return NextResponse.json({ ok: false, error }, { status: 500 });
+    return NextResponse.json({ ok: false, error }, { status: 409 });
   }
 }

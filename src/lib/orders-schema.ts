@@ -38,4 +38,11 @@ export async function ensureOrdersSchema() {
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pos_cash_fingerprint TEXT;`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pos_cash_state TEXT;`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS orders_pos_cash_key_unique ON orders (pos_cash_key) WHERE pos_cash_key IS NOT NULL;`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pos_card_key TEXT;`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pos_card_fingerprint TEXT;`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pos_card_state TEXT;`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pos_card_user_id TEXT;`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pos_card_username TEXT;`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS stripe_pi_started_at TIMESTAMPTZ;`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS orders_pos_card_key_unique ON orders (pos_card_key) WHERE pos_card_key IS NOT NULL;`;
 }

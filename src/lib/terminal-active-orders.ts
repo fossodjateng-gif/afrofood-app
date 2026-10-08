@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { ensureOrdersSchema } from "@/lib/orders-schema";
 
 export type TerminalActiveOrder = {
   username: string;
@@ -62,12 +63,18 @@ export async function setTerminalActiveOrder(input: {
   paymentIntentId?: string | null;
 }) {
   await ensureTerminalActiveOrdersSchema();
+  await ensureOrdersSchema();
   const username = normalizeUsername(input.username);
   const eventName = normalizeEventName(input.eventName);
   const orderId = String(input.orderId || "").trim();
   const userId = input.userId ? String(input.userId).trim() : null;
   const paymentIntentId = input.paymentIntentId ? String(input.paymentIntentId).trim() : null;
   if (!username || !orderId) throw new Error("Missing terminal order target");
+  const targets = await sql`SELECT * FROM orders WHERE id = ${orderId} LIMIT 1`;
+  const target = targets[0];
+  if (!target || target.payment !== "card" || String(target.status).toUpperCase() !== "PENDING_PAYMENT" || !paymentIntentId || target.stripe_payment_intent_id !== paymentIntentId || (target.pos_card_key && (target.pos_card_username !== username || target.pos_card_user_id !== userId || target.event_name !== eventName || target.pos_card_state !== "ready"))) {
+    throw new Error("Terminal target does not match the pending card order");
+  }
 
   const rows = (await sql`
     INSERT INTO terminal_active_orders (username, user_id, event_name, order_id, payment_intent_id, updated_at, expires_at)
@@ -80,6 +87,15 @@ export async function setTerminalActiveOrder(input: {
       payment_intent_id = EXCLUDED.payment_intent_id,
       updated_at = NOW(),
       expires_at = NOW() + (${ACTIVE_ORDER_TTL_SECONDS} || ' seconds')::interval
+    WHERE terminal_active_orders.order_id = EXCLUDED.order_id
+      OR EXISTS (
+        SELECT 1 FROM orders previous
+        WHERE previous.id = terminal_active_orders.order_id
+          AND previous.payment = 'card' AND previous.payment_provider = 'stripe'
+          AND previous.paid_at IS NOT NULL
+          AND previous.stripe_payment_intent_id = terminal_active_orders.payment_intent_id
+          AND UPPER(previous.status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
+      )
     RETURNING username, user_id, event_name, order_id, payment_intent_id, updated_at, expires_at
   `) as Array<{
     username: string;
@@ -91,12 +107,18 @@ export async function setTerminalActiveOrder(input: {
     expires_at: string;
   }>;
 
+  if (!rows.length) throw new Error("Eine andere Kartenzahlung ist auf diesem Terminal noch offen. Zuerst deren Status prüfen.");
   return toActiveOrder(rows[0]);
 }
 
 export async function getTerminalActiveOrder(usernameInput: string) {
   await ensureTerminalActiveOrdersSchema();
-  await sql`DELETE FROM terminal_active_orders WHERE expires_at < NOW();`;
+  // An unresolved payment must keep its claim even when its display TTL passes.
+  await sql`DELETE FROM terminal_active_orders active USING orders previous
+    WHERE active.expires_at < NOW() AND previous.id = active.order_id
+      AND previous.payment_provider = 'stripe' AND previous.paid_at IS NOT NULL
+      AND previous.stripe_payment_intent_id = active.payment_intent_id
+      AND UPPER(previous.status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE');`;
   const username = normalizeUsername(usernameInput);
   if (!username) return null;
 
@@ -124,8 +146,12 @@ export async function clearTerminalActiveOrder(input: { username: string; orderI
   const orderId = input.orderId ? String(input.orderId).trim() : "";
   if (!username) return;
   if (orderId) {
-    await sql`DELETE FROM terminal_active_orders WHERE username = ${username} AND order_id = ${orderId};`;
+    await sql`DELETE FROM terminal_active_orders active USING orders previous
+      WHERE active.username = ${username} AND active.order_id = ${orderId} AND previous.id = active.order_id
+        AND previous.payment_provider = 'stripe' AND previous.paid_at IS NOT NULL
+        AND previous.stripe_payment_intent_id = active.payment_intent_id
+        AND UPPER(previous.status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE');`;
     return;
   }
-  await sql`DELETE FROM terminal_active_orders WHERE username = ${username};`;
+  throw new Error("Specify a confirmed paid order before clearing the terminal");
 }
