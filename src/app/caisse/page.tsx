@@ -261,7 +261,7 @@ function isTodayOrder(order: OrderRow, todayKey: string) {
     if (`${yyyy}${mm}${dd}` === todayKey) return true;
   }
 
-  const datedId = orderId.match(/^(\d{8})-/);
+  const datedId = orderId.match(/^(?:[A-Z0-9]+(?:-[A-Z0-9]+)*-)?(\d{8})-/);
   return datedId ? datedId[1] === todayKey : false;
 }
 

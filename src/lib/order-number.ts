@@ -13,7 +13,12 @@ function formatDayKey(d = new Date()) {
 
 export async function makeNextOrderId() {
   const dayKey = formatDayKey();
-  const prefix = `${dayKey}-`;
+  const configuredPrefix = process.env.AFROFOOD_ORDER_ID_PREFIX?.trim() || "";
+  // Keep LIKE wildcards and separators out of the configured namespace.
+  if (configuredPrefix && !/^[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(configuredPrefix)) {
+    throw new Error("Invalid AFROFOOD_ORDER_ID_PREFIX");
+  }
+  const prefix = `${configuredPrefix ? `${configuredPrefix}-` : ""}${dayKey}-`;
   const rows = await sql`
     SELECT id
     FROM orders
@@ -24,12 +29,11 @@ export async function makeNextOrderId() {
 
   let next = 1;
   if (rows.length > 0) {
-    const parts = String((rows[0] as { id: string }).id).split("-");
-    const lastSeq = Number(parts[1] || "0");
+    const lastSeq = Number(String((rows[0] as { id: string }).id).slice(prefix.length) || "0");
     if (Number.isFinite(lastSeq) && lastSeq >= 1) {
       next = lastSeq + 1;
     }
   }
 
-  return `${dayKey}-${String(next).padStart(3, "0")}`;
+  return `${prefix}${String(next).padStart(3, "0")}`;
 }
