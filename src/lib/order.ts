@@ -1,8 +1,10 @@
+import type { PricingKind } from "@/lib/pricing";
 // src/lib/order.ts
 
 export type PaymentMethod = "cash" | "card" | "cashless";
 
 export type TicketItem = {
+  pricingKind?: PricingKind;
   id?: string;
   name: string;
   qty: number;
@@ -19,6 +21,7 @@ export type Order = {
   eventName?: string;
   reservationRequested?: boolean;
   reservationTime?: string;
+  amountCents?: number;
   items: TicketItem[];
   payment: PaymentMethod;
 };
@@ -50,11 +53,12 @@ export function makeOrderId() {
 }
 
 export function cartToTicketItems(
-  cart: Array<{ id?: string; name: string; qty: number; price?: number; note?: string; unitNotes?: string[] }>
+  cart: Array<{ pricingKind?: PricingKind; id?: string; name: string; qty: number; price?: number; note?: string; unitNotes?: string[] }>
 ): TicketItem[] {
   // simplifie si ton cart a plus de champs
   return cart.map((it) => ({
     id: it.id,
+    pricingKind: it.pricingKind,
     name: it.name,
     qty: it.qty,
     price: it.price,

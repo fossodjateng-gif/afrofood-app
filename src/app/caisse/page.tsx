@@ -1,12 +1,13 @@
 "use client";
 
+import { getOrderBreakdownEur } from "@/lib/pricing";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OrderRow } from "@/lib/schema";
-import { QRCodeCanvas } from "qrcode.react";
-import { makeQrPayload } from "@/lib/order";
+import { OnDemandOrderReceipt } from "@/components/OnDemandOrderReceipt";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { clearSession, getSession, getStaffRoleLabel, type StaffRole, type StaffSession, updateSessionCashierEventId } from "@/lib/staff-auth";
+import { clearSession, getSession, getStaffRoleLabel, resolveCashierEventId, type StaffRole, type StaffSession } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 
 import {
@@ -208,82 +209,12 @@ const UI_TEXT: Record<
   },
 };
 
-const FALLBACK_PRICE_BY_NAME = new Map<string, number>([
-  ["ingwersaft", 5],
-  ["hibiskussaft", 5],
-  ["puff puff 1", 5],
-  ["plantain chips", 5],
-  ["bhb 1 2 kamerun veganer teller", 15],
-  ["attieke poulet 2 elfenbeinkuste", 15],
-  ["batbout mit hahnchenfullung 2 marokko", 15],
-  ["pollo fino 2", 10],
-  ["bh 1 2", 10],
-  ["batbout mit bohnenfullung 2", 10],
-]);
-
-const FALLBACK_PRICE_BY_ID = new Map<string, number>([
-  ["ingwersaft", 5],
-  ["hibiskussaft", 5],
-  ["puff-puff-1", 5],
-  ["plantain-chips", 5],
-  ["bhb-1-2-kamerun-veganer-teller", 15],
-  ["attieke-poulet-2-elfenbeinkuste", 15],
-  ["batbout-mit-hahnchenfullung-2-marokko", 15],
-  ["pollo-fino-2", 10],
-  ["bh-1-2", 10],
-  ["batbout-mit-bohnenfullung-2", 10],
-]);
-
-function normalizeItemName(name?: string) {
-  return String(name || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function isDip(item: OrderRow["items"][number]) {
-  if (String(item.id || "").startsWith("dip-")) return true;
-  const normalized = normalizeItemName(item.name);
-  return normalized.includes("sauce") && (normalized.includes("grune") || normalized.includes("chili"));
-}
-
-function getUnitPrice(item: OrderRow["items"][number]) {
-  if (typeof item.price === "number" && Number.isFinite(item.price)) {
-    return item.price;
-  }
-  const id = String(item.id || "");
-  if (FALLBACK_PRICE_BY_ID.has(id)) {
-    return FALLBACK_PRICE_BY_ID.get(id) ?? 0;
-  }
-  return FALLBACK_PRICE_BY_NAME.get(normalizeItemName(item.name)) ?? 0;
-}
-
 function formatEur(value: number) {
   return `${value.toFixed(2)} EUR`;
 }
 
-function getLineTotal(item: OrderRow["items"][number], dipQtySoFar: number) {
-  const unitPrice = getUnitPrice(item);
-  const qty = Math.max(0, Number(item.qty || 0));
-  if (isDip(item)) {
-    const paidQty = Math.max(0, dipQtySoFar + qty - 1) - Math.max(0, dipQtySoFar - 1);
-    return paidQty * unitPrice;
-  }
-  return unitPrice * qty;
-}
-
 function getOrderBreakdown(order: OrderRow) {
-  let dipQtySoFar = 0;
-  let total = 0;
-  const lineTotals = (Array.isArray(order.items) ? order.items : []).map((item) => {
-    const lineTotal = getLineTotal(item, dipQtySoFar);
-    if (isDip(item)) dipQtySoFar += Math.max(0, Number(item.qty || 0));
-    total += lineTotal;
-    return lineTotal;
-  });
-  return { lineTotals, total };
+  return getOrderBreakdownEur(Array.isArray(order.items) ? order.items : [], order.amount_cents);
 }
 
 function getTodayKey() {
@@ -356,7 +287,7 @@ export default function CaissePage() {
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLogs, setActionLogs] = useState<string[]>([]);
-  const [ticketOrder, setTicketOrder] = useState<OrderRow | null>(null);
+  const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [cashierEventId, setCashierEventId] = useState("");
 
@@ -384,22 +315,12 @@ export default function CaissePage() {
 	      setStaffUsername(String(s.username || ""));
 
       if (s.role === "cashier") {
-        let assignedEventId = String(s.cashierEventId || "").trim();
-        if (!assignedEventId) {
-          try {
-            const res = await fetch("/api/menu-config", { cache: "no-store" });
-            const data = await res.json().catch(() => null);
-            const activeEventId = String(data?.storeConfig?.activeEventId || "").trim();
-            const firstEventId = Array.isArray(data?.storeConfig?.events)
-              ? String(data.storeConfig.events[0]?.id || "").trim()
-              : "";
-            assignedEventId = activeEventId || firstEventId;
-          } catch {
-            assignedEventId = "";
-          }
-          if (assignedEventId) {
-            updateSessionCashierEventId(assignedEventId);
-          }
+        let assignedEventId = "";
+        try {
+          assignedEventId = resolveCashierEventId(s);
+        } catch (error: unknown) {
+          if (alive) setActionError(error instanceof Error ? error.message : "Kassenkonto nicht verfügbar.");
+          return;
         }
 
         if (!assignedEventId) {
@@ -408,7 +329,7 @@ export default function CaissePage() {
               lang === "fr"
                 ? "Aucun evenement n'est assigne a cette caisse."
                 : lang === "de"
-                ? "Kein Event ist dieser Kasse zugewiesen."
+                ? "Kein Event zugewiesen."
                 : "No event is assigned to this cashier."
             );
           }
@@ -454,7 +375,7 @@ export default function CaissePage() {
   }
 
   useEffect(() => {
-    if (!staffRole) return;
+    if (!staffRole || (staffRole === "cashier" && !cashierEventId)) return;
     let stopped = false;
     setEventReady(false);
     const eventId = cashierEventId || selectedEventId;
@@ -466,6 +387,7 @@ export default function CaissePage() {
       const data = await res.json();
       if (!res.ok || !data?.ok) throw new Error(data?.error || t.unknownError);
       const event = (data.storeConfig?.events as EventOption[] | undefined)?.find((entry) => entry.id === eventId);
+      if (cashierEventId && !event) throw new Error("Das zugewiesene Event ist nicht verfügbar.");
       if (!stopped) {
         setActiveEventName(String(event?.name || data.storeConfig?.activeEventName || "").trim());
         setEventReady(true);
@@ -561,106 +483,6 @@ export default function CaissePage() {
     });
   }, [orders]);
 
-  const ticketBreakdown = useMemo(
-    () => (ticketOrder ? getOrderBreakdown(ticketOrder) : { lineTotals: [], total: 0 }),
-    [ticketOrder]
-  );
-
-  function TicketBlock() {
-    if (!ticketOrder) return null;
-    return (
-      <div className="af-ticket-wrap af-ticket-area af-ticket-customer" style={{ marginTop: 14, justifyItems: "center" }}>
-        <div className="af-ticket">
-          <div className="af-ticket-head">
-            <img className="af-ticket-logo" src="/logo-afrofood.png" alt="AfroFood" />
-            <div className="af-ticket-title">{t.ticketTitle}</div>
-            <div className="af-ticket-sub">{t.ticketSub}</div>
-          </div>
-
-          <div className="af-ticket-meta">
-            <div>
-              <b>{t.order}:</b> {ticketOrder.id}
-            </div>
-            <div>
-              <b>{t.name}:</b> {ticketOrder.customer_name || "-"}
-            </div>
-            <div>
-              <b>{t.payment}:</b> {ticketOrder.payment}
-            </div>
-          </div>
-          <div
-            style={{
-              marginTop: 8,
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid #93c5fd",
-              background: "rgba(59,130,246,0.1)",
-              fontWeight: 800,
-              fontSize: 13,
-            }}
-          >
-            {txt(
-              "Receipt available via QR",
-              "Beleg per QR verfugbar",
-              "Receipt available via QR"
-            )}
-          </div>
-
-          <div className="af-ticket-items">
-            {ticketOrder.items.map((it, idx) => (
-              <div key={idx} className="af-ticket-row">
-                <div className="af-ticket-name">{it.name}</div>
-                <div className="af-ticket-qty">
-                  x{it.qty} - {(ticketBreakdown.lineTotals[idx] ?? 0).toFixed(2)} EUR
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="af-ticket-meta">
-            <div>
-              <b>{t.total}:</b> {ticketBreakdown.total.toFixed(2)} EUR
-            </div>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>{t.ticketLegend}</div>
-          </div>
-
-          <div className="af-ticket-qr">
-            <QRCodeCanvas
-              value={makeQrPayload({
-                id: ticketOrder.id,
-                createdAt: ticketOrder.created_at,
-                customerName: ticketOrder.customer_name || undefined,
-                payment: ticketOrder.payment,
-                items: ticketOrder.items,
-              })}
-              size={72}
-            />
-            <div className="af-ticket-qrtext">{t.ticketSent}</div>
-          </div>
-
-          <div className="af-ticket-foot">{t.thanks}</div>
-        </div>
-
-        <button
-          onClick={printTicket}
-          type="button"
-          style={{
-            marginTop: 10,
-            padding: "10px 14px",
-            borderRadius: 12,
-            border: "1px solid #111",
-            background: "white",
-            color: "#111",
-            fontWeight: 800,
-            cursor: "pointer",
-          }}
-        >
-          {t.reprint}
-        </button>
-      </div>
-    );
-  }
-
   const refresh = useCallback(async () => {
     try {
       setIsRefreshing(true);
@@ -718,7 +540,6 @@ export default function CaissePage() {
     );
     if (order) {
       const paidOrder = { ...order, status: "NEW" as const, isJustValidated: true };
-      setTicketOrder(paidOrder);
       setOrders((prev) => {
         const exists = prev.some((it) => it.id === paidOrder.id);
         const next = exists
@@ -814,7 +635,6 @@ export default function CaissePage() {
         throw new Error(data?.error || t.validatePaymentError);
       }
 
-      setTicketOrder(order);
       pushLog(
         txt(
           `Validation manuelle OK pour ${order.id} -> NEW`,
@@ -827,10 +647,6 @@ export default function CaissePage() {
           it.id === order.id ? { ...it, status: "NEW", isJustValidated: true } : it
         )
       );
-
-      window.setTimeout(() => {
-        window.print();
-      }, 150);
 
       window.setTimeout(() => {
         refresh();
@@ -1163,6 +979,9 @@ export default function CaissePage() {
 	          }}
 	        >
 			          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+			            <a className="af-link-btn" href="/caisse/manual" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+			              Manuelle Kasse
+			            </a>
 			            <a className="af-link-btn" href="/staff/cuisine?from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
 			              {t.qaKitchenSpace}
 			            </a>
@@ -1450,116 +1269,12 @@ export default function CaissePage() {
                   <span>{formatEur(breakdown.total)}</span>
                 </div>
               </div>
-              {ticketOrder?.id === o.id ? <TicketBlock /> : null}
+              {!isPending ? <OnDemandOrderReceipt key={o.id} order={o} requested={receiptOrderId === o.id} onRequest={() => setReceiptOrderId(o.id)} lang={lang} labels={{ ...t, reprint: lang === "de" ? "Beleg drucken" : lang === "fr" ? "Imprimer le reçu" : "Print receipt" }} onPrint={printTicket} marginTop={14} showEvent /> : null}
             </div>
           );
         })}
       </div>
 
-	      {ticketOrder ? (
-	        <div className="af-ticket-wrap af-ticket-area af-ticket-customer" style={{ marginTop: 20, justifyItems: "center" }}>
-          <div className="af-ticket">
-            <div className="af-ticket-head">
-              <img className="af-ticket-logo" src="/logo-afrofood.png" alt="AfroFood" />
-              <div className="af-ticket-title">{t.ticketTitle}</div>
-              <div className="af-ticket-sub">{t.ticketSub}</div>
-            </div>
-
-            <div className="af-ticket-meta">
-              <div>
-                <b>{t.order}:</b> {ticketOrder.id}
-              </div>
-              <div>
-                <b>{t.name}:</b> {ticketOrder.customer_name || "-"}
-              </div>
-	              <div>
-	                <b>{t.payment}:</b> {ticketOrder.payment}
-	              </div>
-                {ticketOrder.reservation_requested ? (
-                  <div>
-                    <b>{lang === "fr" ? "Reservation" : lang === "de" ? "Reservierung" : "Reservation"}:</b> {lang === "fr" ? "Oui" : lang === "de" ? "Ja" : "Yes"}
-                  </div>
-                ) : null}
-                {ticketOrder.reservation_time ? (
-                  <div>
-                    <b>{lang === "fr" ? "Retrait" : lang === "de" ? "Abholung" : "Pickup"}:</b> {formatReservationDateTime(ticketOrder.reservation_time, lang)}
-                  </div>
-                ) : null}
-	            </div>
-            <div
-              style={{
-                marginTop: 8,
-                padding: "8px 10px",
-                borderRadius: 10,
-                border: "1px solid #93c5fd",
-                background: "rgba(59,130,246,0.1)",
-                fontWeight: 800,
-                fontSize: 13,
-              }}
-            >
-              {txt(
-                "Receipt available via QR",
-                "Beleg per QR verfugbar",
-                "Receipt available via QR"
-              )}
-            </div>
-
-            <div className="af-ticket-items">
-              {ticketOrder.items.map((it, idx) => (
-                <div key={idx} className="af-ticket-row">
-                  <div className="af-ticket-name">{it.name}</div>
-                  <div className="af-ticket-qty">
-                    x{it.qty} - {(ticketBreakdown.lineTotals[idx] ?? 0).toFixed(2)} EUR
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="af-ticket-meta">
-              <div>
-                <b>{t.total}:</b> {ticketBreakdown.total.toFixed(2)} EUR
-              </div>
-              <div style={{ fontSize: 12, opacity: 0.8 }}>{t.ticketLegend}</div>
-            </div>
-
-            <div className="af-ticket-qr">
-              <QRCodeCanvas
-                value={makeQrPayload({
-	                  id: ticketOrder.id,
-	                  createdAt: ticketOrder.created_at,
-	                  customerName: ticketOrder.customer_name || undefined,
-                    eventName: ticketOrder.event_name || undefined,
-                    reservationRequested: ticketOrder.reservation_requested === true,
-                    reservationTime: ticketOrder.reservation_time || undefined,
-	                  payment: ticketOrder.payment,
-	                  items: ticketOrder.items,
-	                })}
-                size={72}
-              />
-              <div className="af-ticket-qrtext">{t.ticketSent}</div>
-            </div>
-
-            <div className="af-ticket-foot">{t.thanks}</div>
-          </div>
-
-          <button
-            onClick={printTicket}
-            type="button"
-            style={{
-              marginTop: 10,
-              padding: "10px 14px",
-              borderRadius: 12,
-              border: "1px solid #111",
-              background: "white",
-              color: "#111",
-              fontWeight: 800,
-              cursor: "pointer",
-            }}
-          >
-            {t.reprint}
-          </button>
-	        </div>
-	      ) : null}
 	      </div>
 	    </main>
 	  );

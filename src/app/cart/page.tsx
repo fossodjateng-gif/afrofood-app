@@ -1,9 +1,11 @@
-﻿"use client";
+"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getOrderBreakdownEur } from "@/lib/pricing";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { translations, type Lang, getSavedLang, saveLang } from "@/lib/translations";
-import { makeOrderId, cartToTicketItems, makeQrPayload, type PaymentMethod, type Order } from "@/lib/order";
-import { QRCodeCanvas } from "qrcode.react";
+import { makeOrderId, cartToTicketItems, type PaymentMethod, type Order } from "@/lib/order";
+import { OnDemandOrderReceipt } from "@/components/OnDemandOrderReceipt";
 import {
   getCart,
   clearCart,
@@ -128,32 +130,6 @@ const LAST_ORDER_KEY = "af_last_order_id";
 const EVENT_ID_KEY = "af_event_id";
 const EVENT_NAME_KEY = "af_event_name";
 const DEFAULT_EVENT_NAME = process.env.NEXT_PUBLIC_ACTIVE_EVENT || "";
-const FALLBACK_PRICE_BY_NAME = new Map<string, number>([
-  ["ingwersaft", 5],
-  ["hibiskussaft", 5],
-  ["puff puff 1", 5],
-  ["plantain chips", 5],
-  ["bhb 1 2 kamerun veganer teller", 15],
-  ["attieke poulet 2 elfenbeinkuste", 15],
-  ["batbout mit hahnchenfullung 2 marokko", 15],
-  ["pollo fino 2", 10],
-  ["bh 1 2", 10],
-  ["batbout mit bohnenfullung 2", 10],
-]);
-
-const FALLBACK_PRICE_BY_ID = new Map<string, number>([
-  ["ingwersaft", 5],
-  ["hibiskussaft", 5],
-  ["puff-puff-1", 5],
-  ["plantain-chips", 5],
-  ["bhb-1-2-kamerun-veganer-teller", 15],
-  ["attieke-poulet-2-elfenbeinkuste", 15],
-  ["batbout-mit-hahnchenfullung-2-marokko", 15],
-  ["pollo-fino-2", 10],
-  ["bh-1-2", 10],
-  ["batbout-mit-bohnenfullung-2", 10],
-]);
-
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
@@ -161,6 +137,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 function mapRowToOrder(row: OrderRow): Order {
   return {
     id: row.id,
+    amountCents: row.amount_cents ?? undefined,
     createdAt: row.created_at,
     customerName: row.customer_name || undefined,
     eventId: row.event_id || undefined,
@@ -172,85 +149,6 @@ function mapRowToOrder(row: OrderRow): Order {
   };
 }
 
-function formatReservationDateTime(value: string, lang: Lang) {
-  const dt = new Date(value);
-  if (Number.isNaN(dt.getTime())) return value;
-  return dt.toLocaleString(lang === "fr" ? "fr-FR" : lang === "de" ? "de-DE" : "en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function normalizeItemName(name?: string) {
-  return String(name || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function isDipItem(item: { id?: string; name: string }) {
-  if (String(item.id || "").startsWith("dip-")) return true;
-  const normalized = normalizeItemName(item.name);
-  return normalized.includes("sauce") && (normalized.includes("grune") || normalized.includes("chili"));
-}
-
-function getUnitPrice(item: { name: string; price?: number }) {
-  if (typeof item.price === "number" && Number.isFinite(item.price)) {
-    return item.price;
-  }
-  const id = String((item as { id?: string }).id || "");
-  if (FALLBACK_PRICE_BY_ID.has(id)) {
-    return FALLBACK_PRICE_BY_ID.get(id) ?? 0;
-  }
-  return FALLBACK_PRICE_BY_NAME.get(normalizeItemName(item.name)) ?? 0;
-}
-
-function getTicketBreakdown(items: Array<{ id?: string; name: string; qty: number; price?: number }>) {
-  let dipQtySoFar = 0;
-  let total = 0;
-  const lineTotals = items.map((item) => {
-    const qty = Math.max(0, Number(item.qty || 0));
-    let lineTotal = 0;
-    if (isDipItem(item)) {
-      const paidQty = Math.max(0, dipQtySoFar + qty - 1) - Math.max(0, dipQtySoFar - 1);
-      lineTotal = paidQty * getUnitPrice(item);
-      dipQtySoFar += qty;
-    } else {
-      lineTotal = getUnitPrice(item) * qty;
-    }
-    total += lineTotal;
-    return lineTotal;
-  });
-  return { lineTotals, total };
-}
-
-function getCartBreakdown(items: CartItem[]) {
-  let dipQtySoFar = 0;
-  let dipExtra = 0;
-  let total = 0;
-
-  const lineTotals = items.map((item) => {
-    const qty = Math.max(0, Number(item.qty || 0));
-    if (isDipItem(item)) {
-      const paidQty = Math.max(0, dipQtySoFar + qty - 1) - Math.max(0, dipQtySoFar - 1);
-      const lineTotal = paidQty * getUnitPrice(item);
-      dipQtySoFar += qty;
-      dipExtra += lineTotal;
-      total += lineTotal;
-      return lineTotal;
-    }
-    const lineTotal = getUnitPrice(item) * qty;
-    total += lineTotal;
-    return lineTotal;
-  });
-
-  return { lineTotals, total, dipExtra };
-}
 
 export default function CartPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -275,8 +173,6 @@ export default function CartPage() {
 
   const [order, setOrder] = useState<Order | null>(null);
   const [orderStatus, setOrderStatus] = useState<OrderStatus | null>(null);
-  const [hasAutoPrinted, setHasAutoPrinted] = useState(false);
-  const prevOrderStatus = useRef<OrderStatus | null>(null);
 
   const [isCreating, setIsCreating] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
@@ -308,7 +204,7 @@ export default function CartPage() {
         const res = await fetch(`/api/menu-config${query}`, { cache: "no-store" });
         const data = (await res.json()) as {
           ok?: boolean;
-          sections?: Array<{ items?: Array<{ id?: string; price?: number }> }>;
+          sections?: Array<{ id?: string; items?: Array<{ id?: string; price?: number }> }>;
           paymentConfig?: { cashEnabled?: boolean; cardEnabled?: boolean; cashlessEnabled?: boolean };
           storeConfig?: { activeEventId?: string; activeEventName?: string; events?: Array<{ id?: string; name?: string }> };
           selectedEvent?: { id?: string; name?: string } | null;
@@ -345,11 +241,12 @@ export default function CartPage() {
         }
 
         const priceById = new Map<string, number>();
+        const kindById = new Map<string, "dip" | "regular">();
         for (const section of Array.isArray(data.sections) ? data.sections : []) {
           for (const item of Array.isArray(section.items) ? section.items : []) {
             const id = String(item?.id || "").trim();
             const price = Number(item?.price);
-            if (id && Number.isFinite(price)) priceById.set(id, price);
+            if (id && Number.isFinite(price)) { priceById.set(id, price); kindById.set(id, section.id === "dips" ? "dip" : "regular"); }
           }
         }
         if (priceById.size > 0) {
@@ -357,9 +254,9 @@ export default function CartPage() {
           let changed = false;
           const repriced = current.map((it) => {
             const nextPrice = priceById.get(it.id);
-            if (typeof nextPrice === "number" && Number.isFinite(nextPrice) && nextPrice !== it.price) {
+            if (typeof nextPrice === "number" && Number.isFinite(nextPrice) && (nextPrice !== it.price || kindById.get(it.id) !== it.pricingKind)) {
               changed = true;
-              return { ...it, price: nextPrice };
+              return { ...it, price: nextPrice, pricingKind: kindById.get(it.id) };
             }
             return it;
           });
@@ -399,23 +296,12 @@ export default function CartPage() {
     }
   }, [payment, paymentAvailability]);
 
-  useEffect(() => {
-    if (order && orderStatus === "READY" && prevOrderStatus.current !== "READY" && !hasAutoPrinted) {
-      window.print();
-      setHasAutoPrinted(true);
-    }
-    prevOrderStatus.current = orderStatus;
-  }, [order, orderStatus, hasAutoPrinted]);
 
   const t = translations[lang];
   const cardPaymentHintText = getCardPaymentHintText(lang, clientPlatform);
-  const cartBreakdown = useMemo(() => getCartBreakdown(cart), [cart]);
+  const cartBreakdown = useMemo(() => getOrderBreakdownEur(cart), [cart]);
   const total = cartBreakdown.total;
   const dipExtra = cartBreakdown.dipExtra;
-  const ticketBreakdown = useMemo(
-    () => (order ? getTicketBreakdown(order.items) : { lineTotals: [], total: 0 }),
-    [order]
-  );
 
   function refreshCart() {
     setCart(getCart());
@@ -899,104 +785,29 @@ export default function CartPage() {
           ) : null}
           </section>
 
-          {order && (orderStatus === "NEW" || orderStatus === "READY" || orderStatus === "CANCELED") ? (
-            <section style={UI.section} className="af-section">
-            <div className="af-ticket-wrap af-ticket-area af-ticket-customer" style={{ marginTop: 0 }}>
-              <div className="af-ticket">
-                <div className="af-ticket-head">
-                  <img className="af-ticket-logo" src="/logo-afrofood.png" alt="AfroFood" />
-                  <div className="af-ticket-title">{t.cart_ticket_title}</div>
-                  <div className="af-ticket-sub">
-                    {orderStatus === "CANCELED" ? t.cart_ticket_canceled : t.cart_ticket_paid}
-                  </div>
-                </div>
-
-                <div className="af-ticket-meta">
-                  <div><b>{t.cart_ticket_order}:</b> {order.id}</div>
-                  <div><b>{t.cart_ticket_name}:</b> {order.customerName || "-"}</div>
-                  {order.eventName ? (
-                    <div>
-                      <b>{lang === "de" ? "Event" : lang === "fr" ? "Evenement" : "Event"}:</b> {order.eventName}
-                    </div>
-                  ) : null}
-                  {order.reservationRequested ? (
-                    <div>
-                      <b>{t.cart_ticket_reservation}:</b> {lang === "fr" ? "Oui" : lang === "de" ? "Ja" : "Yes"}
-                    </div>
-                  ) : null}
-                  {order.reservationTime ? (
-                    <div>
-                      <b>{t.cart_ticket_pickup_time}:</b> {formatReservationDateTime(order.reservationTime, lang)}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="af-ticket-items">
-	                  {order.items.map((it, idx) => (
-	                    <div key={idx} className="af-ticket-row">
-	                      <div className="af-ticket-name">{it.name}</div>
-	                      <div className="af-ticket-qty">
-	                        x{it.qty} - {(ticketBreakdown.lineTotals[idx] ?? 0).toFixed(2)} EUR
-	                      </div>
-                        {it.note ? (
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.85 }}>
-                            <b>{lang === "fr" ? "Remarque" : lang === "de" ? "Bemerkung" : "Note"}:</b> {it.note}
-                          </div>
-                        ) : null}
-                        {Array.isArray(it.unitNotes) && it.unitNotes.some((note) => String(note || "").trim()) ? (
-                          <div style={{ marginTop: 4, display: "grid", gap: 2, fontSize: 12, opacity: 0.85 }}>
-                            {it.unitNotes.map((note, noteIndex) =>
-                              String(note || "").trim() ? (
-                                <div key={`${idx}-unit-note-${noteIndex}`}>
-                                  <b>{t.cart_item_note_portion} {noteIndex + 1}:</b> {note}
-                                </div>
-                              ) : null
-                            )}
-                          </div>
-                        ) : null}
-	                    </div>
-	                  ))}
-                </div>
-
-                <div className="af-ticket-meta">
-                  <div>
-                    <b>Total:</b> {ticketBreakdown.total.toFixed(2)} EUR
-                  </div>
-                  <div style={{ fontSize: 12, opacity: 0.8 }}>{t.legend_details}</div>
-                </div>
-
-                <div className="af-ticket-qr">
-                  <QRCodeCanvas
-                    value={
-                      orderStatus === "CANCELED"
-                        ? `${makeQrPayload(order)}\nSTATUS:CANCELED`
-                        : makeQrPayload(order)
-                    }
-                    size={72}
-                  />
-                  <div className="af-ticket-qrtext">
-                    {orderStatus === "CANCELED" ? t.cart_ticket_canceled_note : t.cart_ticket_sent}
-                  </div>
-                </div>
-
-                <div className="af-ticket-foot">
-                  {orderStatus === "CANCELED" ? t.cart_ticket_canceled_note : t.cart_ticket_thanks}
-                </div>
-              </div>
-
-              <button
-                onClick={printTicket}
-                style={{ padding: "10px 12px", borderRadius: 12, border: "1px solid #111", background: "#111", color: "white", fontWeight: 900, cursor: "pointer" }}
-                type="button"
-              >
-                {t.cart_print}
-              </button>
-            </div>
-            </section>
-          ) : null}
 
         </>
       )}
+          {order && orderStatus ? (
+            <section style={UI.section} className="af-section">
+              <OnDemandOrderReceipt key={order.id} order={{
+                id: order.id, created_at: order.createdAt, customer_name: order.customerName || null,
+                event_id: order.eventId, event_name: order.eventName, payment: order.payment,
+                status: orderStatus, amount_cents: order.amountCents, items: order.items,
+                reservation_requested: order.reservationRequested, reservation_time: order.reservationTime,
+              }} lang={lang} showEvent marginTop={0} onPrint={printTicket} labels={{
+                ticketTitle: t.cart_ticket_title,
+                ticketSub: orderStatus === "CANCELED" ? t.cart_ticket_canceled : orderStatus === "PENDING_PAYMENT" ? t.cart_pending_message : t.cart_ticket_paid,
+                order: t.cart_ticket_order, name: t.cart_ticket_name,
+                payment: lang === "de" ? "Zahlung" : lang === "fr" ? "Paiement" : "Payment",
+                total: lang === "de" ? "Gesamt" : "Total", ticketLegend: t.legend_details,
+                ticketSent: orderStatus === "CANCELED" ? t.cart_ticket_canceled_note : orderStatus === "PENDING_PAYMENT" ? t.cart_pending_message : t.cart_ticket_sent,
+                thanks: orderStatus === "CANCELED" ? t.cart_ticket_canceled_note : t.cart_ticket_thanks,
+                reprint: t.cart_print,
+              }} />
+            </section>
+          ) : null}
+
     </main>
   );
 }

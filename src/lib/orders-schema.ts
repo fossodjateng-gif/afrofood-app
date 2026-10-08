@@ -32,4 +32,10 @@ export async function ensureOrdersSchema() {
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS event_name TEXT;`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reservation_requested BOOLEAN NOT NULL DEFAULT FALSE;`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reservation_time TIMESTAMP;`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cash_received_cents INTEGER;`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS change_given_cents INTEGER;`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pos_cash_key TEXT;`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pos_cash_fingerprint TEXT;`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pos_cash_state TEXT;`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS orders_pos_cash_key_unique ON orders (pos_cash_key) WHERE pos_cash_key IS NOT NULL;`;
 }

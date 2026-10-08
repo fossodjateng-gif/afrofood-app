@@ -1,3 +1,4 @@
+import type { PricingKind } from "@/lib/pricing";
 import type { Lang } from "@/lib/translations";
 
 export type LocalizedText = Record<Lang, string>;
@@ -5,6 +6,7 @@ export type LocalizedText = Record<Lang, string>;
 export type MenuTag = "VEGAN" | "CHICKEN";
 
 export type CatalogMenuItem = {
+  pricingKind?: PricingKind;
   id: string;
   name: LocalizedText;
   basePrice: number;

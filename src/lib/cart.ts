@@ -1,4 +1,6 @@
+import { calculateOrderTotalCents, type PricingKind } from "@/lib/pricing";
 export type CartItem = {
+  pricingKind?: PricingKind;
   id: string;
   name: string;
   price: number;
@@ -10,10 +12,6 @@ export type CartItem = {
 };
 
 const KEY = "afrofood_cart_v1";
-
-function isDip(id: string) {
-  return id.startsWith("dip-");
-}
 
 function cleanText(value: string) {
   return value
@@ -41,8 +39,9 @@ function normalizeUnitNotes(rawNotes: unknown, qty: number, fallbackNote?: strin
   return notes;
 }
 
-function sanitizeItem(raw: any): CartItem | null {
-  if (!raw || typeof raw !== "object") return null;
+function sanitizeItem(value: unknown): CartItem | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
   const id = String(raw.id || "").trim();
   const name = cleanText(String(raw.name || "").trim());
   const price = Number(raw.price || 0);
@@ -51,6 +50,7 @@ function sanitizeItem(raw: any): CartItem | null {
   if (!id || !name || !Number.isFinite(price) || !Number.isFinite(qty) || qty <= 0) return null;
   return {
     id,
+    pricingKind: raw.pricingKind === "dip" ? "dip" : raw.pricingKind === "regular" ? "regular" : undefined,
     name,
     price,
     qty,
@@ -93,6 +93,7 @@ export function addToCart(payload: Omit<CartItem, "qty">) {
     const it = cart[idx];
     it.name = payload.name;
     it.price = payload.price;
+    it.pricingKind = payload.pricingKind;
     it.qty += 1;
     it.unitNotes = normalizeUnitNotes(it.unitNotes, it.qty, it.note);
 
@@ -117,14 +118,7 @@ export function addToCart(payload: Omit<CartItem, "qty">) {
 }
 
 export function cartTotal(cart: CartItem[]): number {
-  const base = cart.reduce((sum, it) => sum + it.price * it.qty, 0);
-  const redExtras = cart.reduce((sum, it) => sum + it.extraRedSauceQty * 1, 0);
-  const dipQtyTotal = cart
-    .filter((it) => isDip(it.id))
-    .reduce((sum, it) => sum + it.qty, 0);
-
-  const dipExtra = Math.max(0, dipQtyTotal - 1) * 1;
-  return base + redExtras + dipExtra;
+  return calculateOrderTotalCents(cart) / 100;
 }
 
 export function incrementItem(id: string) {

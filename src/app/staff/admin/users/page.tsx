@@ -111,44 +111,44 @@ export default function StaffAdminUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
 
+  function reload() {
+    setUsers(getUsers());
+  }
+
   useEffect(() => {
-    setLang(getSavedLang());
-    const s = getSession();
-    if (!s) {
-      window.location.href = "/team/login";
-      return;
+    async function boot() {
+      setLang(getSavedLang());
+      const s = getSession();
+      if (!s) {
+        window.location.href = "/team/login";
+        return;
+      }
+      if (s.role !== "admin") {
+        window.location.href = "/staff";
+        return;
+      }
+      setSessionRole(s.role);
+      void fetch("/api/menu-config", { cache: "no-store" })
+        .then((res) => res.json())
+        .then((data) => {
+          const options = Array.isArray(data?.storeConfig?.events)
+            ? data.storeConfig.events
+                .map((event: { id?: string; name?: string }) => ({
+                  id: String(event?.id || "").trim(),
+                  name: String(event?.name || "").trim(),
+                }))
+                .filter((event: { id: string; name: string }) => event.id && event.name)
+            : [];
+          setEventOptions(options);
+        })
+        .catch(() => {});
+      reload();
     }
-    if (s.role !== "admin") {
-      window.location.href = "/staff";
-      return;
-    }
-    setSessionRole(s.role);
-    void fetch("/api/menu-config", { cache: "no-store" })
-      .then((res) => res.json())
-      .then((data) => {
-        const options = Array.isArray(data?.storeConfig?.events)
-          ? data.storeConfig.events
-              .map((event: { id?: string; name?: string }) => ({
-                id: String(event?.id || "").trim(),
-                name: String(event?.name || "").trim(),
-              }))
-              .filter((event: { id: string; name: string }) => event.id && event.name)
-          : [];
-        setEventOptions(options);
-        if (options.length > 0 && !cashierEventId) {
-          setCashierEventId(options[0].id);
-        }
-      })
-      .catch(() => {});
-    reload();
+    void boot();
   }, []);
 
   const t = UI_TEXT[lang];
   const sorted = useMemo(() => [...users].sort((a, b) => a.username.localeCompare(b.username)), [users]);
-
-  function reload() {
-    setUsers(getUsers());
-  }
 
   return (
     <main
@@ -249,6 +249,7 @@ export default function StaffAdminUsersPage() {
                 onChange={(e) => setCashierEventId(e.target.value)}
                 style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", maxWidth: 280 }}
               >
+                <option value="">Kein Event zugewiesen</option>
                 {eventOptions.map((event) => (
                   <option key={event.id} value={event.id}>
                     {event.name}
@@ -306,6 +307,7 @@ export default function StaffAdminUsersPage() {
                     }}
                     style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd" }}
                   >
+                    <option value="">Kein Event zugewiesen</option>
                     {eventOptions.map((event) => (
                       <option key={event.id} value={event.id}>
                         {event.name}

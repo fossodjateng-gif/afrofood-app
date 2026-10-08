@@ -167,6 +167,34 @@ export function updateSessionCashierEventId(cashierEventId: string) {
   localStorage.setItem(SESSION_KEY, JSON.stringify(next));
 }
 
+export function resolveCashierEventId(session: StaffSession): string {
+  if (!hasWindow() || session.role !== "cashier") return "";
+  let storedUsers: unknown;
+  try {
+    storedUsers = JSON.parse(localStorage.getItem(USERS_KEY) || "null");
+  } catch {
+    throw new Error("Das gespeicherte Kassenkonto konnte nicht gelesen werden.");
+  }
+  // Read the saved account without creating defaults or changing assignments.
+  const username = String(session.username || "").trim().toLowerCase();
+  const account = Array.isArray(storedUsers)
+    ? storedUsers.find((value: unknown): value is StaffUser => {
+        if (!value || typeof value !== "object") return false;
+        const user = value as Partial<StaffUser>;
+        return typeof user.username === "string" && user.username.trim().toLowerCase() === username;
+      })
+    : undefined;
+  if (!account || !account.active || account.role !== "cashier") {
+    throw new Error("Kein aktives Kassenkonto für den angemeldeten Benutzer gefunden.");
+  }
+  const eventId = String(account.cashierEventId || "").trim();
+  if (session.cashierEventId !== (eventId || undefined)) {
+    updateSessionCashierEventId(eventId);
+    session.cashierEventId = eventId || undefined;
+  }
+  return eventId;
+}
+
 export function login(username: string, password: string): { ok: true; session: StaffSession } | { ok: false; error: string } {
   const users = getUsers();
   const u = users.find(

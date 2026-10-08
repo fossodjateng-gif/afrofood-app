@@ -1,7 +1,9 @@
+import { makeNextOrderId } from "@/lib/order-number";
+import { createPosCashOrder } from "@/lib/pos-cash-server";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
-import { consumeItemAvailability, getPaymentConfig } from "@/lib/menu-settings";
+import { consumeItemAvailability, getPaymentConfig, getResolvedMenuSections } from "@/lib/menu-settings";
 import { calculateOrderTotalCents } from "@/lib/pricing";
 import { ensureOrdersSchema } from "@/lib/orders-schema";
 
@@ -22,40 +24,6 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Server error";
 }
 
-function formatDayKey(d = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Berlin",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(d);
-  const part = (type: string) => parts.find((it) => it.type === type)?.value || "";
-  return `${part("year")}${part("month")}${part("day")}`;
-}
-
-async function makeNextOrderId() {
-  const dayKey = formatDayKey();
-  const prefix = `${dayKey}-`;
-  const rows = await sql`
-    SELECT id
-    FROM orders
-    WHERE id LIKE ${`${prefix}%`}
-    ORDER BY id DESC
-    LIMIT 1
-  `;
-
-  let next = 1;
-  if (rows.length > 0) {
-    const parts = String((rows[0] as { id: string }).id).split("-");
-    const lastSeq = Number(parts[1] || "0");
-    if (Number.isFinite(lastSeq) && lastSeq >= 1) {
-      next = lastSeq + 1;
-    }
-  }
-
-  return `${dayKey}-${String(next).padStart(3, "0")}`;
-}
-
 export async function GET(req: Request) {
   try {
     await ensureOrdersSchema();
@@ -70,7 +38,7 @@ export async function GET(req: Request) {
       }
 
       rows = await sql`
-        SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, cash_received_cents, change_given_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
         FROM orders
         WHERE id = ${idParam} AND UPPER(status) = ${statusParam}
         ORDER BY created_at DESC
@@ -152,7 +120,7 @@ export async function POST(req: Request) {
         : null;
 
     const payment = String(body.payment || "") as PaymentMethod;
-    const items = body.items;
+    let items = body.items;
 
     if (!VALID_PAYMENTS.has(payment)) {
       return NextResponse.json({ ok: false, error: "Invalid payment" }, { status: 400 });
@@ -167,6 +135,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Missing reservation time" }, { status: 400 });
     }
 
+    if (body.posCashKey !== undefined) {
+      if (payment !== "cash" || !eventId || !/^[a-f0-9-]{36}$/i.test(String(body.posCashKey)) || !["admin", "cashier"].includes(req.headers.get("x-staff-role") || "")) {
+        return NextResponse.json({ ok: false, error: "Invalid POS cash request" }, { status: 400 });
+      }
+      return await createPosCashOrder({ key: String(body.posCashKey), eventId, eventName, items });
+    }
+
     const paymentConfig = await getPaymentConfig(eventId || undefined);
     if (payment === "cash" && !paymentConfig.cashEnabled) {
       return NextResponse.json({ ok: false, error: "Cash payment disabled" }, { status: 400 });
@@ -177,6 +152,20 @@ export async function POST(req: Request) {
     if (payment === "cashless" && !paymentConfig.cashlessEnabled) {
       return NextResponse.json({ ok: false, error: "Cashless payment disabled" }, { status: 400 });
     }
+
+    // Resolve classification and configured prices from the server catalogue.
+    // Never trust a client-supplied dip marker or amount.
+    const sections = await getResolvedMenuSections(eventId || undefined);
+    const catalog = new Map(sections.flatMap((section) => section.items.map((item) => [item.id, { item, pricingKind: section.id === "dips" ? "dip" : "regular" }] as const)));
+    const resolvedItems = [];
+    for (const item of items) {
+      const product = catalog.get(String(item?.id || ""));
+      if (!product || !Number.isSafeInteger(item.qty) || item.qty <= 0) {
+        return NextResponse.json({ ok: false, error: "Invalid order item" }, { status: 400 });
+      }
+      resolvedItems.push({ ...item, pricingKind: product.pricingKind, price: product.item.price });
+    }
+    items = resolvedItems;
 
     await consumeItemAvailability(items, eventId || undefined);
 
@@ -206,6 +195,7 @@ export async function POST(req: Request) {
         reservationRequested,
         reservationTime: reservationTime ?? undefined,
         payment,
+        amountCents,
         items,
       },
     });

@@ -1,6 +1,8 @@
 ﻿"use client";
 
 import React from "react";
+import { getProductImageSource, PRODUCT_IMAGE_FALLBACK } from "@/lib/product-image";
+import { getDipPriceLabel } from "@/lib/pricing";
 import Link from "next/link";
 import { addToCart, getCart } from "@/lib/cart";
 import { getSavedLang, saveLang, translations, type Lang } from "@/lib/translations";
@@ -291,7 +293,7 @@ type RuntimeItem = CatalogSection["items"][number] & {
   };
 };
 type RuntimeSection = Omit<CatalogSection, "items"> & { items: RuntimeItem[] };
-const MENU_IMAGE_FALLBACK = "/logo-afrofood.png";
+const MENU_IMAGE_FALLBACK = PRODUCT_IMAGE_FALLBACK;
 const EVENT_ID_KEY = "af_event_id";
 const EVENT_NAME_KEY = "af_event_name";
 
@@ -333,6 +335,7 @@ export default function MenuPage() {
       items: section.items.map((it) => ({
         ...it,
         imagePath: it.imagePath ?? getMenuItemImagePath(it.id),
+        pricingKind: section.id === "dips" ? "dip" : "regular",
         price: it.basePrice,
         visible: true,
         availability: { status: "available", remainingQty: null, resumeAt: null },
@@ -585,14 +588,14 @@ export default function MenuPage() {
 	                    style={UI.imageFrame}
                     onClick={() =>
                       setSelectedImage({
-                        src: it.imagePath || MENU_IMAGE_FALLBACK,
+                        src: getProductImageSource(it.imagePath),
                         alt: it.name[lang],
                       })
                     }
                     aria-label={`Open image for ${it.name[lang]}`}
                   >
                     <img
-                      src={it.imagePath || MENU_IMAGE_FALLBACK}
+                      src={getProductImageSource(it.imagePath)}
                       alt={it.name[lang]}
                       style={getImageStyle(it.imagePath)}
                       loading="lazy"
@@ -640,6 +643,7 @@ export default function MenuPage() {
 	                            id: it.id,
                             name: it.name[lang],
                             price: it.price,
+                            pricingKind: sec.id === "dips" ? "dip" : "regular",
                             redSauce: false,
                             extraRedSauceQty: 0,
                           });
@@ -672,8 +676,8 @@ export default function MenuPage() {
 	                    </div>
 
                     <div style={UI.cardMeta}>
-                      <div style={UI.price} className="af-price">
-                        {it.price.toFixed(2)} EUR
+                      <div style={sec.id === "dips" ? { ...UI.price, fontSize: 12, whiteSpace: "normal", maxWidth: 190 } : UI.price} className="af-price">
+                        {sec.id === "dips" ? getDipPriceLabel(lang) : `${it.price.toFixed(2)} EUR`}
                       </div>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "#7a4b2f", textAlign: "right" }}>
                         {previewHint}

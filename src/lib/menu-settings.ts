@@ -512,6 +512,7 @@ export async function getResolvedMenuSections(eventId?: string) {
       const setting = eventSettingsMap.get(item.id) ?? settingsMap.get(item.id);
       return {
         ...item,
+        pricingKind: section.id === "dips" ? "dip" as const : "regular" as const,
         imagePath: item.imagePath ?? getMenuItemImagePath(item.id),
         price: setting ? Number(setting.price) : Number(item.basePrice),
         visible: setting ? Boolean(setting.visible) : true,
@@ -533,6 +534,7 @@ export async function getResolvedMenuSections(eventId?: string) {
       resolved.push(section);
     }
     section.items.push({
+      pricingKind: targetSectionId === "dips" ? "dip" : "regular",
       id: row.item_id,
       name: {
         de: row.name_de,

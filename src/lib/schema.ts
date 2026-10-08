@@ -1,3 +1,4 @@
+import type { PricingKind } from "@/lib/pricing";
 export type OrderStatus =
   | "PENDING_PAYMENT"
   | "NEW"
@@ -8,6 +9,7 @@ export type OrderStatus =
 export type PaymentMethod = "cash" | "card" | "cashless";
 
 export type OrderItem = {
+  pricingKind?: PricingKind;
   id?: string;
   name: string;
   qty: number;
@@ -24,6 +26,8 @@ export type OrderRow = {
   payment_provider?: string | null;
   stripe_payment_intent_id?: string | null;
   amount_cents?: number | null;
+  cash_received_cents?: number | null;
+  change_given_cents?: number | null;
   currency?: string | null;
   paid_at?: string | null;
   payment_error?: string | null;
