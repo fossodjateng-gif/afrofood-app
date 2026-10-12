@@ -7,6 +7,7 @@ import { getOrderBreakdownEur } from "@/lib/pricing";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OrderRow } from "@/lib/schema";
 import { OnDemandOrderReceipt } from "@/components/OnDemandOrderReceipt";
+import { OrderHistory } from "@/components/pos/OrderHistory";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { clearSession, getSession, getStaffRoleLabel, resolveCashierEventId, type StaffRole, type StaffSession } from "@/lib/staff-auth";
@@ -290,6 +291,7 @@ export default function CaissePage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLogs, setActionLogs] = useState<string[]>([]);
   const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
+  const [historyReceiptOrderId, setHistoryReceiptOrderId] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [cashierEventId, setCashierEventId] = useState("");
 
@@ -1243,12 +1245,13 @@ export default function CaissePage() {
                   <span>{formatEur(breakdown.total)}</span>
                 </div>
               </div>
-              {!isPending ? <OnDemandOrderReceipt key={o.id} order={o} requested={receiptOrderId === o.id} onRequest={() => setReceiptOrderId(o.id)} lang={lang} labels={{ ...t, reprint: lang === "de" ? "Beleg drucken" : lang === "fr" ? "Imprimer le reçu" : "Print receipt" }} onPrint={printTicket} marginTop={14} showEvent /> : null}
+              {!isPending ? <OnDemandOrderReceipt key={o.id} order={o} requested={receiptOrderId === o.id} onRequest={() => { setHistoryReceiptOrderId(null); setReceiptOrderId(o.id); }} lang={lang} labels={{ ...t, reprint: lang === "de" ? "Beleg drucken" : lang === "fr" ? "Imprimer le reçu" : "Print receipt" }} onPrint={printTicket} marginTop={14} showEvent /> : null}
             </div>
           );
         })}
       </div>
-
+        <OrderHistory key={selectedEventId} eventId={selectedEventId} lang={lang}
+          selectedOrderId={historyReceiptOrderId} onSelect={(id) => { setReceiptOrderId(null); setHistoryReceiptOrderId(id); }} />
 	      </div>
 	    </main>
 	  );

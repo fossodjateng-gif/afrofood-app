@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OrderReceipt, type ReceiptLabels } from "@/components/OrderReceipt";
 import { CardPayment } from "@/components/pos/CardPayment";
+import { OrderHistory } from "@/components/pos/OrderHistory";
 import { cardAttemptKey, checkPosCard, isPaidCardOrder, makeCardFingerprint, preparePosCard, type CardAttempt } from "@/lib/pos-card";
 import type { OrderRow } from "@/lib/schema";
 import { CashPayment } from "@/components/pos/CashPayment";
@@ -41,6 +42,7 @@ export default function ManualCaissePage() {
   const cardRef = useRef<CardAttempt | null>(null);
   const cardBusyRef = useRef(false);
   const [showReceipt, setShowReceipt] = useState(false);
+  const [historyReceiptOrderId, setHistoryReceiptOrderId] = useState<string | null>(null);
   const [cashOpen, setCashOpen] = useState(false);
   const [cashAttempt, setCashAttempt] = useState<CashAttempt | null>(null);
   const [cashReceipt, setCashReceipt] = useState<CashReceipt | null>(null);
@@ -384,14 +386,16 @@ export default function ManualCaissePage() {
         {error ? <div className={styles.error} role="alert"><strong>Manuelle Kasse nicht verfügbar</strong><p>{error}</p><Link href="/caisse">Zur Kasse zurückkehren</Link></div> : null}
         {storageError && context ? <div className={styles.error} role="alert">Der Warenkorb kann auf diesem Gerät nicht gespeichert werden. Beim Neuladen kann er verloren gehen.</div> : null}
         {loading ? <div className={styles.loading} role="status">Event-Menü und Warenkorb werden geladen…</div> : null}
-        {(cardAttempt || cardBusy) ? <CardPayment lang={lang} attempt={cardAttempt} receipt={cardReceipt} busy={cardBusy} error={cardError} delayed={cardDelayed} onCheck={() => void verifyCard()} onResume={() => void resumeCard()} onNew={newCardOrder} onTicket={() => setShowReceipt(true)} /> : null}
+        {(cardAttempt || cardBusy) ? <CardPayment lang={lang} attempt={cardAttempt} receipt={cardReceipt} busy={cardBusy} error={cardError} delayed={cardDelayed} onCheck={() => void verifyCard()} onResume={() => void resumeCard()} onNew={newCardOrder} onTicket={() => { setHistoryReceiptOrderId(null); setShowReceipt(true); }} /> : null}
         {!cardAttempt && !cardBusy && cardError ? <p role="alert" className={styles.error}>{cardError}</p> : null}
-        {cashOpen ? <CashPayment lang={lang} totalCents={cashAttempt?.amountCents ?? getPosBreakdown(items).totalCents} received={received} busy={cashBusy} error={cashError} receipt={cashReceipt} locked={!!cashAttempt} onReceived={setReceived} onConfirm={() => void confirmCash()} onClose={() => setCashOpen(false)} onTicket={() => setShowReceipt(true)} onNew={() => { setShowReceipt(false); setCashReceipt(null); setCashOpen(false); setReceived(""); setCashError(null); }} /> : null}
+        {cashOpen ? <CashPayment lang={lang} totalCents={cashAttempt?.amountCents ?? getPosBreakdown(items).totalCents} received={received} busy={cashBusy} error={cashError} receipt={cashReceipt} locked={!!cashAttempt} onReceived={setReceived} onConfirm={() => void confirmCash()} onClose={() => setCashOpen(false)} onTicket={() => { setHistoryReceiptOrderId(null); setShowReceipt(true); }} onNew={() => { setShowReceipt(false); setCashReceipt(null); setCashOpen(false); setReceived(""); setCashError(null); }} /> : null}
         {(cardReceipt || cashReceipt) && showReceipt ? <OrderReceipt order={(cardReceipt || cashReceipt)!} lang={lang} labels={receiptLabels[lang]} showEvent onPrint={() => window.print()} /> : null}
         {context && !loading && !cashOpen && !cardAttempt && !cardBusy ? <div className={styles.workspace}>
           <ProductGrid lang={lang} sections={context.sections} categoryId={categoryId} quantities={quantities} onCategoryChange={setCategoryId} onAdd={addProduct} />
           <PosCart onCard={() => void startCard()} cardDisabled={items.length === 0 || storageError || cardBusy || !!cardAttempt || items.some((item) => !products.get(item.id) || item.qty > getProductLimit(products.get(item.id)!))} onCash={() => { if (cardRef.current || cardBusyRef.current || localStorage.getItem(cardAttemptKey(context.cartKey))) { void loadContext(); return; } setCashOpen(true); setCashError(null); setReceived(""); }} cashDisabled={items.length === 0 || storageError || items.some((item) => !products.get(item.id) || item.qty > getProductLimit(products.get(item.id)!))} lang={lang} items={items} products={products} onIncrease={addProduct} onDecrease={(id) => updateCart((current) => decreasePosProduct(current, id))} onRemove={(id) => updateCart((current) => current.filter((item) => item.id !== id))} />
         </div> : null}
+        {context ? <OrderHistory key={context.eventId} eventId={context.eventId} lang={lang}
+          selectedOrderId={historyReceiptOrderId} onSelect={(id) => { setShowReceipt(false); setHistoryReceiptOrderId(id); }} /> : null}
       </div>
     </main>
   );
