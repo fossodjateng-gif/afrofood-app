@@ -436,19 +436,21 @@ a {
     margin: 0 !important; padding: 0 !important; background: white !important;
   }
   #af-receipt-print-root {
-    display: block !important; position: static !important; width: 72mm;
+    display: block !important; position: static !important; width: 66mm;
     max-width: 100%; height: auto; min-height: 0; max-height: none;
     overflow: visible; margin: 0 auto; padding: 0; transform: none;
   }
   #af-receipt-print-root .af-ticket {
-    display: block; position: static; width: 100%; max-width: 72mm;
+    display: block; position: static; width: 100%; max-width: 66mm; box-sizing: border-box;
     height: auto; min-height: 0; max-height: none; overflow: visible;
-    margin: 0; padding: 2mm; border: 0; border-radius: 0; box-shadow: none;
+    margin: 0; padding: 1mm 2mm 2mm; border: 0; border-radius: 0; box-shadow: none;
     background: white; color: black; transform: none;
+    white-space: normal; overflow-wrap: anywhere; word-break: normal;
   }
   #af-receipt-print-root button { display: none !important; }
   #af-receipt-print-root .af-ticket-qr-hint { display: none; }
-  #af-receipt-print-root .af-ticket-logo { width: 25mm; height: auto; opacity: 1; }
+  #af-receipt-print-root .af-ticket-logo { width: 25mm; max-width: 100%; height: auto; opacity: 1; }
+  #af-receipt-print-root .af-ticket-qr canvas { max-width: 100%; max-height: 28mm; }
   #af-receipt-print-root .af-ticket-meta,
   #af-receipt-print-root .af-ticket-qr { display: block; }
   #af-receipt-print-root .af-ticket-qr { text-align: center; }

@@ -7,7 +7,7 @@ const { harness, findAll } = require('./ui-harness.cjs');
 const order = { id: 'historical-paid-001', created_at: '2026-10-08T12:00:00Z', paid_at: '2026-10-12T12:00:00Z', payment: 'card', status: 'DONE', event_name: 'Test event', amount_cents: 1000, items: [{ name: 'Meal', qty: 1, price: 10 }] };
 const labels = { ticketTitle: 'Kundenbeleg', ticketSub: 'Bezahlt', order: 'Bestellung', name: 'Name', payment: 'Zahlung', total: 'Gesamt', ticketLegend: 'Allergene', ticketSent: 'Küche', thanks: 'Danke', reprint: 'Beleg drucken' };
 
-function setup({ decode = () => { throw new Error('Printing must not wait for image decoding'); }, fonts = new Promise(() => {}), onPrint = () => {} } = {}) {
+function setup({ decode = () => { throw new Error('Printing must not wait for image decoding'); }, fonts = new Promise(() => {}), onPrint = () => {}, receiptOrder = order } = {}) {
   const originalDocument = global.document, originalWindow = global.window;
   const roots = [], listeners = new Map(); let prints = 0, tree, cleanup;
   global.document = {
@@ -20,7 +20,7 @@ function setup({ decode = () => { throw new Error('Printing must not wait for im
   const h = harness('src/components/OrderReceipt.tsx', {}, {
     'react-dom': { createPortal: (children, target) => ({ type: 'portal', props: { children, target } }), flushSync: fn => { fn(); render(); cleanup = h.effects[0](); } },
   });
-  function render() { tree = h.render(h.component.OrderReceipt, { order, lang: 'de', labels, showEvent: true, onPrint: () => { prints++; onPrint(); } }); return tree; }
+  function render() { tree = h.render(h.component.OrderReceipt, { order: receiptOrder, lang: 'de', labels, showEvent: true, onPrint: () => { prints++; onPrint(); } }); return tree; }
   render();
   return {
     h, roots, listeners, render, get tree() { return tree; }, get prints() { return prints; },
@@ -99,11 +99,41 @@ test('thermal CSS removes screen layout and invalid page size, while allowing lo
   const print = css.slice(css.indexOf('@media print'));
   assert.match(print, /@page\s*\{\s*size:\s*auto;\s*margin:\s*0;/);
   assert.match(print, /body:has\(> #af-receipt-print-root\) > :not\(#af-receipt-print-root\)\s*\{ display: none !important/);
-  assert.match(print, /max-width: 72mm/);
+  assert.match(print, /width: 66mm/);
+  assert.match(print, /max-width: 66mm/);
+  assert.doesNotMatch(print, /72mm/);
+  assert.match(print, /margin: 0 auto/);
+  assert.match(print, /padding: 1mm 2mm 2mm/);
+  assert.match(print, /box-sizing: border-box/);
+  assert.match(print, /white-space: normal; overflow-wrap: anywhere; word-break: normal/);
+  assert.doesNotMatch(print, /overflow:\s*hidden|text-overflow:\s*ellipsis|translate\(/);
   assert.match(print, /position: static/);
   assert.match(print, /overflow: visible/);
-  assert.match(print, /\.af-ticket-logo \{ width: 25mm; height: auto/);
+  assert.match(print, /\.af-ticket-logo \{ width: 25mm; max-width: 100%; height: auto/);
+  assert.match(css, /\.af-ticket-qr canvas \{ width: 28mm !important; height: 28mm !important/);
+  assert.match(css, /\.af-ticket-logo\{[^}]*margin: 0 auto 6px/s);
+  assert.match(print, /\.af-ticket-qr \{ text-align: center/);
   assert.match(print, /\.af-ticket-row \{ break-inside: avoid/);
   assert.doesNotMatch(print.match(/#af-receipt-print-root \.af-ticket \{[^}]+\}/)[0], /break-inside/);
   assert.doesNotMatch(fs.readFileSync('src/components/OrderReceipt.tsx', 'utf8'), /innerHTML|cloneNode/);
+});
+
+test('long order number and metadata remain complete in the printable React receipt and QR', () => {
+  const longId = 'POSCARDTEST-' + '1234567890'.repeat(12) + '-001';
+  const longName = 'LongCustomerName'.repeat(20);
+  const longEvent = 'LongEventName'.repeat(20);
+  const s = setup({ receiptOrder: { ...order, id: longId, customer_name: longName, event_name: longEvent } });
+  function texts(tree) {
+    if (typeof tree === 'string' || typeof tree === 'number') return [String(tree)];
+    if (Array.isArray(tree)) return tree.flatMap(texts);
+    return tree?.props ? texts(tree.props.children) : [];
+  }
+  try {
+    s.click(); assert.equal(s.prints, 1);
+    const portal = findAll(s.tree, node => node.type === 'portal')[0];
+    const content = texts(portal.props.children);
+    for (const value of [longId, longName, longEvent]) assert.ok(content.includes(value));
+    const qr = findAll(portal.props.children, node => node.props?.size === 256)[0];
+    assert.ok(qr.props.value.includes(longId)); assert.equal(qr.props.marginSize, 4);
+  } finally { s.dispose(); }
 });
