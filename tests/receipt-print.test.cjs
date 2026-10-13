@@ -7,7 +7,7 @@ const { harness, findAll } = require('./ui-harness.cjs');
 const order = { id: 'historical-paid-001', created_at: '2026-10-08T12:00:00Z', paid_at: '2026-10-12T12:00:00Z', payment: 'card', status: 'DONE', event_name: 'Test event', amount_cents: 1000, items: [{ name: 'Meal', qty: 1, price: 10 }] };
 const labels = { ticketTitle: 'Kundenbeleg', ticketSub: 'Bezahlt', order: 'Bestellung', name: 'Name', payment: 'Zahlung', total: 'Gesamt', ticketLegend: 'Allergene', ticketSent: 'Küche', thanks: 'Danke', reprint: 'Beleg drucken' };
 
-function setup({ decode = async () => {}, fonts = Promise.resolve() } = {}) {
+function setup({ decode = () => { throw new Error('Printing must not wait for image decoding'); }, fonts = new Promise(() => {}), onPrint = () => {} } = {}) {
   const originalDocument = global.document, originalWindow = global.window;
   const roots = [], listeners = new Map(); let prints = 0, tree, cleanup;
   global.document = {
@@ -20,7 +20,7 @@ function setup({ decode = async () => {}, fonts = Promise.resolve() } = {}) {
   const h = harness('src/components/OrderReceipt.tsx', {}, {
     'react-dom': { createPortal: (children, target) => ({ type: 'portal', props: { children, target } }), flushSync: fn => { fn(); render(); cleanup = h.effects[0](); } },
   });
-  function render() { tree = h.render(h.component.OrderReceipt, { order, lang: 'de', labels, showEvent: true, onPrint: () => prints++ }); return tree; }
+  function render() { tree = h.render(h.component.OrderReceipt, { order, lang: 'de', labels, showEvent: true, onPrint: () => { prints++; onPrint(); } }); return tree; }
   render();
   return {
     h, roots, listeners, render, get tree() { return tree; }, get prints() { return prints; },
@@ -29,59 +29,66 @@ function setup({ decode = async () => {}, fonts = Promise.resolve() } = {}) {
   };
 }
 
-test('explicit print creates one body portal containing the historical ticket, logo and rendered QR, without buttons', async () => {
+test('explicit print creates one body portal containing the historical ticket, logo and rendered QR, without buttons', () => {
   const s = setup();
   try {
     assert.equal(s.roots.length, 0); assert.equal(s.prints, 0);
     // Mounting a receipt has no printing side effects.
     for (const effect of s.h.effects) effect();
     assert.equal(s.roots.length, 0); assert.equal(s.prints, 0);
-    const pending = s.click();
+    assert.equal(s.click(), undefined);
+    assert.equal(s.prints, 1); // The callback runs before the click handler returns.
     assert.equal(s.roots.length, 1);
     assert.equal(s.roots[0].id, 'af-receipt-print-root');
     const portal = findAll(s.tree, node => node.type === 'portal')[0];
     assert.equal(portal.props.target, s.roots[0]);
     assert.equal(portal.props.children.props['data-order-id'], order.id);
     assert.equal(findAll(portal.props.children, node => node.type === 'button').length, 0);
-    assert.equal(findAll(portal.props.children, node => node.props?.className === 'af-ticket-logo').length, 1);
+    const logos = findAll(portal.props.children, node => node.props?.className === 'af-ticket-logo');
+    assert.equal(logos.length, 1); assert.equal(logos[0].props.loading, 'eager');
     const qr = findAll(portal.props.children, node => node.props?.size === 256 && node.props?.marginSize === 4)[0];
     assert.ok(qr); assert.ok(qr.props.value.includes(order.id));
-    await s.click(); assert.equal(s.roots.length, 1); // Double click cannot create another root/job.
-    await pending; assert.equal(s.prints, 1);
+    s.click(); assert.equal(s.roots.length, 1); // Double click cannot create another root/job.
+    assert.equal(s.prints, 1);
     assert.equal(s.roots.length, 1); // Keep alive until Safari emits afterprint.
     s.listeners.get('afterprint')();
     assert.equal(s.roots.length, 0); assert.equal(s.h.state.printTarget, null);
   } finally { s.dispose(); }
 });
 
-test('printing waits for decoded images and fonts', async () => {
-  let imageReady, fontReady;
-  const s = setup({ decode: () => new Promise(resolve => { imageReady = resolve; }), fonts: new Promise(resolve => { fontReady = resolve; }) });
+test('Safari print runs in the click stack even when images and fonts would never settle', async () => {
+  let decodeCalls = 0;
+  const s = setup({ decode: () => { decodeCalls++; return new Promise(() => {}); }, fonts: new Promise(() => {}) });
   try {
-    const pending = s.click();
+    let microtaskReached = false;
+    queueMicrotask(() => { microtaskReached = true; });
     assert.equal(s.prints, 0);
-    imageReady(); await new Promise(resolve => setImmediate(resolve)); assert.equal(s.prints, 0);
-    fontReady(); await pending; assert.equal(s.prints, 1);
+    assert.equal(s.click(), undefined);
+    assert.equal(s.prints, 1);
+    assert.equal(microtaskReached, false);
+    assert.equal(decodeCalls, 0);
+    await Promise.resolve(); assert.equal(s.prints, 1);
   } finally { s.dispose(); }
 });
 
-test('unmount during preparation prevents a late print job', async () => {
-  let imageReady;
-  const s = setup({ decode: () => new Promise(resolve => { imageReady = resolve; }) });
+test('unmount removes the print portal without scheduling another job', async () => {
+  const s = setup();
   try {
-    const pending = s.click();
-    s.dispose(); imageReady(); await pending;
-    assert.equal(s.prints, 0); assert.equal(s.roots.length, 0);
+    s.click(); assert.equal(s.prints, 1);
+    s.dispose(); await Promise.resolve();
+    assert.equal(s.prints, 1); assert.equal(s.roots.length, 0);
   } finally { s.dispose(); }
 });
 
-test('failed logo preparation does not print and permits a retry', async () => {
-  const s = setup({ decode: async () => { throw new Error('image unavailable'); } });
+test('a thrown print callback cleans up the portal and permits an explicit retry', () => {
+  let fail = true;
+  const s = setup({ onPrint: () => { if (fail) throw new Error('print unavailable'); } });
   try {
-    await s.click(); assert.equal(s.prints, 0); assert.equal(s.roots.length, 0);
+    s.click(); assert.equal(s.prints, 1); assert.equal(s.roots.length, 0);
     assert.equal(s.h.state.printError, true);
     s.render(); assert.equal(findAll(s.tree, node => node.props?.role === 'alert').length, 1);
-    await s.click(); assert.equal(s.prints, 0); assert.equal(s.roots.length, 0);
+    fail = false; s.click(); assert.equal(s.prints, 2); assert.equal(s.roots.length, 1);
+    assert.equal(s.h.state.printError, false);
   } finally { s.dispose(); }
 });
 

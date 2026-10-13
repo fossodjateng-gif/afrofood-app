@@ -30,17 +30,17 @@ export function OrderReceipt({ order, lang, labels, onPrint, marginTop = 20, inc
     return () => { window.removeEventListener("afterprint", cleanup); printTarget.remove(); printing.current = false; };
   }, [printTarget]);
 
-  async function printReceipt() {
+  function printReceipt() {
     if (printing.current || document.getElementById("af-receipt-print-root")) return;
     setPrintError(false);
     printing.current = true;
     const target = document.createElement("div");
     target.id = "af-receipt-print-root";
     document.body.appendChild(target);
-    flushSync(() => setPrintTarget(target));
     try {
-      await Promise.all(Array.from(target.querySelectorAll("img")).map((image) => image.decode()));
-      await document.fonts.ready;
+      // Keep Safari's user activation: mount the portal and call the parent's
+      // window.print callback synchronously in the original click handler.
+      flushSync(() => setPrintTarget(target));
       if (target.isConnected) onPrint();
     } catch {
       setPrintTarget(null);
@@ -53,7 +53,7 @@ export function OrderReceipt({ order, lang, labels, onPrint, marginTop = 20, inc
   const breakdown = getOrderBreakdownEur(order.items, order.amount_cents);
   const ticket = <div className="af-ticket" data-order-id={order.id}>
             <div className="af-ticket-head">
-              <Image className="af-ticket-logo" src="/logo-afrofood.png" alt="AfroFood" width={72} height={72} unoptimized />
+              <Image className="af-ticket-logo" src="/logo-afrofood.png" alt="AfroFood" width={72} height={72} loading="eager" unoptimized />
               <div className="af-ticket-title">{labels.ticketTitle}</div>
               <div className="af-ticket-sub">{labels.ticketSub}</div>
             </div>
