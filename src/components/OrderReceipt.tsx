@@ -1,6 +1,8 @@
 "use client";
 
 import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
+import { createPortal, flushSync } from "react-dom";
 import { QRCodeCanvas } from "qrcode.react";
 import { makeQrPayload } from "@/lib/order";
 import { getOrderBreakdownEur } from "@/lib/pricing";
@@ -18,9 +20,38 @@ function formatReservationDateTime(value: string, lang: Lang) {
 export function OrderReceipt({ order, lang, labels, onPrint, marginTop = 20, includeReservation = true, qrEvent = true, showEvent = false }: {
   order: OrderRow; lang: Lang; labels: ReceiptLabels; onPrint: () => void; marginTop?: number; includeReservation?: boolean; qrEvent?: boolean; showEvent?: boolean;
 }) {
+  const [printTarget, setPrintTarget] = useState<HTMLDivElement | null>(null);
+  const [printError, setPrintError] = useState(false);
+  const printing = useRef(false);
+  useEffect(() => {
+    if (!printTarget) return;
+    const cleanup = () => { setPrintTarget(null); printing.current = false; printTarget.remove(); };
+    window.addEventListener("afterprint", cleanup, { once: true });
+    return () => { window.removeEventListener("afterprint", cleanup); printTarget.remove(); printing.current = false; };
+  }, [printTarget]);
+
+  async function printReceipt() {
+    if (printing.current || document.getElementById("af-receipt-print-root")) return;
+    setPrintError(false);
+    printing.current = true;
+    const target = document.createElement("div");
+    target.id = "af-receipt-print-root";
+    document.body.appendChild(target);
+    flushSync(() => setPrintTarget(target));
+    try {
+      await Promise.all(Array.from(target.querySelectorAll("img")).map((image) => image.decode()));
+      await document.fonts.ready;
+      if (target.isConnected) onPrint();
+    } catch {
+      setPrintTarget(null);
+      target.remove();
+      printing.current = false;
+      setPrintError(true);
+    }
+  }
+
   const breakdown = getOrderBreakdownEur(order.items, order.amount_cents);
-  return (<div className="af-ticket-wrap af-ticket-area af-ticket-customer" data-order-id={order.id} style={{ marginTop, justifyItems: "center" }}>
-          <div className="af-ticket">
+  const ticket = <div className="af-ticket" data-order-id={order.id}>
             <div className="af-ticket-head">
               <Image className="af-ticket-logo" src="/logo-afrofood.png" alt="AfroFood" width={72} height={72} unoptimized />
               <div className="af-ticket-title">{labels.ticketTitle}</div>
@@ -49,7 +80,7 @@ export function OrderReceipt({ order, lang, labels, onPrint, marginTop = 20, inc
                   </div>
                 ) : null}
 	            </div>
-            <div
+            <div className="af-ticket-qr-hint"
               style={{
                 marginTop: 8,
                 padding: "8px 10px",
@@ -95,16 +126,20 @@ export function OrderReceipt({ order, lang, labels, onPrint, marginTop = 20, inc
 	                  payment: order.payment,
 	                  items: order.items,
                 }) + (order.status === "CANCELED" ? "\nSTATUS:CANCELED" : "")}
-                size={72}
+                size={256}
+                marginSize={4}
               />
               <div className="af-ticket-qrtext">{labels.ticketSent}</div>
             </div>
 
             <div className="af-ticket-foot">{labels.thanks}</div>
-          </div>
-
+          </div>;
+  return (<div className="af-ticket-wrap af-ticket-area af-ticket-customer" data-order-id={order.id} style={{ marginTop, justifyItems: "center" }}>
+          {ticket}
+          {printTarget ? createPortal(ticket, printTarget) : null}
+          {printError ? <p role="alert">{lang === "de" ? "Beleg konnte nicht vorbereitet werden. Bitte erneut versuchen." : lang === "fr" ? "Impossible de préparer le ticket. Veuillez réessayer." : "Unable to prepare receipt. Please try again."}</p> : null}
           <button
-            onClick={onPrint}
+            onClick={printReceipt}
             type="button"
             style={{
               marginTop: 10,

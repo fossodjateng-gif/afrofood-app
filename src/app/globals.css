@@ -329,25 +329,6 @@ a {
   font-size: 12px;
 }
 
-/* Impression */
-@media print {
-
-  body * {
-    visibility: hidden;
-  }
-
-  .af-ticket,
-  .af-ticket * {
-    visibility: visible;
-  }
-
-  .af-ticket {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 80mm;
-  }
-}
 /* ===== Ticket 80mm ===== */
 .af-ticket-area{
   margin-top: 18px;
@@ -433,6 +414,9 @@ a {
   text-align: center;
 }
 
+.af-ticket-qr canvas { width: 28mm !important; height: 28mm !important; }
+#af-receipt-print-root { display: none; }
+
 .af-ticket-foot{
   margin-top: 10px;
   text-align: center;
@@ -444,36 +428,34 @@ a {
 
 /* ===== PRINT MODE ===== */
 @media print {
-  /* cache tout par défaut */
-  body * { visibility: hidden !important; }
-
-  /* affiche seulement les tickets */
-  .af-ticket-area,
-  .af-ticket-area * {
-    visibility: visible !important;
+  @page { size: auto; margin: 0; }
+  body:has(> #af-receipt-print-root) > :not(#af-receipt-print-root) { display: none !important; }
+  html:has(#af-receipt-print-root), body:has(> #af-receipt-print-root) {
+    width: auto !important; max-width: none !important; height: auto !important;
+    min-height: 0 !important; max-height: none !important; overflow: visible !important;
+    margin: 0 !important; padding: 0 !important; background: white !important;
   }
-
-  /* place en haut à gauche */
-  .af-ticket-area{
-    position: absolute;
-    left: 0;
-    top: 0;
-    margin: 0 !important;
-    gap: 10mm;
+  #af-receipt-print-root {
+    display: block !important; position: static !important; width: 72mm;
+    max-width: 100%; height: auto; min-height: 0; max-height: none;
+    overflow: visible; margin: 0 auto; padding: 0; transform: none;
   }
-
-  /* modes */
-  body[data-print="customer"] .af-ticket-kitchen { display: none !important; }
-  body[data-print="kitchen"] .af-ticket-customer { display: none !important; }
-
-  /* enlève bordures écran */
-  .af-ticket{
-    border: none !important;
-    border-radius: 0 !important;
+  #af-receipt-print-root .af-ticket {
+    display: block; position: static; width: 100%; max-width: 72mm;
+    height: auto; min-height: 0; max-height: none; overflow: visible;
+    margin: 0; padding: 2mm; border: 0; border-radius: 0; box-shadow: none;
+    background: white; color: black; transform: none;
   }
-
-  @page {
-    size: 80mm auto;
-    margin: 5mm;
-  }
+  #af-receipt-print-root button { display: none !important; }
+  #af-receipt-print-root .af-ticket-qr-hint { display: none; }
+  #af-receipt-print-root .af-ticket-logo { width: 25mm; height: auto; opacity: 1; }
+  #af-receipt-print-root .af-ticket-meta,
+  #af-receipt-print-root .af-ticket-qr { display: block; }
+  #af-receipt-print-root .af-ticket-qr { text-align: center; }
+  #af-receipt-print-root .af-ticket-row { display: block; border: 0; overflow-wrap: anywhere; }
+  #af-receipt-print-root .af-ticket-qty { white-space: normal; }
+  #af-receipt-print-root .af-ticket-head,
+  #af-receipt-print-root .af-ticket-logo,
+  #af-receipt-print-root .af-ticket-qr,
+  #af-receipt-print-root .af-ticket-row { break-inside: avoid; page-break-inside: avoid; }
 }

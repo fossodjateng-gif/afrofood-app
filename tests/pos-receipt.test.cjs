@@ -50,8 +50,8 @@ test('F/G: reçu partagé affiche numéro, articles, quantités, dips, total enr
   const markup = renderToStaticMarkup(React.createElement(OrderReceipt, props));
   for (const text of [receipt.id, 'Meal', 'Green', 'Mango', 'x1 - 36.00 EUR', 'x1 - 0.00 EUR', 'x1 - 1.00 EUR', '37.00 EUR', 'cash', 'Event A', 'Allergene']) assert.ok(markup.includes(text), text);
   assert.equal(prints, 0);
-  find(OrderReceipt(props), element => element.type === 'button').props.onClick();
-  assert.equal(prints, 1);
+  // Explicit printing (portal, asset readiness and cleanup) is exercised by
+  // receipt-print.test.cjs; server rendering must never initiate printing.
   const persisted = renderToStaticMarkup(React.createElement(OrderReceipt, { ...props, order: { ...receipt, amount_cents: 3650 } }));
   assert.ok(persisted.includes('36.50 EUR'));
 });
