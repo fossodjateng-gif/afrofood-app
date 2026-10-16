@@ -76,9 +76,18 @@ export async function setTerminalActiveOrder(input: {
     throw new Error("Terminal target does not match the pending card order");
   }
 
-  const rows = (await sql`
+  // Serialize publication with cancellation on the order row. The following
+  // INSERT gets a fresh snapshot after the row lock has been acquired.
+  const publication = await sql.transaction([
+    sql`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`,
+    sql`
     INSERT INTO terminal_active_orders (username, user_id, event_name, order_id, payment_intent_id, updated_at, expires_at)
-    VALUES (${username}, ${userId}, ${eventName}, ${orderId}, ${paymentIntentId}, NOW(), NOW() + (${ACTIVE_ORDER_TTL_SECONDS} || ' seconds')::interval)
+    SELECT ${username}, ${userId}, ${eventName}, ${orderId}, ${paymentIntentId}, NOW(), NOW() + (${ACTIVE_ORDER_TTL_SECONDS} || ' seconds')::interval
+    FROM orders target
+    WHERE target.id = ${orderId} AND target.payment = 'card' AND UPPER(target.status) = 'PENDING_PAYMENT' AND target.paid_at IS NULL
+      AND target.stripe_payment_intent_id = ${paymentIntentId}
+      AND (target.pos_card_key IS NULL OR (target.pos_card_state = 'ready'
+        AND target.pos_card_username = ${username} AND target.pos_card_user_id = ${userId} AND target.event_name = ${eventName}))
     ON CONFLICT (username)
     DO UPDATE SET
       user_id = EXCLUDED.user_id,
@@ -97,7 +106,9 @@ export async function setTerminalActiveOrder(input: {
           AND UPPER(previous.status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
       )
     RETURNING username, user_id, event_name, order_id, payment_intent_id, updated_at, expires_at
-  `) as Array<{
+  `,
+  ], { isolationLevel: "ReadCommitted" });
+  const rows = publication[1] as Array<{
     username: string;
     user_id: string | null;
     event_name: string;
@@ -123,9 +134,10 @@ export async function getTerminalActiveOrder(usernameInput: string) {
   if (!username) return null;
 
   const rows = (await sql`
-    SELECT username, user_id, event_name, order_id, payment_intent_id, updated_at, expires_at
-    FROM terminal_active_orders
-    WHERE username = ${username}
+    SELECT active.username, active.user_id, active.event_name, active.order_id, active.payment_intent_id, active.updated_at, active.expires_at
+    FROM terminal_active_orders active JOIN orders target ON target.id = active.order_id
+    WHERE active.username = ${username}
+      AND (target.pos_card_key IS NULL OR (UPPER(target.status) = 'PENDING_PAYMENT' AND target.pos_card_state = 'ready'))
     LIMIT 1
   `) as Array<{
     username: string;

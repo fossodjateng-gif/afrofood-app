@@ -4,7 +4,7 @@ const {backend}=require('./card-backend-harness.cjs');
 function setup(){const db=backend();db.orders.set('20261008-006',{id:'20261008-006',payment:'card',status:'PENDING_PAYMENT',stripe_payment_intent_id:'pi_expected',amount_cents:1000,currency:'eur',quantity_applied:false,items:[{id:'meal',qty:1}]});return db;}
 async function deliver(db,patch={},validSignature=true){
  const old=process.env.STRIPE_WEBHOOK_SECRET;const secret='mock-webhook-secret';process.env.STRIPE_WEBHOOK_SECRET=secret;
- try{const payload=JSON.stringify({id:'evt_mock',type:'payment_intent.succeeded',data:{object:{id:'pi_expected',status:'succeeded',amount_received:1000,currency:'eur',metadata:{order_id:'20261008-006'},...patch}}});
+ try{const payload=JSON.stringify({id:'evt_mock',type:'payment_intent.succeeded',data:{object:{id:'pi_expected',status:'succeeded',amount:1000,amount_received:1000,currency:'eur',metadata:{order_id:'20261008-006'},...patch}}});
  const t=String(Math.floor(Date.now()/1000)),sig=crypto.createHmac('sha256',secret).update(t+'.'+payload).digest('hex');
  return await db.webhook.POST(new Request('http://localhost/api/stripe/webhook',{method:'POST',headers:{'stripe-signature':`t=${t},v1=${validSignature?sig:'bad'}`},body:payload}));
  }finally{if(old===undefined)delete process.env.STRIPE_WEBHOOK_SECRET;else process.env.STRIPE_WEBHOOK_SECRET=old;}

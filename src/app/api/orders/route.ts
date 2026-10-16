@@ -39,14 +39,14 @@ export async function GET(req: Request) {
       }
 
       rows = await sql`
-        SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, cash_received_cents, change_given_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, cash_received_cents, change_given_cents, currency, paid_at, payment_error, pos_card_state, UPPER(status) AS status, items
         FROM orders
         WHERE id = ${idParam} AND UPPER(status) = ${statusParam}
         ORDER BY created_at DESC
       `;
     } else if (idParam) {
       rows = await sql`
-        SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+        SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, pos_card_state, UPPER(status) AS status, items
         FROM orders
         WHERE id = ${idParam}
         ORDER BY created_at DESC
@@ -59,14 +59,14 @@ export async function GET(req: Request) {
       const eventIdParam = String(searchParams.get("eventId") || "").trim();
       rows = eventIdParam
         ? await sql`
-            SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+            SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, pos_card_state, UPPER(status) AS status, items
             FROM orders
             WHERE UPPER(status) = ${statusParam}
               AND event_id = ${eventIdParam}
             ORDER BY created_at DESC
           `
         : await sql`
-            SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+            SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, pos_card_state, UPPER(status) AS status, items
             FROM orders
             WHERE UPPER(status) = ${statusParam}
             ORDER BY created_at DESC
@@ -75,13 +75,13 @@ export async function GET(req: Request) {
       const eventIdParam = String(searchParams.get("eventId") || "").trim();
       rows = eventIdParam
         ? await sql`
-            SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+            SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, pos_card_state, UPPER(status) AS status, items
             FROM orders
             WHERE event_id = ${eventIdParam}
             ORDER BY created_at DESC
           `
         : await sql`
-            SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, UPPER(status) AS status, items
+            SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, pos_card_state, UPPER(status) AS status, items
             FROM orders
             ORDER BY created_at DESC
           `;

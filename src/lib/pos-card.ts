@@ -1,9 +1,10 @@
+import type { CancellationOutcome } from "@/lib/pos-card-cancel-server";
 import type { OrderRow } from "@/lib/schema";
 import type { PosCartItem } from "@/lib/pos-cart";
 import { cardIdentityPayload } from "@/lib/pos-card-identity";
 import { prepareTerminalCheckout } from "@/lib/terminal-checkout";
 
-export type CardAttempt = { key: string; fingerprint: string; userId: string; username: string; role: string; eventId: string; eventName: string; items: PosCartItem[]; amountCents: number; createdAt: number; orderId?: string; paymentIntentId?: string; published?: boolean };
+export type CardAttempt = { key: string; fingerprint: string; userId: string; username: string; role: string; eventId: string; eventName: string; items: PosCartItem[]; amountCents: number; createdAt: number; orderId?: string; paymentIntentId?: string; published?: boolean; cancelRequested?: boolean; cancellationOutcome?: CancellationOutcome };
 export const cardAttemptKey = (cartKey: string) => `${cartKey}:card-attempt`;
 
 export async function makeCardFingerprint(input: Pick<CardAttempt, "userId" | "username" | "eventId" | "items">) {
@@ -40,6 +41,7 @@ export async function preparePosCard(attempt: CardAttempt, persist: (attempt: Ca
   // lost after Stripe already charged the card and the webhook already ran.
   const row = await checkPosCard(attempt, request);
   if (row && isPaidCardOrder(row, attempt)) return row;
+  if (attempt.cancelRequested || ["cancel_requested", "canceled"].includes(row?.pos_card_state || "")) throw new Error("Stornierung angefordert. Nur dieselbe Stornierung erneut pr?fen.");
   if (row?.status !== "PENDING_PAYMENT") throw new Error("Diese Zahlung muss geprüft werden. Bitte nicht erneut bezahlen.");
   if (!attempt.published) {
     const prepared = await prepareTerminalCheckout({ orderId: attempt.orderId!, username: attempt.username, userId: attempt.userId, role: attempt.role, eventName: attempt.eventName }, request);
@@ -48,4 +50,29 @@ export async function preparePosCard(attempt: CardAttempt, persist: (attempt: Ca
     persist(attempt);
   }
   return row;
+}
+
+export function isCanceledCardOrder(order: OrderRow | null, attempt: CardAttempt) {
+  return !!order && order.id === attempt.orderId && order.event_id === attempt.eventId && order.payment === "card"
+    && order.status === "CANCELED" && order.pos_card_state === "canceled" && !order.paid_at
+    && order.payment_error !== "POS_CARD_SUCCESS_AFTER_CANCEL";
+}
+
+export async function cancelPosCard(attempt: CardAttempt, persist: (attempt: CardAttempt) => void, request: typeof fetch = fetch) {
+  if (!attempt.orderId) throw new Error("Bestellnummer fehlt. Zuerst dieselbe Bestellung pr?fen.");
+  // Persist before the request: a lost response/reload must never auto-resume payment.
+  attempt.cancelRequested = true;
+  persist(attempt);
+  const response = await request(`/api/orders/${encodeURIComponent(attempt.orderId)}/cancel-card-payment`, {
+    method: "POST", headers: { "Content-Type": "application/json", "x-staff-role": attempt.role },
+    body: JSON.stringify({ userId: attempt.userId, username: attempt.username, eventId: attempt.eventId }),
+  });
+  const data = await response.json();
+  if (!response.ok || !data?.ok || !["canceled", "already_canceled", "cancellation_pending", "already_paid", "requires_review"].includes(data.outcome)
+    || data.order?.id !== attempt.orderId || data.order?.event_id !== attempt.eventId || data.order?.payment !== "card") {
+    throw new Error(data?.error || "Stornierung unklar. Dieselbe Stornierung erneut pr?fen.");
+  }
+  attempt.cancellationOutcome = data.outcome;
+  persist(attempt);
+  return data as { outcome: CancellationOutcome; order: OrderRow; reason?: string };
 }

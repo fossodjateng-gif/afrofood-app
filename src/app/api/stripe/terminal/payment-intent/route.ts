@@ -98,15 +98,18 @@ export async function POST(req: Request) {
         );
       }
 
-      await sql`
+      const reusable = await sql`
         UPDATE orders
         SET
           payment_provider = 'stripe',
           amount_cents = ${amountCents},
           currency = 'eur',
           payment_error = NULL
-        WHERE id = ${order.id}
+        WHERE id = ${order.id} AND UPPER(status) = 'PENDING_PAYMENT' AND paid_at IS NULL
+          AND stripe_payment_intent_id = ${existingPiId} AND (pos_card_key IS NULL OR pos_card_state = 'ready')
+        RETURNING id
       `;
+      if (!reusable.length) return NextResponse.json({ ok: false, error: "Payment blocked: order changed" }, { status: 409 });
 
       return NextResponse.json({
         ok: true,
@@ -124,7 +127,8 @@ export async function POST(req: Request) {
     // 24h: never blindly create again outside this conservative retry window.
     const started = await sql`
       UPDATE orders SET stripe_pi_started_at = COALESCE(stripe_pi_started_at, NOW())
-      WHERE id = ${order.id} AND UPPER(status) = 'PENDING_PAYMENT'
+      WHERE id = ${order.id} AND UPPER(status) = 'PENDING_PAYMENT' AND paid_at IS NULL
+        AND (pos_card_key IS NULL OR pos_card_state = 'ready')
       RETURNING stripe_pi_started_at
     `;
     const firstRequest = new Date(String(started[0]?.stripe_pi_started_at || "")).getTime();
@@ -139,6 +143,11 @@ export async function POST(req: Request) {
       "metadata[order_id]": order.id,
     }, `afrofood-terminal:${order.id}:v1`);
 
+    if (pi.metadata?.order_id !== order.id || pi.currency !== "eur" || pi.amount !== amountCents || !pi.id) {
+      return NextResponse.json({ ok: false, error: "PaymentIntent creation result requires verification" }, { status: 409 });
+    }
+    // Even after cancel_requested the in-flight result must be linked, so the
+    // cancellation can resolve this exact PI. Never release its secret then.
     const linked = await sql`
       UPDATE orders
       SET
@@ -146,14 +155,19 @@ export async function POST(req: Request) {
         stripe_payment_intent_id = COALESCE(stripe_payment_intent_id, ${pi.id}),
         amount_cents = ${amountCents},
         currency = 'eur',
-        payment_error = NULL
+        payment_error = CASE WHEN pos_card_state = 'cancel_requested' THEN payment_error ELSE NULL END
       WHERE id = ${order.id} AND (stripe_payment_intent_id IS NULL OR stripe_payment_intent_id = ${pi.id})
-      RETURNING stripe_payment_intent_id
+        AND UPPER(status) = 'PENDING_PAYMENT' AND paid_at IS NULL
+        AND (pos_card_key IS NULL OR pos_card_state IN ('ready', 'cancel_requested'))
+      RETURNING stripe_payment_intent_id, status, pos_card_state
     `;
     if (!linked.length || linked[0].stripe_payment_intent_id !== pi.id) {
       return NextResponse.json({ ok: false, error: "PaymentIntent link changed; verify the existing payment" }, { status: 409 });
     }
 
+    if (order.pos_card_key && linked[0].pos_card_state !== "ready") {
+      return NextResponse.json({ ok: false, error: "Payment blocked: cancellation requested" }, { status: 409 });
+    }
     return NextResponse.json({
       ok: true,
       reused: false,

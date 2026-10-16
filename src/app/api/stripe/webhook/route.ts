@@ -1,8 +1,7 @@
-import { finalizeSale } from "@/lib/finalize-sale";
+import { reconcileCardPayment } from "@/lib/reconcile-card-payment";
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { publishOrderEvent } from "@/lib/order-events";
 import { ensureOrdersSchema } from "@/lib/orders-schema";
 
 type StripeEvent = {
@@ -13,6 +12,7 @@ type StripeEvent = {
       id?: string;
       metadata?: Record<string, string>;
       status?: string;
+      amount?: number;
       amount_received?: number;
       currency?: string;
     };
@@ -103,7 +103,7 @@ export async function POST(req: Request) {
     }
 
     const beforeRows = await sql`
-      SELECT UPPER(status) AS status, payment, stripe_payment_intent_id, amount_cents, currency
+      SELECT UPPER(status) AS status, payment, stripe_payment_intent_id, amount_cents, currency, stripe_pi_started_at
       FROM orders
       WHERE id = ${orderId}
       LIMIT 1
@@ -116,34 +116,16 @@ export async function POST(req: Request) {
       });
     }
     const row = beforeRows[0];
-    if (row.payment !== "card" || !piId || row.stripe_payment_intent_id !== piId || metadataOrderId !== orderId || obj.status !== "succeeded" || !Number.isSafeInteger(obj.amount_received) || obj.amount_received !== row.amount_cents || obj.currency !== row.currency) {
+    if (row.payment === "card" && !row.stripe_payment_intent_id && row.stripe_pi_started_at && metadataOrderId === orderId) {
+      return NextResponse.json({ ok: false, error: "payment_intent_link_pending" }, { status: 503 });
+    }
+    if (row.payment !== "card" || !piId || row.stripe_payment_intent_id !== piId || metadataOrderId !== orderId || obj.status !== "succeeded" || !Number.isSafeInteger(obj.amount) || obj.amount !== row.amount_cents || !Number.isSafeInteger(obj.amount_received) || obj.amount_received !== row.amount_cents || obj.currency !== row.currency) {
       return NextResponse.json({ ok: false, error: "Stripe payment does not match the order" }, { status: 400 });
     }
-    const previousStatus = String(row.status || "");
-
-    const finalized = await finalizeSale(orderId, { payment: "card", paymentIntentId: piId, amountReceived: obj.amount_received!, currency: obj.currency! });
-    const status = finalized.order?.status || previousStatus;
-
-    if (finalized.changed && status !== previousStatus) {
-      publishOrderEvent({
-        type: "ORDER_STATUS_CHANGED",
-        orderId,
-        at: Date.now(),
-        status,
-        previousStatus,
-      });
-    }
-    if (finalized.changed && previousStatus === "PENDING_PAYMENT" && status === "NEW") {
-      publishOrderEvent({
-        type: "PAYMENT_VALIDATED",
-        orderId,
-        at: Date.now(),
-        status,
-        previousStatus,
-      });
-    }
-
-    return NextResponse.json({ ok: true });
+    const reconciled = await reconcileCardPayment(orderId, {
+      id: piId, status: "succeeded", amount: obj.amount!, amount_received: obj.amount_received!, currency: obj.currency!, metadata: obj.metadata,
+    });
+    return NextResponse.json({ ok: true, ...(reconciled.requiresReview ? { outcome: "requires_review", reason: "POS_CARD_SUCCESS_AFTER_CANCEL" } : {}) });
   } catch (e: unknown) {
     const error = e instanceof Error ? e.message : "Server error";
     return NextResponse.json({ ok: false, error }, { status: 500 });

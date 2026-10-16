@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OrderReceipt, type ReceiptLabels } from "@/components/OrderReceipt";
 import { CardPayment } from "@/components/pos/CardPayment";
 import { OrderHistory } from "@/components/pos/OrderHistory";
-import { cardAttemptKey, checkPosCard, isPaidCardOrder, makeCardFingerprint, preparePosCard, type CardAttempt } from "@/lib/pos-card";
+import { cardAttemptKey, cancelPosCard, checkPosCard, isCanceledCardOrder, isPaidCardOrder, makeCardFingerprint, preparePosCard, type CardAttempt } from "@/lib/pos-card";
 import type { OrderRow } from "@/lib/schema";
 import { CashPayment } from "@/components/pos/CashPayment";
 import { cashAttemptKey, confirmPosCash, parseReceivedCents, type CashAttempt, type CashReceipt } from "@/lib/pos-cash";
@@ -35,6 +35,7 @@ type PosContext = {
 
 export default function ManualCaissePage() {
   const [cardAttempt, setCardAttempt] = useState<CardAttempt | null>(null);
+  const [cardOrder, setCardOrder] = useState<OrderRow | null>(null);
   const [cardReceipt, setCardReceipt] = useState<OrderRow | null>(null);
   const [cardBusy, setCardBusy] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
@@ -104,6 +105,7 @@ export default function ManualCaissePage() {
         const saved = JSON.parse(storedCard) as CardAttempt;
         if (saved.eventId !== eventId || saved.userId !== session.userId || saved.username !== session.username?.trim().toLowerCase() || !saved.key || !saved.fingerprint || !Array.isArray(saved.items)) throw new Error("Die gespeicherte Kartenzahlung muss geprüft werden.");
         if (cardRef.current?.key !== saved.key) {
+          setCardOrder(null);
           setCardReceipt(null);
           setShowReceipt(false);
         }
@@ -260,8 +262,14 @@ export default function ManualCaissePage() {
       const row = await checkPosCard(attempt);
       requireCardContext();
       if (cardRef.current?.key !== attempt.key) return;
+      setCardOrder(row);
+      if (row && ["cancel_requested", "canceled"].includes(row.pos_card_state || "") && !attempt.cancelRequested) {
+        attempt.cancelRequested = true;persistCard(attempt);
+      }
       if (row && isPaidCardOrder(row, attempt)) {
         setCardReceipt(row);
+        setCardError(null);
+      } else if (isCanceledCardOrder(row, attempt)) {
         setCardError(null);
       } else if (row?.status !== "PENDING_PAYMENT") {
         setCardError("Diese Bestellung muss geprüft werden. Bitte nicht erneut bezahlen.");
@@ -281,8 +289,10 @@ export default function ManualCaissePage() {
       requireCardContext();
       const attempt = cardRef.current;
       if (!attempt) return;
+      if (attempt.cancelRequested) { setCardOrder(await checkPosCard(attempt)); return; }
       const row = await preparePosCard(attempt, persistCard);
       requireCardContext();
+      setCardOrder(row);
       if (row && isPaidCardOrder(row, attempt)) setCardReceipt(row);
     } catch (reason) {
       setCardError(reason instanceof Error ? reason.message : "Kartenzahlung unklar. Dieselbe Zahlung prüfen.");
@@ -329,7 +339,7 @@ export default function ManualCaissePage() {
 
   useEffect(() => {
     if (!cardAttempt || !context || cardAttempt.eventId !== context.eventId || cardAttempt.userId !== context.session.userId) return;
-    if (!cardAttempt.published) void resumeCard();
+    if (!cardAttempt.published && !cardAttempt.cancelRequested) void resumeCard();
     void verifyCard();
     const interval = window.setInterval(() => void verifyCard(), 2500);
     return () => window.clearInterval(interval);
@@ -337,15 +347,36 @@ export default function ManualCaissePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardAttempt?.key, context?.eventId, context?.session.userId, verifyCard]);
 
+  async function cancelCard() {
+    if (cardBusyRef.current || cashBusyRef.current) return;
+    cardBusyRef.current = true;setCardBusy(true);setCardError(null);
+    try {
+      requireCardContext();
+      const attempt = cardRef.current;
+      if (!attempt) return;
+      const result = await cancelPosCard(attempt, persistCard);
+      requireCardContext();
+      if (cardRef.current?.key !== attempt.key) return;
+      setCardOrder(result.order);
+      if (isPaidCardOrder(result.order, attempt)) setCardReceipt(result.order);
+      if (result.outcome === "requires_review") setCardError("Stornierung muss gepr?ft werden. Keine neue Zahlung starten.");
+    } catch (reason) {
+      setCardError(reason instanceof Error ? reason.message : "Stornierung unklar. Erneut pr?fen.");
+    } finally {
+      cardBusyRef.current = false;setCardBusy(false);
+    }
+  }
+
   function newCardOrder() {
     try {
       const current = requireCardContext();
       const attempt = cardRef.current;
-      if (!attempt || !cardReceipt || !isPaidCardOrder(cardReceipt, attempt)) return;
+      if (!attempt || !((cardReceipt && isPaidCardOrder(cardReceipt, attempt)) || isCanceledCardOrder(cardOrder, attempt))) return;
       if (!writePosCart(current.cartKey, [])) throw new Error("Warenkorb konnte nicht geleert werden. Dieselbe Zahlung behalten.");
       localStorage.removeItem(cardAttemptKey(current.cartKey));
       cardRef.current = null;
       setCardAttempt(null);
+      setCardOrder(null);
       setCardReceipt(null);
       setCardError(null);
       setCardDelayed(false);
@@ -386,7 +417,7 @@ export default function ManualCaissePage() {
         {error ? <div className={styles.error} role="alert"><strong>Manuelle Kasse nicht verfügbar</strong><p>{error}</p><Link href="/caisse">Zur Kasse zurückkehren</Link></div> : null}
         {storageError && context ? <div className={styles.error} role="alert">Der Warenkorb kann auf diesem Gerät nicht gespeichert werden. Beim Neuladen kann er verloren gehen.</div> : null}
         {loading ? <div className={styles.loading} role="status">Event-Menü und Warenkorb werden geladen…</div> : null}
-        {(cardAttempt || cardBusy) ? <CardPayment lang={lang} attempt={cardAttempt} receipt={cardReceipt} busy={cardBusy} error={cardError} delayed={cardDelayed} onCheck={() => void verifyCard()} onResume={() => void resumeCard()} onNew={newCardOrder} onTicket={() => { setHistoryReceiptOrderId(null); setShowReceipt(true); }} /> : null}
+        {(cardAttempt || cardBusy) ? <CardPayment lang={lang} order={cardOrder} onCancel={() => void cancelCard()} attempt={cardAttempt} receipt={cardReceipt} busy={cardBusy} error={cardError} delayed={cardDelayed} onCheck={() => void verifyCard()} onResume={() => void resumeCard()} onNew={newCardOrder} onTicket={() => { setHistoryReceiptOrderId(null); setShowReceipt(true); }} /> : null}
         {!cardAttempt && !cardBusy && cardError ? <p role="alert" className={styles.error}>{cardError}</p> : null}
         {cashOpen ? <CashPayment lang={lang} totalCents={cashAttempt?.amountCents ?? getPosBreakdown(items).totalCents} received={received} busy={cashBusy} error={cashError} receipt={cashReceipt} locked={!!cashAttempt} onReceived={setReceived} onConfirm={() => void confirmCash()} onClose={() => setCashOpen(false)} onTicket={() => { setHistoryReceiptOrderId(null); setShowReceipt(true); }} onNew={() => { setShowReceipt(false); setCashReceipt(null); setCashOpen(false); setReceived(""); setCashError(null); }} /> : null}
         {(cardReceipt || cashReceipt) && showReceipt ? <OrderReceipt order={(cardReceipt || cashReceipt)!} lang={lang} labels={receiptLabels[lang]} showEvent onPrint={() => window.print()} /> : null}

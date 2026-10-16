@@ -23,6 +23,11 @@ export type OrderRow = {
   created_at: string;        // ISO
   customer_name: string | null;
   payment: PaymentMethod;
+  pos_card_key?: string | null;
+  pos_card_state?: string | null;
+  pos_card_user_id?: string | null;
+  pos_card_username?: string | null;
+  stripe_pi_started_at?: string | null;
   quantity_applied?: boolean | null;
   payment_provider?: string | null;
   stripe_payment_intent_id?: string | null;

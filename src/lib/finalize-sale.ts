@@ -28,13 +28,14 @@ export async function finalizeSale(orderId: string, payment: SalePayment) {
           status = 'NEW', paid_at = COALESCE(o.paid_at, NOW()),
           payment_provider = CASE WHEN ${isCard} THEN 'stripe' ELSE o.payment_provider END,
           payment_error = NULL,
+          pos_card_state = CASE WHEN c.payment = 'card' AND c.pos_card_state = 'cancel_requested' THEN 'ready' ELSE o.pos_card_state END,
           cash_received_cents = CASE WHEN ${received}::integer IS NOT NULL THEN ${received}::integer ELSE o.cash_received_cents END,
           change_given_cents = CASE WHEN ${received}::integer IS NOT NULL THEN ${received}::integer - o.amount_cents ELSE o.change_given_cents END,
           quantity_applied = CASE WHEN c.quantity_applied IS FALSE THEN TRUE ELSE c.quantity_applied END
         FROM candidate c
         WHERE o.id = c.id AND UPPER(c.status) = 'PENDING_PAYMENT'
           AND c.payment = ${payment.payment} AND c.paid_at IS NULL
-          AND (c.pos_card_key IS NULL OR c.pos_card_state = 'ready')
+          AND (c.pos_card_key IS NULL OR c.pos_card_state = 'ready' OR (c.payment = 'card' AND c.pos_card_state = 'cancel_requested'))
           AND (c.pos_cash_key IS NULL OR c.pos_cash_state = 'ready')
           AND (NOT ${isCard} OR (c.stripe_payment_intent_id = ${pi}
             AND c.amount_cents = ${amount}::integer AND c.currency = ${currency}))

@@ -7,17 +7,18 @@ function transactionalSql(base, state) {
   const settings = state.settings ||= new Map();
   let tail = Promise.resolve();
   const sql = (strings, ...values) => ({
-    query: strings.join(''), values,
+    query: strings.join(''), strings, values,
     then(resolve, reject) { return Promise.resolve().then(() => base(strings, ...values)).then(resolve, reject); },
   });
   sql.transaction = queries => {
     const run = async () => {
       const ordersBefore = structuredClone(state.orders);
       const settingsBefore = structuredClone(settings);
+      const mailboxesBefore = state.mailboxes ? structuredClone(state.mailboxes) : null;
       let applied = false;
       try {
         const results = [];
-        for (const { query: q, values: v } of queries) {
+        for (const { query: q, strings, values: v } of queries) {
           if (q.includes('pg_advisory_xact_lock')) {
             assert.equal(v[0], 'afrofood:availability:v1');results.push([]);
           } else if (q.includes('WITH candidate AS MATERIALIZED')) {
@@ -27,7 +28,7 @@ function transactionalSql(base, state) {
             const row = [...state.orders.values()].find(row => row.id === v[0]);
             const method = v[6], received = v[2], pi = v[8], amount = v[9], currency = v[10];
             const valid = row && row.status === 'PENDING_PAYMENT' && !row.paid_at && row.payment === method
-              && (!row.pos_card_key || row.pos_card_state === 'ready') && (!row.pos_cash_key || row.pos_cash_state === 'ready')
+              && (!row.pos_card_key || row.pos_card_state === 'ready' || (method === 'card' && row.pos_card_state === 'cancel_requested')) && (!row.pos_cash_key || row.pos_cash_state === 'ready')
               && (method !== 'card' || (row.stripe_payment_intent_id === pi && row.amount_cents === amount && row.currency === currency))
               && (received === null || (received >= row.amount_cents && received >= 0)) && (!row.pos_cash_key || received !== null);
             if (!valid) { results.push([]);continue; }
@@ -44,6 +45,7 @@ function transactionalSql(base, state) {
               }
               row.quantity_applied = true;applied = true;
             }
+            if(row.pos_card_state === 'cancel_requested')row.pos_card_state='ready';
             row.status = 'NEW';row.paid_at = new Date().toISOString();row.payment_error = null;
             if (method === 'card') row.payment_provider = 'stripe';
             if (received !== null) { row.cash_received_cents = received;row.change_given_cents = received - row.amount_cents; }
@@ -55,7 +57,7 @@ function transactionalSql(base, state) {
             entries[id] = JSON.parse(next);settings.set(key, entries);results.push([{ setting_key: key }]);
           } else if (q.includes('SELECT * FROM orders')) {
             const row = [...state.orders.values()].find(row => row.id === v[0]);results.push(row ? [structuredClone(row)] : []);
-          } else throw Error('Unmodelled transaction: ' + q);
+          } else results.push(await base(strings, ...v));
         }
         state.beforeCommit?.();
         if (applied) state.onApplied?.();
@@ -63,6 +65,7 @@ function transactionalSql(base, state) {
       } catch (error) {
         state.orders.clear();for (const [key, row] of ordersBefore) state.orders.set(key, row);
         settings.clear();for (const [key, entries] of settingsBefore) settings.set(key, entries);
+        if (mailboxesBefore) { state.mailboxes.clear();for (const [key, row] of mailboxesBefore) state.mailboxes.set(key,row); }
         throw error;
       }
     };
