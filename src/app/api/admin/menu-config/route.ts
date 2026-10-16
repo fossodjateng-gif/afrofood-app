@@ -111,7 +111,10 @@ export async function PATCH(req: Request) {
           ? null
           : Number(remainingQtyRaw);
       const resumeAtRaw = String(body?.resumeAt || "").trim();
-      await upsertItemAvailability(
+      if (typeof body.expectedRevision !== "string") {
+        return NextResponse.json({ ok: false, error: "Reload quantities before saving" }, { status: 409 });
+      }
+      const revision = await upsertItemAvailability(
         itemId,
         {
           status:
@@ -121,9 +124,11 @@ export async function PATCH(req: Request) {
           remainingQty,
           resumeAt: resumeAtRaw || null,
         },
-        eventId || undefined
+        eventId || undefined,
+        body.expectedRevision
       );
-      return NextResponse.json({ ok: true });
+      if (!revision) return NextResponse.json({ ok: false, error: "Quantities changed. Reload before saving / Mengen geaendert: bitte neu laden." }, { status: 409 });
+      return NextResponse.json({ ok: true, revision });
     }
 
     if (setting === "store_config") {

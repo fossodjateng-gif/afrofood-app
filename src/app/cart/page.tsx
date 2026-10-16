@@ -1,5 +1,7 @@
 "use client";
 
+import { isQuantityZero, quantityZeroLabel } from "@/lib/quantity-policy";
+import type { ItemAvailability } from "@/lib/menu-settings";
 import { getOrderBreakdownEur } from "@/lib/pricing";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -151,6 +153,7 @@ function mapRowToOrder(row: OrderRow): Order {
 
 
 export default function CartPage() {
+  const [quantities, setQuantities] = useState<Record<string, ItemAvailability>>({});
   const [cart, setCart] = useState<CartItem[]>([]);
   const [lang, setLang] = useState<Lang>("de");
   const [clientPlatform, setClientPlatform] = useState<ClientPlatform>("other");
@@ -205,6 +208,7 @@ export default function CartPage() {
         const data = (await res.json()) as {
           ok?: boolean;
           sections?: Array<{ id?: string; items?: Array<{ id?: string; price?: number }> }>;
+          availability?: Record<string, ItemAvailability>;
           paymentConfig?: { cashEnabled?: boolean; cardEnabled?: boolean; cashlessEnabled?: boolean };
           storeConfig?: { activeEventId?: string; activeEventName?: string; events?: Array<{ id?: string; name?: string }> };
           selectedEvent?: { id?: string; name?: string } | null;
@@ -216,6 +220,7 @@ export default function CartPage() {
           cashlessEnabled: data.paymentConfig?.cashlessEnabled !== false,
         };
         setPaymentAvailability(next);
+        setQuantities(data.availability || {});
         const selected = data.selectedEvent;
         if (selected?.id && selected?.name) {
           setEventId(String(selected.id));
@@ -529,6 +534,7 @@ export default function CartPage() {
 	                    </button>
 	                  </div>
 
+                    {isQuantityZero(quantities[it.id]) ? <p style={{ color: "#991b1b", background: "#fee2e2", padding: 8, fontWeight: 800 }}>{quantityZeroLabel(lang)}</p> : null}
                     <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
                       <label style={{ display: "block", fontWeight: 700, marginBottom: 0 }}>
                         {t.cart_item_note_label}

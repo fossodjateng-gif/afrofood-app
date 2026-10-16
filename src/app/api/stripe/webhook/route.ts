@@ -1,3 +1,4 @@
+import { finalizeSale } from "@/lib/finalize-sale";
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
@@ -120,22 +121,10 @@ export async function POST(req: Request) {
     }
     const previousStatus = String(row.status || "");
 
-    const updated = await sql`
-      UPDATE orders
-      SET
-        payment_provider = 'stripe',
-        stripe_payment_intent_id = COALESCE(stripe_payment_intent_id, ${piId}),
-        paid_at = COALESCE(paid_at, NOW()),
-        payment_error = NULL,
-        status = CASE WHEN UPPER(status) = 'PENDING_PAYMENT' THEN 'NEW' ELSE status END
-      WHERE id = ${orderId} AND payment = 'card' AND stripe_payment_intent_id = ${piId}
-        AND amount_cents = ${obj.amount_received} AND currency = ${obj.currency}
-        AND UPPER(status) = 'PENDING_PAYMENT'
-      RETURNING UPPER(status) AS status
-    `;
-    const status = String(updated[0]?.status || previousStatus);
+    const finalized = await finalizeSale(orderId, { payment: "card", paymentIntentId: piId, amountReceived: obj.amount_received!, currency: obj.currency! });
+    const status = finalized.order?.status || previousStatus;
 
-    if (status !== previousStatus) {
+    if (finalized.changed && status !== previousStatus) {
       publishOrderEvent({
         type: "ORDER_STATUS_CHANGED",
         orderId,
@@ -144,7 +133,7 @@ export async function POST(req: Request) {
         previousStatus,
       });
     }
-    if (updated.length && previousStatus === "PENDING_PAYMENT" && status === "NEW") {
+    if (finalized.changed && previousStatus === "PENDING_PAYMENT" && status === "NEW") {
       publishOrderEvent({
         type: "PAYMENT_VALIDATED",
         orderId,

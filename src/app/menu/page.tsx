@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { isQuantityZero, quantityZeroLabel } from "@/lib/quantity-policy";
 import React from "react";
 import { getProductImageSource, PRODUCT_IMAGE_FALLBACK } from "@/lib/product-image";
 import { getDipPriceLabel } from "@/lib/pricing";
@@ -423,11 +424,7 @@ export default function MenuPage() {
           ? `Noch ${qty} Portion${qty > 1 ? "en" : ""}${time ? ` - wieder ab ${time}` : ""}`
           : `${qty} portion${qty > 1 ? "s" : ""} left${time ? ` - back at ${time}` : ""}`;
       }
-      return lang === "fr"
-        ? `Temporairement indisponible${time ? ` - reprise ${time}` : ""}`
-        : lang === "de"
-        ? `Vorubergehend nicht verfugbar${time ? ` - wieder ab ${time}` : ""}`
-        : `Temporarily unavailable${time ? ` - back at ${time}` : ""}`;
+      return quantityZeroLabel(lang);
     }
     const time = availability.resumeAt ? new Date(availability.resumeAt).toLocaleString(lang === "fr" ? "fr-FR" : lang === "de" ? "de-DE" : "en-GB") : "";
     return lang === "fr"
@@ -578,8 +575,7 @@ export default function MenuPage() {
                     {(() => {
                       const availability = it.availability;
                       const isBlocked =
-                        availability?.status === "blocked" ||
-                        (availability?.status === "limited" && Number(availability.remainingQty ?? 0) <= 0);
+                        availability?.status === "blocked";
                       const availabilityLabel = getAvailabilityLabel(it);
                       return (
                         <>
@@ -628,7 +624,7 @@ export default function MenuPage() {
 	                        </div>
 	                      )}
                           {availabilityLabel ? (
-                            <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 12, background: isBlocked ? "#fee2e2" : "#fef3c7", color: isBlocked ? "#991b1b" : "#92400e", fontWeight: 800, fontSize: 13 }}>
+                            <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 12, background: (isBlocked || isQuantityZero(availability)) ? "#fee2e2" : "#fef3c7", color: (isBlocked || isQuantityZero(availability)) ? "#991b1b" : "#92400e", fontWeight: 800, fontSize: 13 }}>
                               {availabilityLabel}
                             </div>
                           ) : null}

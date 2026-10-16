@@ -7,14 +7,14 @@ function backend() {
   let consumed = 0, consumeCalls = 0, stripeCreates = 0, stockError = null, loseStripeResponse = false;
   const copy = row => row ? [{ ...row }] : [];
   const paid = row => row?.payment_provider === 'stripe' && row.paid_at && ['NEW', 'IN_PROGRESS', 'READY', 'DONE'].includes(row.status);
-  const sql = async (strings, ...v) => {
+  const baseSql = async (strings, ...v) => {
     const q = strings.join('');
     if (/CREATE |ALTER /.test(q)) return [];
     if (q.includes('WHERE id LIKE')) return [...orders.values()].filter(row => row.id.startsWith(v[0].slice(0, -1))).sort((a,b) => b.id.localeCompare(a.id)).slice(0,1).map(row => ({ id: row.id }));
     if (q.includes('WHERE pos_card_key')) return copy([...orders.values()].find(row => row.pos_card_key === v[0]));
     if (q.includes('INSERT INTO orders')) {
       if (orders.has(v[0]) || [...orders.values()].some(row => row.pos_card_key === v[5])) return [];
-      const row = { id:v[0],event_id:v[1],event_name:v[2],payment:'card',amount_cents:v[3],items:JSON.parse(v[4]),pos_card_key:v[5],pos_card_fingerprint:v[6],pos_card_user_id:v[7],pos_card_username:v[8],pos_card_state:'creating',status:'PENDING_PAYMENT',currency:'eur',stripe_payment_intent_id:null };
+      const row = { id:v[0],event_id:v[1],event_name:v[2],payment:'card',amount_cents:v[3],items:JSON.parse(v[4]),pos_card_key:v[5],pos_card_fingerprint:v[6],pos_card_user_id:v[7],pos_card_username:v[8],pos_card_state:'creating',status:'PENDING_PAYMENT',quantity_applied:false,currency:'eur',stripe_payment_intent_id:null };
       orders.set(row.id,row);return copy(row);
     }
     if (q.includes("pos_card_state = 'ready'")) { const row=orders.get(v[0]);row.pos_card_state='ready';return copy(row); }
@@ -44,13 +44,17 @@ function backend() {
     if (q.includes('WHERE id =')) return copy(orders.get(v[0]));
     throw new Error('Unmocked SQL: '+q);
   };
+  const sql = require('./sale-transaction-harness.cjs').transactionalSql(baseSql, {
+    orders, onApplied: () => { consumed++;consumeCalls++; },
+  });
   const mocks={
     'next/server':{NextResponse:{json:(body,init)=>Response.json(body,init)}},
     '@/lib/db':{sql},'@/lib/orders-schema':{ensureOrdersSchema:async()=>{}},
     '@/lib/order-events':{publishOrderEvent:event=>events.push(event)},
     '@/lib/menu-settings':{
+      ensureMenuSettingsSchema: async () => {},
       getStoreConfig:async()=>({events:[{id:'event-a',name:'Event A'}]}),getPaymentConfig:async()=>({cardEnabled:true}),
-      getResolvedMenuSections:async()=>[{id:'food',items:[{id:'meal',name:{de:'Meal'},price:10,visible:true},{id:'hidden',name:{de:'Hidden'},price:10,visible:false}]},{id:'dips',items:[{id:'dip-green',name:{de:'Green'},price:7,visible:true},{id:'dip-chili',name:{de:'Chili'},price:7,visible:true}]}],
+      getResolvedMenuSections:async()=>[{id:'food',items:[{id:'meal',name:{de:'Meal'},price:10,visible:true,availability:{status:"limited",remainingQty:0,resumeAt:null}},{id:'hidden',name:{de:'Hidden'},price:10,visible:false}]},{id:'dips',items:[{id:'dip-green',name:{de:'Green'},price:7,visible:true},{id:'dip-chili',name:{de:'Chili'},price:7,visible:true}]}],
       consumeItemAvailability:async()=>{consumeCalls++;if(stockError)throw stockError;consumed++;},restoreItemAvailability:async()=>{throw Error('Unexpected stock restore');},
     },
     '@/lib/stripe-server':{

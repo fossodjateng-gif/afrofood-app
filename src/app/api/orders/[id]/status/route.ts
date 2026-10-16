@@ -2,7 +2,7 @@ import { ensureOrdersSchema } from "@/lib/orders-schema";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
-import { restoreItemAvailability } from "@/lib/menu-settings";
+import { finalizeSale } from "@/lib/finalize-sale";
 
 type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE" | "CANCELED";
 
@@ -58,8 +58,6 @@ export async function PATCH(
     };
     const previousStatus = String(previousRow.status || "");
     const payment = String(previousRow.payment || "").toLowerCase();
-    const previousEventId = String(previousRow.event_id || "").trim();
-    const previousItems = Array.isArray(previousRow.items) ? previousRow.items : [];
 
 
     if (body.cashReceivedCents !== undefined || (previousRow.pos_cash_key && status === "NEW" && previousStatus === "PENDING_PAYMENT")) {
@@ -78,19 +76,14 @@ export async function PATCH(
         return NextResponse.json({ ok: true, order: paid[0] });
       }
       if (previousStatus !== "PENDING_PAYMENT") return NextResponse.json({ ok: false, error: "Order is not awaiting cash payment" }, { status: 409 });
-      const paid = await sql`
-        UPDATE orders SET status = 'NEW', cash_received_cents = ${received}, change_given_cents = ${received - amount}, paid_at = NOW()
-        WHERE id = ${id} AND payment = 'cash' AND UPPER(status) = 'PENDING_PAYMENT' AND cash_received_cents IS NULL
-        RETURNING *
-      `;
-      if (!paid.length) {
-        const current = await sql`SELECT * FROM orders WHERE id = ${id} LIMIT 1`;
-        if (current[0]?.cash_received_cents != null) return NextResponse.json({ ok: true, order: current[0] });
+      const finalized = await finalizeSale(id, { payment: "cash", received });
+      if (!finalized.changed) {
+        if (finalized.order?.cash_received_cents != null) return NextResponse.json({ ok: true, order: finalized.order });
         return NextResponse.json({ ok: false, error: "Order changed during confirmation" }, { status: 409 });
       }
       publishOrderEvent({ type: "ORDER_STATUS_CHANGED", orderId: id, at: Date.now(), status: "NEW", previousStatus });
       publishOrderEvent({ type: "PAYMENT_VALIDATED", orderId: id, at: Date.now(), status: "NEW", previousStatus });
-      return NextResponse.json({ ok: true, order: paid[0] });
+      return NextResponse.json({ ok: true, order: finalized.order });
     }
 
     if (payment === "card" && ((previousStatus === "PENDING_PAYMENT" && ["NEW", "IN_PROGRESS", "READY", "DONE"].includes(status)) || (previousRow.pos_card_key && status === "CANCELED"))) {
@@ -103,10 +96,26 @@ export async function PATCH(
       );
     }
 
+    if (status === "NEW" && (payment === "cash" || payment === "cashless")) {
+      const finalized = await finalizeSale(id, { payment });
+      if (finalized.changed) {
+        publishOrderEvent({ type: "ORDER_STATUS_CHANGED", orderId: id, at: Date.now(), status: "NEW", previousStatus });
+        publishOrderEvent({ type: "PAYMENT_VALIDATED", orderId: id, at: Date.now(), status: "NEW", previousStatus });
+      }
+      if (!finalized.changed && (!finalized.order || !["NEW", "IN_PROGRESS", "READY", "DONE"].includes(finalized.order.status))) {
+        return NextResponse.json({ ok: false, error: "Order is not awaiting payment" }, { status: 409 });
+      }
+      return NextResponse.json({ ok: true, order: finalized.order });
+    }
+    // Payment transitions are one-way; kitchen/status actions cannot reopen a sale.
+    if (status === "PENDING_PAYMENT" || (previousStatus === "PENDING_PAYMENT" && status !== "CANCELED") || (previousStatus === "CANCELED" && status !== "CANCELED")) {
+      return NextResponse.json({ ok: false, error: "Invalid order transition" }, { status: 409 });
+    }
+
     const rows = await sql`
       UPDATE orders
       SET status = ${status}
-      WHERE id = ${id}
+      WHERE id = ${id} AND UPPER(status) = ${previousStatus}
       RETURNING id, created_at, customer_name, payment, UPPER(status) AS status, items
     `;
 
@@ -150,9 +159,7 @@ export async function PATCH(
       });
     }
 
-    if (status === "CANCELED" && previousStatus !== "CANCELED") {
-      await restoreItemAvailability(previousItems, previousEventId || undefined);
-    }
+    // Cancellation/refund never automatically increases an informative counter.
 
     return NextResponse.json({ ok: true, order: rows[0] });
   } catch (e: unknown) {

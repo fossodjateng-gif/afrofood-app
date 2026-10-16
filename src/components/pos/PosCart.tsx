@@ -1,3 +1,4 @@
+import { isQuantityZero, quantityZeroLabel } from "@/lib/quantity-policy";
 import { formatPosMoney, getPosBreakdown, getProductLimit, type PosCartItem, type PosProduct } from "@/lib/pos-cart";
 import styles from "./pos.module.css";
 import { getDipPriceLabel, isDipItem } from "@/lib/pricing";
@@ -38,6 +39,7 @@ export function PosCart({ lang, items, products, onIncrease, onDecrease, onRemov
             <div key={item.id} className={styles.cartLine}>
               <div className={styles.lineHeading}><strong>{name}</strong><button className={styles.removeButton} type="button" onClick={() => onRemove(item.id)} aria-label={`${name} ${lang === "de" ? "entfernen" : text.remove}`}>{text.remove}</button></div>
               <div className={styles.unitPrice}>{isDipItem(item) ? getDipPriceLabel(lang) : `${formatPosMoney(Math.round(item.price * 100))} / ${text.unit}`}</div>
+              {isQuantityZero(product?.availability) ? <p className={styles.quantityAlert}>{quantityZeroLabel(lang)}</p> : null}
               {unavailable ? <p className={styles.lineWarning}>{text.warning}</p> : null}
               <div className={styles.lineBottom}>
                 <div className={styles.quantityControls}>

@@ -22,6 +22,8 @@ export async function ensureOrdersSchema() {
     );
   `;
 
+  // No DEFAULT: existing rows must remain NULL (legacy). New inserts opt in.
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS quantity_applied BOOLEAN;`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_provider TEXT;`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS stripe_payment_intent_id TEXT;`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS amount_cents INTEGER;`;

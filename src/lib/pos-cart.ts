@@ -63,12 +63,6 @@ export function writePosCart(key: string, items: PosCartItem[]) {
 export function getProductLimit(product: PosProduct) {
   if (!product.visible || !Number.isFinite(product.price) || product.price < 0) return 0;
   if (product.availability?.status === "blocked") return 0;
-  if (product.availability?.status === "limited") {
-    const remaining = product.availability.remainingQty;
-    return typeof remaining === "number" && Number.isFinite(remaining)
-      ? Math.max(0, Math.floor(remaining))
-      : 0;
-  }
   return Number.POSITIVE_INFINITY;
 }
 

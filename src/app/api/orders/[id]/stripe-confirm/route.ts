@@ -1,3 +1,4 @@
+import { finalizeSale } from "@/lib/finalize-sale";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
@@ -39,7 +40,7 @@ export async function PATCH(
     }
 
     const rows = await sql`
-      SELECT id, payment, UPPER(status) AS status, amount_cents, stripe_payment_intent_id, pos_card_key
+      SELECT id, payment, UPPER(status) AS status, amount_cents, stripe_payment_intent_id, pos_card_key, currency
       FROM orders
       WHERE id = ${orderId}
       LIMIT 1
@@ -54,6 +55,7 @@ export async function PATCH(
       status: string;
       amount_cents: number | null;
       stripe_payment_intent_id: string | null;
+      currency: string;
       pos_card_key?: string | null;
     };
 
@@ -106,7 +108,7 @@ export async function PATCH(
     }
 
     const metadataOrderId = String(pi.metadata?.order_id || "").trim();
-    if (metadataOrderId && metadataOrderId !== orderId) {
+    if (metadataOrderId !== orderId || pi.currency !== row.currency || row.stripe_payment_intent_id !== piId) {
       return NextResponse.json(
         { ok: false, error: `PaymentIntent is linked to another order (${metadataOrderId})` },
         { status: 400 }
@@ -114,33 +116,12 @@ export async function PATCH(
     }
 
     const amountReceived = Number(pi.amount_received ?? pi.amount ?? 0);
-    if (
-      Number.isFinite(amountReceived) &&
-      amountReceived > 0 &&
-      Number.isFinite(Number(row.amount_cents)) &&
-      Number(row.amount_cents) > 0 &&
-      amountReceived !== Number(row.amount_cents)
-    ) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: `Amount mismatch: PI=${amountReceived} order=${Number(row.amount_cents)}`,
-        },
-        { status: 400 }
-      );
+    if (!Number.isSafeInteger(amountReceived) || amountReceived <= 0 || amountReceived !== row.amount_cents) {
+      return NextResponse.json({ ok: false, error: "Amount mismatch" }, { status: 400 });
     }
 
-    const updated = await sql`
-      UPDATE orders
-      SET
-        payment_provider = 'stripe',
-        stripe_payment_intent_id = ${piId},
-        paid_at = COALESCE(paid_at, NOW()),
-        payment_error = NULL,
-        status = 'NEW'
-      WHERE id = ${orderId}
-      RETURNING id, created_at, customer_name, payment, UPPER(status) AS status, items
-    `;
+    const finalized = await finalizeSale(orderId, { payment: "card", paymentIntentId: piId, amountReceived, currency: pi.currency! });
+    if (!finalized.changed) return NextResponse.json({ ok: false, error: "Order changed during confirmation" }, { status: 409 });
 
     publishOrderEvent({
       type: "ORDER_STATUS_CHANGED",
@@ -159,7 +140,7 @@ export async function PATCH(
 
     return NextResponse.json({
       ok: true,
-      order: updated?.[0] || null,
+      order: finalized.order || null,
       paymentIntentId: piId,
       paymentStatus: pi.status || null,
     });

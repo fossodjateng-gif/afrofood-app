@@ -4,7 +4,7 @@ import { createPosCardOrder } from "@/lib/pos-card-server";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
-import { consumeItemAvailability, getPaymentConfig, getResolvedMenuSections } from "@/lib/menu-settings";
+import { getPaymentConfig, getResolvedMenuSections } from "@/lib/menu-settings";
 import { calculateOrderTotalCents } from "@/lib/pricing";
 import { ensureOrdersSchema } from "@/lib/orders-schema";
 
@@ -170,21 +170,19 @@ export async function POST(req: Request) {
     const resolvedItems = [];
     for (const item of items) {
       const product = catalog.get(String(item?.id || ""));
-      if (!product || !Number.isSafeInteger(item.qty) || item.qty <= 0) {
+      if (!product || !product.item.visible || product.item.availability?.status === "blocked" || !Number.isSafeInteger(item.qty) || item.qty <= 0) {
         return NextResponse.json({ ok: false, error: "Invalid order item" }, { status: 400 });
       }
       resolvedItems.push({ ...item, pricingKind: product.pricingKind, price: product.item.price });
     }
     items = resolvedItems;
 
-    await consumeItemAvailability(items, eventId || undefined);
-
     const id = await makeNextOrderId();
     const amountCents = calculateOrderTotalCents(items);
 
     await sql`
-      INSERT INTO orders (id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, amount_cents, currency, status, items)
-      VALUES (${id}, ${createdAt}::timestamptz, ${customerName}, ${eventId}, ${eventName}, ${reservationRequested}, ${reservationTime}::timestamp, ${payment}, NULL, ${amountCents}, 'eur', 'PENDING_PAYMENT', ${JSON.stringify(items)}::jsonb)
+      INSERT INTO orders (id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, amount_cents, currency, status, items, quantity_applied)
+      VALUES (${id}, ${createdAt}::timestamptz, ${customerName}, ${eventId}, ${eventName}, ${reservationRequested}, ${reservationTime}::timestamp, ${payment}, NULL, ${amountCents}, 'eur', 'PENDING_PAYMENT', ${JSON.stringify(items)}::jsonb, FALSE)
     `;
 
     publishOrderEvent({

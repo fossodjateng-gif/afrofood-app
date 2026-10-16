@@ -1,3 +1,4 @@
+import { isQuantityZero, quantityZeroLabel } from "@/lib/quantity-policy";
 import Image from "next/image";
 import { getProductImageSource, PRODUCT_IMAGE_FALLBACK } from "@/lib/product-image";
 import { getDipPriceLabel, isDipItem } from "@/lib/pricing";
@@ -46,15 +47,15 @@ export function ProductGrid({ lang, sections, categoryId, quantities, onCategory
               const quantity = quantities.get(product.id) || 0;
               const disabled = quantity >= limit;
               const label = product.availability?.status === "blocked" ? text.blocked
-                : limit === 0 ? text.soldOut
-                : Number.isFinite(limit) ? `${limit} ${text.remaining}` : text.available;
+                : isQuantityZero(product.availability) ? quantityZeroLabel(lang)
+                : product.availability?.status === "limited" ? `${product.availability.remainingQty} ${text.remaining}` : text.available;
               return (
                 <button className={styles.productCard} key={product.id} type="button" disabled={disabled}
                   onClick={() => onAdd(product)} aria-label={`${product.name[lang]} ${text.add}`}>
                   <ProductImage key={`${product.id}:${product.imagePath}`} product={product} />
                   <div className={styles.productBody}>
                     <span className={styles.productName}>{product.name[lang]}</span>
-                    <span className={styles.availability}>{label}{quantity > 0 ? ` · ${quantity} ${text.inCart}` : ""}</span>
+                    <span className={isQuantityZero(product.availability) ? styles.quantityAlert : styles.availability}>{label}{quantity > 0 ? ` · ${quantity} ${text.inCart}` : ""}</span>
                     <div className={styles.productBottom}>
                       <strong style={isDip ? { fontSize: 12, lineHeight: 1.5 } : undefined}>{isDip ? getDipPriceLabel(lang) : formatPosMoney(Math.round(product.price * 100))}</strong>
                       <span className={styles.addBadge} aria-hidden="true">+</span>

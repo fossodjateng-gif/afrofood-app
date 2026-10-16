@@ -23,7 +23,7 @@ const pricing = load('src/lib/pricing.ts');
 const cart = load('src/lib/cart.ts');
 const pos = load('src/lib/pos-cart.ts');
 const order = load('src/lib/order.ts');
-const product = (id, price, pricingKind = 'regular') => ({ id, name: id, price, pricingKind, qty: 1 });
+const product = (id, price, pricingKind = 'regular') => ({ id, name: id, price, pricingKind, qty: 1, visible: true });
 const green = product('dip-green', 0, 'dip');
 const chili = product('dip-chili', 9, 'dip');
 const custom = product('custom-mango', 7.5, 'dip');
@@ -45,7 +45,7 @@ const cases = [
   ['plat avec sauce chili reste un plat', [product('custom-chili-dish', 12)], 1200],
 ];
 async function server(items, expected) {
-  let insert, consumed, catalogEvent;
+  let insert, catalogEvent;
   const route = load('src/app/api/orders/route.ts', {
     'next/server': { NextResponse: { json: (body, init) => Response.json(body, init) } },
     '@/lib/db': { sql: async (strings, ...values) => { if (strings.join('').includes('INSERT INTO orders')) insert = values; return []; } },
@@ -54,7 +54,7 @@ async function server(items, expected) {
     '@/lib/menu-settings': {
       getPaymentConfig: async () => ({ cashEnabled: true, cardEnabled: true, cashlessEnabled: true }),
       getResolvedMenuSections: async (eventId) => { catalogEvent = eventId; return sections; },
-      consumeItemAvailability: async (canonical) => { consumed = canonical; },
+      consumeItemAvailability: async () => { throw Error('Creation must not consume quantities'); },
     },
   });
   const response = await route.POST(new Request('http://localhost/api/orders', {
@@ -66,7 +66,7 @@ async function server(items, expected) {
   assert.equal(body.order.amountCents, expected);
   assert.equal(catalogEvent, 'test-event');
   assert.ok(insert.includes(expected));
-  assert.equal(pricing.calculateOrderTotalCents(consumed), expected);
+  assert.equal(pricing.calculateOrderTotalCents(body.order.items), expected);
   assert.equal(pricing.getOrderBreakdownEur(body.order.items, body.order.amountCents).total * 100, expected);
   return body.order;
 }

@@ -10,7 +10,7 @@ test('A/B/D/Q/R: actual manual page double click, cash exclusion, waiting, reloa
   globalThis.localStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
   globalThis.window={addEventListener:()=>{},removeEventListener:()=>{},setInterval:()=>1,clearInterval:()=>{},print:()=>prints++,location:{}};
   Object.defineProperty(globalThis,'navigator',{configurable:true,value:{locks:{request:async(k,fn)=>fn()}}});
-  globalThis.fetch=async(url,options)=>url.startsWith('/api/admin/menu-config')?Response.json({ok:true,storeConfig:{events:[{id:'event-a',name:'Event A'}]},sections:[{id:'food',title:{de:'Food'},items:[{id:'meal',name:{de:'Meal'},price:10,visible:true}]}]}):db.request(url,options);
+  globalThis.fetch=async(url,options)=>url.startsWith('/api/admin/menu-config')?Response.json({ok:true,storeConfig:{events:[{id:'event-a',name:'Event A'}]},sections:[{id:'food',title:{de:'Food'},items:[{id:'meal',name:{de:'Meal'},price:10,visible:true,availability:{status:'limited',remainingQty:0,resumeAt:null}}]}]}):db.request(url,options);
   const mocks={'next/link':()=>null,'next/image':()=>null,'@/lib/staff-auth':{getSession:()=>session,resolveCashierEventId:s=>s.cashierEventId,getStaffRoleLabel:()=> 'Kasse'},'@/lib/translations':{getSavedLang:()=> 'de',saveLang:()=>{}}};
   const component=(tree,name)=>findAll(tree,e=>e.type?.name===name)[0];
   let page=harness('src/app/caisse/manual/page.tsx',{},mocks),tree=page.render();page.effects.forEach(fn=>fn());await settle();tree=page.render();

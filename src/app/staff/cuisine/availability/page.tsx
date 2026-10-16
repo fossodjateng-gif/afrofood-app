@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { clearSession, getSession, getStaffRoleLabel, type StaffRole, updateSessionCashierEventId } from "@/lib/staff-auth";
@@ -12,6 +13,7 @@ type AdminItem = {
   price: number;
   visible: boolean;
   availability?: {
+    revision?: string;
     status?: "available" | "limited" | "blocked";
     remainingQty?: number | null;
     resumeAt?: string | null;
@@ -62,10 +64,10 @@ function AvailabilityPageContent() {
     title: lang === "fr" ? "Disponibilite cuisine" : lang === "de" ? "Kuchen-Verfugbarkeit" : "Kitchen availability",
     subtitle:
       lang === "fr"
-        ? "Bloquer temporairement un produit ou limiter le nombre de portions restantes."
+        ? "Bloquer volontairement un produit ou suivre les quantites indicatives, sans limite de vente."
         : lang === "de"
-        ? "Produkte vorubergehend sperren oder die verbleibenden Portionen begrenzen."
-        : "Temporarily block a product or limit how many portions remain.",
+        ? "Produkte manuell sperren oder Mengen unverbindlich verfolgen. Bestand 0 verhindert keinen Verkauf."
+        : "Manually block a product or track indicative quantities without limiting sales.",
     back: lang === "fr" ? "Retour" : lang === "de" ? "Zuruck" : "Back",
     home: lang === "fr" ? "Accueil" : lang === "de" ? "Start" : "Home",
     logout: lang === "fr" ? "Se deconnecter" : lang === "de" ? "Abmelden" : "Logout",
@@ -185,6 +187,7 @@ function AvailabilityPageContent() {
             ? {
                 ...it,
                 availability: {
+                  revision: it.availability?.revision,
                   status: patch.status ?? it.availability?.status ?? "available",
                   remainingQty:
                     patch.remainingQty !== undefined ? patch.remainingQty : (it.availability?.remainingQty ?? null),
@@ -210,6 +213,7 @@ function AvailabilityPageContent() {
         },
         body: JSON.stringify({
           setting: "item_availability",
+          expectedRevision: availability.revision || "null",
           itemId: item.id,
           eventId,
           status: availability.status || "available",
@@ -221,6 +225,7 @@ function AvailabilityPageContent() {
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error || "Save failed");
       }
+      setSections((previous) => previous.map((section) => ({ ...section, items: section.items.map((entry) => entry.id === item.id ? { ...entry, availability: { ...entry.availability, revision: data.revision } } : entry) })));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -245,7 +250,7 @@ function AvailabilityPageContent() {
               <button key={L} type="button" onClick={() => { setLang(L); saveLang(L); }} className={`af-lang-btn ${lang === L ? "is-active" : ""}`}>{L.toUpperCase()}</button>
             ))}
             <button type="button" onClick={() => goBackOr(fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine")} className="af-link-btn" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800 }}>{ui.back}</button>
-            <a href="/" className="af-link-btn" style={{ textDecoration: "none", padding: "8px 12px", borderRadius: 10, border: "1px solid #111", color: "#111", fontWeight: 800 }}>{ui.home}</a>
+            <Link href="/" className="af-link-btn" style={{ textDecoration: "none", padding: "8px 12px", borderRadius: 10, border: "1px solid #111", color: "#111", fontWeight: 800 }}>{ui.home}</Link>
             {!fromCaisse ? <button type="button" className="af-btn" onClick={() => { clearSession(); window.location.href = "/team/login"; }} style={{ padding: "8px 12px", borderRadius: 10, border: "none", background: "#111", color: "white", fontWeight: 800 }}>{ui.logout}</button> : null}
           </div>
         </div>
@@ -342,7 +347,7 @@ function AvailabilityPageContent() {
                       />
                       {isZeroLimited ? (
                         <div style={{ color: "#b91c1c", fontWeight: 800, fontSize: 13 }}>
-                          {lang === "fr" ? "Le menu est bloque jusqu'a nouvelle disponibilite." : lang === "de" ? "Das Menu ist blockiert, bis neue Verfugbarkeit gesetzt wird." : "The menu is blocked until new availability is set."}
+                          {lang === "fr" ? "Stock 0 : information uniquement, vente toujours autorisee." : lang === "de" ? "Bestand 0 - bitte pruefen. Verkauf weiterhin moeglich." : "Stock 0 - please check. Sales remain allowed."}
                         </div>
                       ) : null}
                     </div>

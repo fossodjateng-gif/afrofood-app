@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const {backend}=require('./card-backend-harness.cjs');
-function setup(){const db=backend();db.orders.set('20261008-006',{id:'20261008-006',payment:'card',status:'PENDING_PAYMENT',stripe_payment_intent_id:'pi_expected',amount_cents:1000,currency:'eur'});return db;}
+function setup(){const db=backend();db.orders.set('20261008-006',{id:'20261008-006',payment:'card',status:'PENDING_PAYMENT',stripe_payment_intent_id:'pi_expected',amount_cents:1000,currency:'eur',quantity_applied:false,items:[{id:'meal',qty:1}]});return db;}
 async function deliver(db,patch={},validSignature=true){
  const old=process.env.STRIPE_WEBHOOK_SECRET;const secret='mock-webhook-secret';process.env.STRIPE_WEBHOOK_SECRET=secret;
  try{const payload=JSON.stringify({id:'evt_mock',type:'payment_intent.succeeded',data:{object:{id:'pi_expected',status:'succeeded',amount_received:1000,currency:'eur',metadata:{order_id:'20261008-006'},...patch}}});
@@ -19,6 +19,6 @@ test('non-card and invalid signature refused',async()=>{
 });
 test('U: valid signed webhook validates once; duplicate preserves kitchen progress',async()=>{
  const db=setup();assert.equal((await deliver(db)).status,200);assert.equal(db.orders.get('20261008-006').status,'NEW');assert.ok(db.orders.get('20261008-006').paid_at);
- assert.equal(db.events.filter(e=>e.type==='PAYMENT_VALIDATED').length,1);db.orders.get('20261008-006').status='READY';await deliver(db);assert.equal(db.orders.get('20261008-006').status,'READY');assert.equal(db.events.filter(e=>e.type==='PAYMENT_VALIDATED').length,1);
+ assert.equal(db.consumed,1);assert.equal(db.events.filter(e=>e.type==='PAYMENT_VALIDATED').length,1);db.orders.get('20261008-006').status='READY';await deliver(db);assert.equal(db.orders.get('20261008-006').status,'READY');assert.equal(db.events.filter(e=>e.type==='PAYMENT_VALIDATED').length,1);assert.equal(db.consumed,1);
 });
 test('late webhook never resurrects CANCELED order',async()=>{const db=setup();db.orders.get('20261008-006').status='CANCELED';await deliver(db);assert.equal(db.orders.get('20261008-006').status,'CANCELED');assert.equal(db.events.length,0);});

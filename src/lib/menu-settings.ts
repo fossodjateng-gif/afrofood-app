@@ -1,3 +1,4 @@
+import { AVAILABILITY_LOCK } from "@/lib/quantity-policy";
 import { sql } from "@/lib/db";
 import { getMenuItemImagePath, MENU_CATALOG } from "@/lib/menu-catalog";
 import type { Lang } from "@/lib/translations";
@@ -42,6 +43,7 @@ export type PaymentConfig = {
 export type ItemAvailabilityStatus = "available" | "limited" | "blocked";
 
 export type ItemAvailability = {
+  revision?: string;
   status: ItemAvailabilityStatus;
   remainingQty: number | null;
   resumeAt: string | null;
@@ -278,95 +280,38 @@ export async function getItemAvailabilityMap(eventId?: string): Promise<Record<s
   `) as Array<{ setting_value: unknown }>;
 
   if (rows.length === 0) return {};
-  return normalizeAvailabilityMap(rows[0]?.setting_value);
+  const raw = rows[0]?.setting_value as Record<string, unknown>;
+  const entries = normalizeAvailabilityMap(raw);
+  for (const [id, entry] of Object.entries(entries)) entry.revision = JSON.stringify(raw[id]);
+  return entries;
 }
 
-async function saveItemAvailabilityMap(entries: Record<string, ItemAvailability>, eventId?: string) {
-  await ensureMenuSettingsSchema();
-  const key = itemAvailabilityKey(eventId);
-  await sql`
-    INSERT INTO app_settings (setting_key, setting_value, updated_at)
-    VALUES (${key}, ${JSON.stringify(entries)}::jsonb, NOW())
-    ON CONFLICT (setting_key)
-    DO UPDATE SET
-      setting_value = EXCLUDED.setting_value,
-      updated_at = NOW()
-  `;
-}
-
+// Compare the entry loaded by the administrator, never rewrite a stale map.
 export async function upsertItemAvailability(
   itemIdInput: string,
   availability: Partial<ItemAvailability>,
-  eventId?: string
+  eventId: string | undefined,
+  expectedRevision: string,
 ) {
   const itemId = String(itemIdInput || "").trim();
   if (!itemId) throw new Error("Missing itemId");
-  const current = await getItemAvailabilityMap(eventId);
-  const next = {
-    ...current,
-    [itemId]: normalizeAvailability({
-      ...current[itemId],
-      ...availability,
-    }),
-  };
-  await saveItemAvailabilityMap(next, eventId);
-}
-
-export async function consumeItemAvailability(
-  itemsInput: Array<{ id?: string; qty?: number }>,
-  eventId?: string
-) {
-  const current = await getItemAvailabilityMap(eventId);
-  if (Object.keys(current).length === 0) return;
-  const next = { ...current };
-
-  for (const raw of itemsInput) {
-    const itemId = String(raw?.id || "").trim();
-    const qty = Math.max(0, Number(raw?.qty || 0));
-    if (!itemId || qty <= 0) continue;
-    const entry = normalizeAvailability(next[itemId]);
-    if (entry.status === "available") continue;
-
-    if (entry.status === "blocked") {
-      throw new Error(`Item unavailable: ${itemId}`);
-    }
-
-    const remaining = Number(entry.remainingQty ?? 0);
-    if (remaining < qty) {
-      throw new Error(`Item limited: ${itemId}`);
-    }
-
-    next[itemId] = normalizeAvailability({
-      ...entry,
-      remainingQty: remaining - qty,
-    });
-  }
-
-  await saveItemAvailabilityMap(next, eventId);
-}
-
-export async function restoreItemAvailability(
-  itemsInput: Array<{ id?: string; qty?: number }>,
-  eventId?: string
-) {
-  const current = await getItemAvailabilityMap(eventId);
-  if (Object.keys(current).length === 0) return;
-  const next = { ...current };
-
-  for (const raw of itemsInput) {
-    const itemId = String(raw?.id || "").trim();
-    const qty = Math.max(0, Number(raw?.qty || 0));
-    if (!itemId || qty <= 0) continue;
-    const entry = normalizeAvailability(next[itemId]);
-    if (entry.status !== "limited") continue;
-
-    next[itemId] = normalizeAvailability({
-      ...entry,
-      remainingQty: Math.max(0, Number(entry.remainingQty ?? 0) + qty),
-    });
-  }
-
-  await saveItemAvailabilityMap(next, eventId);
+  const expected = JSON.parse(expectedRevision);
+  const next = normalizeAvailability({ ...(expected || {}), ...availability });
+  await ensureMenuSettingsSchema();
+  const key = itemAvailabilityKey(eventId);
+  const results = await sql.transaction([
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${AVAILABILITY_LOCK}, 0))`,
+    sql`INSERT INTO app_settings (setting_key, setting_value, updated_at)
+      SELECT ${key}, jsonb_build_object(${itemId}::text, ${JSON.stringify(next)}::jsonb), NOW()
+      WHERE ${expectedRevision}::jsonb = 'null'::jsonb
+        OR EXISTS (SELECT 1 FROM app_settings WHERE setting_key = ${key})
+      ON CONFLICT (setting_key) DO UPDATE SET
+        setting_value = jsonb_set(app_settings.setting_value, ARRAY[${itemId}::text], ${JSON.stringify(next)}::jsonb),
+        updated_at = NOW()
+      WHERE COALESCE(app_settings.setting_value->${itemId}::text, 'null'::jsonb) = ${expectedRevision}::jsonb
+      RETURNING setting_key`,
+  ], { isolationLevel: "ReadCommitted" });
+  return results[1].length > 0 ? JSON.stringify(next) : null;
 }
 
 function toStoreConfig(value: unknown): StoreConfig {

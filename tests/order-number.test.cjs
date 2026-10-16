@@ -113,8 +113,8 @@ test('prefixed POS card ID survives preparation, native API lookup and signed we
       assert.equal((await card.checkPosCard(sale, db.request)).id, id);
       assert.ok(db.events.some(event => event.type === 'PAYMENT_VALIDATED' && event.orderId === id));
       const { OrderReceipt } = load('src/components/OrderReceipt.tsx');
-      const ticket = OrderReceipt({ order: db.orders.get(id), lang: 'de', labels: {}, onPrint: () => {} });
-      assert.equal(ticket.props['data-order-id'], id);
+      const ticket = require('react-dom/server').renderToStaticMarkup(require('react').createElement(OrderReceipt, { order: db.orders.get(id), lang: 'de', labels: {}, onPrint: () => {} }));
+      assert.ok(ticket.includes('data-order-id="' + id + '"'));
       const { makeQrPayload } = load('src/lib/order.ts');
       assert.ok(makeQrPayload({ id, items: [], payment: 'card' }).includes(id));
     } finally {
