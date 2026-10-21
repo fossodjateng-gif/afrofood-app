@@ -1,4 +1,5 @@
 :root {
+  --af-border: #F1D7C8;
   --background: #ffffff;
   --foreground: #171717;
 }
@@ -135,7 +136,7 @@ a {
 
 @media (max-width: 720px) {
   .af-page {
-    padding: 14px !important;
+    padding: 14px 14px 120px !important;
   }
 
   .af-container {
@@ -308,6 +309,48 @@ a {
 
 .af-page {
   padding-bottom: 120px;
+}
+
+/* Scoped responsive constraints; keep existing colors and dimensions. */
+.af-cuisine-header > div {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.af-cuisine-header .af-role-badge {
+  white-space: normal;
+}
+
+.af-order-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.af-order-heading {
+  flex-wrap: wrap;
+}
+
+.af-order-heading > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.af-order-heading button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.af-stats-table-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.af-stats-table-scroll:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 /* ===============================

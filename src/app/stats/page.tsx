@@ -617,8 +617,8 @@ export default function StatsPage() {
 	            justifyContent: "space-between",
 	          }}
 	        >
-	          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
-	            <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+	          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end", minWidth: 0, maxWidth: "100%" }}>
+	            <label style={{ display: "grid", gap: 4, fontSize: 13, minWidth: 0, maxWidth: "100%" }}>
 	              <span>{t.period}</span>
 	              <select
                 value={period}
@@ -632,12 +632,12 @@ export default function StatsPage() {
               </select>
             </label>
 
-            <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+            <label style={{ display: "grid", gap: 4, fontSize: 13, minWidth: 0, maxWidth: "100%" }}>
               <span>{t.event}</span>
               <select
                 value={eventFilter}
                 onChange={(e) => setEventFilter(e.target.value)}
-                style={{ borderRadius: 10, padding: "6px 10px", border: "1px solid #9ca3af", minWidth: 170 }}
+                style={{ borderRadius: 10, padding: "6px 10px", border: "1px solid #9ca3af", minWidth: "min(170px, 100%)", maxWidth: "100%" }}
               >
                 <option value="all">{t.allEvents}</option>
                 {eventFilter !== "all" && !(stats?.availableEvents || []).includes(eventFilter) ? (
@@ -684,6 +684,7 @@ export default function StatsPage() {
             >
               <article
                 style={{
+                  minWidth: 0,
                   borderRadius: 12,
                   padding: 14,
                   background: "#111",
@@ -744,6 +745,7 @@ export default function StatsPage() {
             >
               <article
                 style={{
+                  minWidth: 0,
                   borderRadius: 12,
                   padding: 14,
                   background: "white",
@@ -751,6 +753,7 @@ export default function StatsPage() {
                 }}
               >
                 <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>{t.topProducts}</h2>
+                <div className="af-stats-table-scroll" role="region" aria-label={t.topProducts} tabIndex={0}>
                 <table style={{ width: "100%", marginTop: 10, borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
@@ -769,10 +772,12 @@ export default function StatsPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </article>
 
               <article
                 style={{
+                  minWidth: 0,
                   borderRadius: 12,
                   padding: 14,
                   background: "white",
@@ -780,6 +785,7 @@ export default function StatsPage() {
                 }}
               >
                 <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>{t.paymentModes}</h2>
+                <div className="af-stats-table-scroll" role="region" aria-label={t.paymentModes} tabIndex={0}>
                 <table style={{ width: "100%", marginTop: 10, borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
@@ -800,6 +806,7 @@ export default function StatsPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </article>
             </section>
 
@@ -813,6 +820,7 @@ export default function StatsPage() {
               }}
             >
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>{t.salesByEvent}</h2>
+              <div className="af-stats-table-scroll" role="region" aria-label={t.salesByEvent} tabIndex={0}>
               <table style={{ width: "100%", marginTop: 10, borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
@@ -842,6 +850,7 @@ export default function StatsPage() {
                   ) : null}
                 </tbody>
               </table>
+                </div>
             </section>
 
             <section
@@ -855,7 +864,7 @@ export default function StatsPage() {
             >
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>{t.eventOverview}</h2>
               <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>{t.eventOverviewSub}</div>
-              <div style={{ marginTop: 12, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}>
+              <div style={{ marginTop: 12, display: "grid", gap: 12, minWidth: 0, overflowWrap: "anywhere", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))" }}>
                 {eventSummaries.map((summary) => {
                   const assignment = staffAssignments.find((entry) => entry.eventId === summary.eventId);
                   const visibleItems = summary.sections.flatMap((section) =>

@@ -5,8 +5,19 @@ import { OnDemandOrderReceipt } from "@/components/OnDemandOrderReceipt";
 import type { ReceiptLabels } from "@/components/OrderReceipt";
 import type { OrderRow } from "@/lib/schema";
 import type { Lang } from "@/lib/translations";
+import styles from "./pos.module.css";
 
 const PAGE_SIZE = 50;
+const statusLabels = {
+  de: { NEW: "Neue Bestellung", IN_PROGRESS: "In Zubereitung", READY: "Bereit", DONE: "Abgeschlossen", PENDING_PAYMENT: "Zahlung ausstehend", CANCELED: "Storniert" },
+  fr: { NEW: "Nouvelle commande", IN_PROGRESS: "En préparation", READY: "Prête", DONE: "Terminée", PENDING_PAYMENT: "Paiement en attente", CANCELED: "Annulée" },
+  en: { NEW: "New order", IN_PROGRESS: "In preparation", READY: "Ready", DONE: "Completed", PENDING_PAYMENT: "Payment pending", CANCELED: "Canceled" },
+};
+const paymentLabels = {
+  de: { cash: "Barzahlung", card: "Kartenzahlung", cashless: "Cashless" },
+  fr: { cash: "Espèces", card: "Carte", cashless: "Cashless" },
+  en: { cash: "Cash", card: "Card", cashless: "Cashless" },
+};
 const labels: Record<Lang, ReceiptLabels> = {
   de: { ticketTitle: "Kundenbeleg", ticketSub: "Ausgestellt nach Zahlungsfreigabe", order: "Bestellung", name: "Name", payment: "Zahlung", total: "Gesamt", ticketLegend: "(1) Enthalt Gluten - (2) Enthalt Sellerie", ticketSent: "Bestellung an die Kuche gesendet", thanks: "Vielen Dank!", reprint: "Beleg drucken" },
   fr: { ticketTitle: "Ticket Client", ticketSub: "Emis apres validation paiement", order: "Commande", name: "Nom", payment: "Paiement", total: "Total", ticketLegend: "(1) Contient gluten - (2) Contient celeri", ticketSent: "Commande envoyee en cuisine", thanks: "Merci!", reprint: "Imprimer ticket" },
@@ -56,7 +67,7 @@ export function OrderHistory({ eventId, lang, selectedOrderId, onSelect }: {
   if (!eventId) return null;
   const current = snapshot?.eventId === eventId && snapshot.offset === offset ? snapshot : null;
   const locale = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
-  return <section aria-label={text.title} style={{ marginTop: 24, padding: 16, border: "1px solid #F1D7C8", borderRadius: 12, background: "white", color: "#111" }}>
+  return <section className={styles.history} aria-label={text.title} style={{ marginTop: 24, padding: 16, border: "1px solid #F1D7C8", borderRadius: 12, background: "white", color: "#111" }}>
     <h2>{text.title}</h2>
     <button type="button" className="af-link-btn" onClick={() => setRefreshKey((key) => key + 1)}>{text.refresh}</button>
     {error ? <p role="alert">{error}</p> : null}
@@ -65,12 +76,12 @@ export function OrderHistory({ eventId, lang, selectedOrderId, onSelect }: {
     {current?.orders.map((order) => <article key={order.id} style={{ padding: "12px 0", borderBottom: "1px solid #ddd" }}>
       <strong>{order.id}</strong> · <time dateTime={order.paid_at || order.created_at}>{new Date(order.paid_at || order.created_at).toLocaleString(locale)}</time>
       <ul>{order.items.map((item, index) => <li key={index}>{item.name} × {item.qty}</li>)}</ul>
-      <p>{Number.isSafeInteger(order.amount_cents) ? new Intl.NumberFormat(locale, { style: "currency", currency: order.currency || "eur" }).format(Number(order.amount_cents) / 100) : "—"} · {order.payment === "cash" ? "Barzahlung" : order.payment === "card" ? "Kartenzahlung" : "Cashless"} · {order.status}</p>
+      <p>{Number.isSafeInteger(order.amount_cents) ? new Intl.NumberFormat(locale, { style: "currency", currency: order.currency || "eur" }).format(Number(order.amount_cents) / 100) : "—"} · {paymentLabels[lang][order.payment] || "—"} · {statusLabels[lang][order.status] || "—"}</p>
       <OnDemandOrderReceipt order={order} lang={lang} labels={labels[lang]} showEvent
         requested={selectedOrderId === order.id} onRequest={() => onSelect(order.id)} onPrint={() => window.print()} />
       {selectedOrderId === order.id ? <button type="button" className="af-link-btn" onClick={() => onSelect(null)}>{text.close}</button> : null}
     </article>)}
-    <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
       <button type="button" disabled={offset === 0} onClick={() => { onSelect(null); setOffset(Math.max(0, offset - PAGE_SIZE)); }}>{text.previous}</button>
       <button type="button" disabled={!current?.hasMore} onClick={() => { onSelect(null); setOffset(offset + PAGE_SIZE); }}>{text.next}</button>
     </div>

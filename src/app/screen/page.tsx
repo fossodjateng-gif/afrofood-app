@@ -264,7 +264,7 @@ function ScreenPageContent() {
           <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
             {preparing.length === 0 ? <div style={{ opacity: 0.75 }}>{t.none}</div> : null}
             {preparing.map((o) => (
-              <div key={o.id} style={{ borderRadius: 10, border: "1px solid #fb923c", padding: 10, background: "rgba(249,115,22,0.24)" }}>
+              <div key={o.id} className="af-order-card" style={{ borderRadius: 10, border: "1px solid #fb923c", padding: 10, background: "rgba(249,115,22,0.24)" }}>
                 <div style={{ fontWeight: 900, fontSize: 22 }}>{o.id}</div>
                 <div style={{ marginTop: 2, opacity: 0.9 }}>{o.customer_name || t.unnamed}</div>
               </div>
@@ -277,7 +277,7 @@ function ScreenPageContent() {
           <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
             {ready.length === 0 ? <div style={{ opacity: 0.75 }}>{t.none}</div> : null}
             {ready.map((o) => (
-              <div key={o.id} style={{ borderRadius: 10, border: "1px solid #22c55e", padding: 10, background: "rgba(22,163,74,0.24)" }}>
+              <div key={o.id} className="af-order-card" style={{ borderRadius: 10, border: "1px solid #22c55e", padding: 10, background: "rgba(22,163,74,0.24)" }}>
                 <div style={{ fontWeight: 900, fontSize: 22 }}>{o.id}</div>
                 <div style={{ marginTop: 2, opacity: 0.9 }}>{o.customer_name || t.unnamed}</div>
               </div>

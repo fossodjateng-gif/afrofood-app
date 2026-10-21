@@ -114,10 +114,13 @@ function StaffCuisinePageContent() {
     >
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
         <div
+          className="af-cuisine-header"
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
+            flexWrap: "wrap",
+            gap: 10,
             background: "white",
             border: "1px solid #F1D7C8",
             borderRadius: 12,

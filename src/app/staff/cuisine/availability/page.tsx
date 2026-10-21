@@ -296,7 +296,7 @@ function AvailabilityPageContent() {
                         resumeAt: status === "available" ? null : (availability.resumeAt ?? null),
                       });
                     }}
-                    style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", maxWidth: 320 }}
+                    style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", width: "100%", minWidth: 0, maxWidth: "min(320px, 100%)" }}
                   >
                     <option value="available">{ui.available}</option>
                     <option value="limited">{ui.limited}</option>
@@ -339,7 +339,7 @@ function AvailabilityPageContent() {
                           padding: "10px 12px",
                           borderRadius: 10,
                           border: isZeroLimited ? "2px solid #dc2626" : "1px solid #ddd",
-                          maxWidth: 220,
+                          width: "100%", minWidth: 0, maxWidth: "min(220px, 100%)",
                           color: isZeroLimited ? "#b91c1c" : "#111",
                           fontWeight: isZeroLimited ? 900 : 500,
                           background: isZeroLimited ? "#fff1f2" : "white",
@@ -362,7 +362,7 @@ function AvailabilityPageContent() {
                           const resumeAt = e.target.value ? new Date(e.target.value).toISOString() : null;
                           patchAvailability(item.id, { status: availability.status, resumeAt });
                         }}
-                        style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", maxWidth: 280 }}
+                        style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", width: "100%", minWidth: 0, maxWidth: "min(280px, 100%)" }}
                       />
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                         <span style={{ fontSize: 12, fontWeight: 800, opacity: 0.75 }}>{ui.quickTimes}</span>

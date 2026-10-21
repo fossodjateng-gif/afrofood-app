@@ -247,7 +247,7 @@ export default function StaffAdminUsersPage() {
               <select
                 value={cashierEventId}
                 onChange={(e) => setCashierEventId(e.target.value)}
-                style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", maxWidth: 280 }}
+                style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", width: "100%", minWidth: 0, maxWidth: "min(280px, 100%)" }}
               >
                 <option value="">Kein Event zugewiesen</option>
                 {eventOptions.map((event) => (
@@ -305,7 +305,7 @@ export default function StaffAdminUsersPage() {
                       updateUser(u.id, { cashierEventId: e.target.value });
                       reload();
                     }}
-                    style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd" }}
+                    style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", minWidth: 0, maxWidth: "100%" }}
                   >
                     <option value="">Kein Event zugewiesen</option>
                     {eventOptions.map((event) => (

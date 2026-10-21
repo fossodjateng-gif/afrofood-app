@@ -60,7 +60,6 @@ export function PosCart({ lang, items, products, onIncrease, onDecrease, onRemov
           <button className="af-btn" type="button" disabled={cashDisabled} onClick={onCash}>Barzahlung</button>
           <button className="af-btn" type="button" disabled={cardDisabled} onClick={onCard}>Kartenzahlung</button>
         </div>
-        <p className={styles.checkoutNote}>Kartenzahlung ist noch nicht verfügbar.</p>
       </div>
     </aside>
   );

@@ -358,6 +358,7 @@ function KitchenPageContent() {
           return (
             <div
               key={o.id}
+              className="af-order-card"
               style={{
                 background: isPreparing ? "rgba(249,115,22,0.22)" : "rgba(22,163,74,0.22)",
                 borderRadius: 16,
@@ -365,7 +366,7 @@ function KitchenPageContent() {
                 border: isPreparing ? "1px solid #fb923c" : "1px solid #22c55e",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+              <div className="af-order-heading" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 900 }}>{o.id}</div>
                   <div style={{ opacity: 0.9, marginTop: 2 }}>

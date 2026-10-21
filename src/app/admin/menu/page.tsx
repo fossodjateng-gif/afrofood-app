@@ -1291,7 +1291,7 @@ function AdminMenuPageContent() {
               <select
                 value={pricingEventId}
                 onChange={(e) => setPricingEventId(e.target.value)}
-                style={{ maxWidth: 360, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}
+                style={{ width: "100%", minWidth: 0, maxWidth: "min(360px, 100%)", padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}
               >
                 {storeConfig.events.map((event) => (
                   <option key={event.id} value={event.id}>
@@ -1372,7 +1372,7 @@ function AdminMenuPageContent() {
                   value={newEventName}
                   onChange={(e) => setNewEventName(e.target.value)}
                   placeholder="ex: Stadtfest Offenburg"
-                  style={{ minWidth: 280, flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}
+                  style={{ minWidth: 0, maxWidth: "100%", flex: "1 1 280px", padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}
                 />
                 <button
                   className="af-btn"
@@ -1399,7 +1399,7 @@ function AdminMenuPageContent() {
                       background: "#fffaf6",
                     }}
                   >
-                    <label style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 800, flex: 1 }}>
+                    <label style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", minWidth: 0, overflowWrap: "anywhere", fontWeight: 800, flex: 1 }}>
                       <input
                         type="radio"
                         name="active-event"
@@ -1469,7 +1469,7 @@ function AdminMenuPageContent() {
 	            ) : eventSummaries.length === 0 ? (
 	              <div style={{ marginTop: 10, opacity: 0.8 }}>{ui.summaryLoading}</div>
 	            ) : (
-	              <div style={{ marginTop: 12, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}>
+	              <div style={{ marginTop: 12, display: "grid", gap: 12, minWidth: 0, overflowWrap: "anywhere", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))" }}>
 	                {eventSummaries.map((summary) => {
 	                  const assignment = staffAssignments.find((entry) => entry.eventId === summary.eventId);
 	                  const visibleItems = summary.sections.flatMap((section) =>
@@ -2028,7 +2028,7 @@ function AdminMenuPageContent() {
                     <select
                       value={pricingEventId}
                       onChange={(e) => setPricingEventId(e.target.value)}
-                      style={{ maxWidth: 360, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}
+                      style={{ width: "100%", minWidth: 0, maxWidth: "min(360px, 100%)", padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}
                     >
                       {storeConfig.events.map((event) => (
                         <option key={event.id} value={event.id}>

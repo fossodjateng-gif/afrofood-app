@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OrderRow } from "@/lib/schema";
 import { OnDemandOrderReceipt } from "@/components/OnDemandOrderReceipt";
 import { OrderHistory } from "@/components/pos/OrderHistory";
+import { getCashierLogMessage, getPaymentErrorMessage, paymentPresentation } from "@/components/pos/payment-presentation";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { clearSession, getSession, getStaffRoleLabel, resolveCashierEventId, type StaffRole, type StaffSession } from "@/lib/staff-auth";
@@ -17,7 +18,6 @@ import {
   detectClientPlatform,
   getCashierInitCardPaymentLabel,
   getCashierCreatingCardPaymentLabel,
-  getCashierWaitingWebhookText,
   type ClientPlatform,
 } from "@/lib/payment-platform";
 
@@ -297,7 +297,7 @@ export default function CaissePage() {
 
   const t = UI_TEXT[lang];
   const initCardPaymentLabel = getCashierInitCardPaymentLabel(lang, clientPlatform);
-  const waitingWebhookLabel = getCashierWaitingWebhookText(lang, clientPlatform);
+  const waitingWebhookLabel = paymentPresentation[lang].waiting;
   const creatingCardPaymentLabel = getCashierCreatingCardPaymentLabel(lang, clientPlatform);
 
   useEffect(() => {
@@ -789,7 +789,7 @@ export default function CaissePage() {
           color: "#111",
         }}
       >
-        <div style={{ width: "100%", maxWidth: 360, background: "rgba(17,24,39,0.85)", border: "1px solid #334155", borderRadius: 14, padding: 16 }}>
+        <div style={{ width: "100%", maxWidth: 360, background: "rgba(17,24,39,0.85)", border: "1px solid #334155", borderRadius: 14, padding: 16, color: "white" }}>
           <div style={{ display: "flex", gap: 8 }}>
             <button
               type="button"
@@ -833,7 +833,7 @@ export default function CaissePage() {
             style={{ marginTop: 10, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #475569", background: "#0f172a", color: "white" }}
           />
           {pinError ? <div style={{ marginTop: 8, color: "#fca5a5", fontWeight: 700 }}>{pinError}</div> : null}
-          {actionError ? <div style={{ marginTop: 8, color: "#fca5a5", fontWeight: 700 }}>{actionError}</div> : null}
+          {actionError ? <div style={{ marginTop: 8, color: "#fca5a5", fontWeight: 700 }}>{getPaymentErrorMessage(actionError, lang)}</div> : null}
           <button
             className="af-btn"
             type="button"
@@ -977,7 +977,7 @@ export default function CaissePage() {
 		        </div>
 
 		        {loading ? <p style={{ marginTop: 12 }}>{t.loading}</p> : null}
-		        {actionError ? <p style={{ marginTop: 8, color: "#fecaca", fontWeight: 700 }}>{actionError}</p> : null}
+		        {actionError ? <p style={{ marginTop: 8, color: "#fecaca", fontWeight: 700 }}>{getPaymentErrorMessage(actionError, lang)}</p> : null}
 		        <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-start" }}>
 		          <button
 		            className="af-btn"
@@ -1018,7 +1018,7 @@ export default function CaissePage() {
 	          ) : (
 	            actionLogs.map((line, idx) => (
 	              <div key={`${line}-${idx}`} style={{ fontSize: 13, opacity: 0.9, padding: "2px 0" }}>
-	                {line}
+	                {getCashierLogMessage(line, lang)}
 	              </div>
 	            ))
 		          )}
@@ -1034,6 +1034,7 @@ export default function CaissePage() {
           return (
             <div
               key={o.id}
+              className="af-order-card"
               style={{
                 background: isPending
                   ? "rgba(249,115,22,0.22)"
@@ -1045,7 +1046,7 @@ export default function CaissePage() {
                 border: isPending ? "1px solid #fb923c" : isCanceled ? "1px solid #64748b" : "1px solid #22c55e",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+              <div className="af-order-heading" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
 	                <div>
 	                  <div style={{ fontSize: 20, fontWeight: 900 }}>{o.id}</div>
 		                  <div style={{ opacity: 0.9, marginTop: 2 }}>

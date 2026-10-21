@@ -75,10 +75,10 @@
 
 .paymentButtons button:disabled { opacity: .55; }
 .cashPanel { background: white; border: 1px solid #F1D7C8; border-radius: 20px; padding: 24px; max-width: 680px; margin: 0 auto; }
-.cashPanel h2 { margin-top: 0; }
+.cashPanel h2 { margin-top: 0; overflow-wrap: anywhere; }
 .cashPanel label { display: block; margin: 24px 0 10px; font-weight: 800; }
 .cashPanel input { width: 100%; box-sizing: border-box; min-height: 64px; font-size: 28px; padding: 12px; border: 2px solid #F28C28; border-radius: 12px; }
-.cashPanel > button { min-height: 60px; padding: 12px 20px; margin: 12px 12px 0 0; border-radius: 12px; border: 1px solid #F28C28; background: #F28C28; font-weight: 900; }
+.cashPanel > button { min-height: 60px; padding: 12px 20px; margin: 12px 12px 0 0; border-radius: 12px; border: 1px solid #F28C28; background: #F28C28; font-weight: 900; max-width: calc(100% - 12px); white-space: normal; overflow-wrap: anywhere; }
 .cashPanel button:disabled { opacity: .5; }
 .cashQuick { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
 .cashQuick button { min-height: 54px; padding: 12px 18px; border: 1px solid #F28C28; background: #FFF3E6; border-radius: 12px; font-weight: 800; }
@@ -89,3 +89,6 @@
 .cashPanel > .ticketButton { background: white; border-color: #F1D7C8; color: #111; font-weight: 700; }
 
 .quantityAlert { color: #991b1b; background: #fee2e2; border-radius: 8px; padding: 6px 8px; font-weight: 800; }
+
+.history { min-width: 0; overflow-wrap: anywhere; }
+.history button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
