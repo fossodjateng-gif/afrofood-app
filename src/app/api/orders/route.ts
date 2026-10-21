@@ -4,9 +4,11 @@ import { createPosCardOrder } from "@/lib/pos-card-server";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
-import { getPaymentConfig, getResolvedMenuSections } from "@/lib/menu-settings";
+import { getPaymentConfig, getResolvedMenuSections, getStoreConfig } from "@/lib/menu-settings";
 import { calculateOrderTotalCents } from "@/lib/pricing";
 import { ensureOrdersSchema } from "@/lib/orders-schema";
+import { cashRegisterActor, recordCashRegisterRequest } from "@/lib/staff-action-server";
+import { StaffAuthError } from "@/lib/staff-session-server";
 
 type PaymentMethod = "cash" | "card" | "cashless";
 type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE" | "CANCELED";
@@ -137,19 +139,25 @@ export async function POST(req: Request) {
     }
 
     if (body.posCardKey !== undefined) {
-      const userId = String(body.userId || "").trim();
-      const username = String(body.username || "").trim().toLowerCase();
-      if (body.posCashKey !== undefined || payment !== "card" || !eventId || !userId || !username || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(String(body.posCardKey)) || !/^[a-f0-9]{64}$/.test(String(body.fingerprint)) || items.some((item) => !item || typeof item.id !== "string" || !item.id || !Number.isSafeInteger(item.qty) || item.qty <= 0) || !["admin", "cashier"].includes(req.headers.get("x-staff-role") || "")) {
+      const actor = await cashRegisterActor(req, eventId || "");
+      const userId = actor.id;
+      const username = actor.username;
+      if (body.posCashKey !== undefined || payment !== "card" || !eventId || !userId || !username || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(String(body.posCardKey)) || !/^[a-f0-9]{64}$/.test(String(body.fingerprint)) || items.some((item) => !item || typeof item.id !== "string" || !item.id || !Number.isSafeInteger(item.qty) || item.qty <= 0)) {
         return NextResponse.json({ ok: false, error: "Invalid POS card request" }, { status: 400 });
       }
+      await recordCashRegisterRequest(actor.id, "pos_card_order_requested", eventId, null);
       return await createPosCardOrder({ key: String(body.posCardKey), fingerprint: String(body.fingerprint), userId, username, eventId, items });
     }
 
     if (body.posCashKey !== undefined) {
-      if (payment !== "cash" || !eventId || !/^[a-f0-9-]{36}$/i.test(String(body.posCashKey)) || !["admin", "cashier"].includes(req.headers.get("x-staff-role") || "")) {
+      const actor = await cashRegisterActor(req, eventId || "");
+      if (payment !== "cash" || !eventId || !/^[a-f0-9-]{36}$/i.test(String(body.posCashKey))) {
         return NextResponse.json({ ok: false, error: "Invalid POS cash request" }, { status: 400 });
       }
-      return await createPosCashOrder({ key: String(body.posCashKey), eventId, eventName, items });
+      const event = (await getStoreConfig()).events.find((entry) => entry.id === eventId);
+      if (!event) return NextResponse.json({ ok: false, error: "Unknown POS event" }, { status: 400 });
+      await recordCashRegisterRequest(actor.id, "pos_cash_order_requested", eventId, null);
+      return await createPosCashOrder({ key: String(body.posCashKey), eventId, eventName: event.name, items, actor });
     }
 
     const paymentConfig = await getPaymentConfig(eventId || undefined);
@@ -208,6 +216,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (e: unknown) {
+    if (e instanceof StaffAuthError) return NextResponse.json({ ok: false, error: e.code }, { status: e.status });
     return NextResponse.json(
       { ok: false, error: getErrorMessage(e) },
       { status: 500 }

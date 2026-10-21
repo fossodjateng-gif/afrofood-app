@@ -24,7 +24,7 @@ function setup(qty = 12) {
     }
     return [];
   }, state);
-  const mocks = { '@/lib/db': { sql }, '@/lib/orders-schema': { ensureOrdersSchema: async()=>{} }, '@/lib/order-events': { publishOrderEvent:()=>{} }, 'next/server': { NextResponse: { json: (body, init)=>Response.json(body,init) } } };
+  const mocks = { ...require('./staff-test-mocks.cjs').legacyStaffMocks, '@/lib/db': { sql }, '@/lib/orders-schema': { ensureOrdersSchema: async()=>{} }, '@/lib/order-events': { publishOrderEvent:()=>{} }, 'next/server': { NextResponse: { json: (body, init)=>Response.json(body,init) } } };
   const cache = new Map();
   const { finalizeSale } = load('src/lib/finalize-sale.ts', mocks, cache);
   const admin = load('src/lib/menu-settings.ts', mocks, cache);
@@ -171,7 +171,7 @@ for (const flow of ['classic-cash','classic-card','classic-cashless','pos-cash',
         if(q.includes("state = 'ready'")){row.pos_card_state='ready';row.pos_cash_state='ready';return [row];}
         return [];
       };
-      const route=load('src/app/api/orders/route.ts',{
+      const route=load('src/app/api/orders/route.ts',{ ...require('./staff-test-mocks.cjs').legacyStaffMocks,
         'next/server':{NextResponse:{json:(body,init)=>Response.json(body,init)}},
         '@/lib/db':{sql},'@/lib/orders-schema':{ensureOrdersSchema:async()=>{}},
         '@/lib/order-number':{makeNextOrderId:async()=> 'LOCAL-CREATION-CHECK'},
@@ -188,7 +188,7 @@ for (const flow of ['classic-cash','classic-card','classic-cashless','pos-cash',
         body.posCardKey='cccccccc-cccc-cccc-cccc-cccccccccccc';
         body.fingerprint=await load('src/lib/pos-card.ts').makeCardFingerprint(body);
       }
-      const response=await route.POST(new Request('http://localhost/api/orders',{method:'POST',headers:{'x-staff-role':'cashier'},body:JSON.stringify(body)}));
+      const req=new Request('http://localhost/api/orders',{method:'POST',headers:{'x-staff-role':'cashier'},body:JSON.stringify(body)}); req.testActor=body; const response=await route.POST(req);
       const refused=['hidden','blocked'].includes(condition);
       assert.equal(response.status,refused?400:200,JSON.stringify(await response.json()));
       assert.equal(inserts.length,refused?0:1);
@@ -239,7 +239,7 @@ test('schema never backfills legacy rows; all new creation paths explicitly opt 
   assert.match(schema,/ADD COLUMN IF NOT EXISTS quantity_applied BOOLEAN;/);
   assert.doesNotMatch(schema,/quantity_applied BOOLEAN[^;]*DEFAULT|UPDATE orders SET quantity_applied/);
   for(const file of ['src/app/api/orders/route.ts','src/lib/pos-cash-server.ts','src/lib/pos-card-server.ts']) {
-    const text=fs.readFileSync(file,'utf8');assert.match(text,/quantity_applied/);assert.match(text,/FALSE\)/);
+    const text=fs.readFileSync(file,'utf8');assert.match(text,/quantity_applied/);assert.match(text,/FALSE(?:,|\))/);
     assert.doesNotMatch(text,/consumeItemAvailability|restoreItemAvailability/);
   }
 });

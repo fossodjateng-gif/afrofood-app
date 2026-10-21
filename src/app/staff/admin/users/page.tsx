@@ -226,6 +226,7 @@ export default function StaffAdminUsersPage() {
 
 	        <div style={{ marginTop: 12, background: "white", border: "1px solid #F1D7C8", borderRadius: 12, padding: 12 }}>
 	          <div style={{ fontWeight: 900, fontSize: 22 }}>{t.createUser}</div>
+            <p role="note" style={{ marginTop: 8 }}>{lang === "fr" ? "Liste locale historique : ces modifications ne donnent aucun acc?s serveur. Les comptes serveur sont provisionn?s s?par?ment." : lang === "de" ? "Alte lokale Liste: ?nderungen gew?hren keinen Serverzugriff. Serverkonten werden separat eingerichtet." : "Legacy local list: changes do not grant server access. Server accounts are provisioned separately."}</p>
 	          {eventOptions.length > 0 ? (
 	            <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
 	              {lang === "fr"

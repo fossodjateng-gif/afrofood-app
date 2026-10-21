@@ -34,7 +34,7 @@ function backend() {
         orders.set(row.id, row);return [];
       }
       if (orders.has(v[5]) || [...orders.values()].some(r => r.id === v[0])) return [];
-      const row = { id: v[0], event_id: v[1], event_name: v[2], payment: 'cash', amount_cents: v[3], items: JSON.parse(v[4]), pos_cash_key: v[5], pos_cash_fingerprint: v[6], pos_cash_state: 'creating', status: 'PENDING_PAYMENT', quantity_applied: false, cash_received_cents: null, change_given_cents: null };
+      const row = { id: v[0], event_id: v[1], event_name: v[2], payment: 'cash', amount_cents: v[3], items: JSON.parse(v[4]), pos_cash_key: v[5], pos_cash_fingerprint: v[6], created_by: v[7], pos_cash_state: 'creating', status: 'PENDING_PAYMENT', quantity_applied: false, cash_received_cents: null, change_given_cents: null };
       orders.set(row.pos_cash_key, row);return [{ ...row }];
     }
     if (q.includes('WHERE pos_cash_key')) return orders.has(v[0]) ? [{ ...orders.get(v[0]) }] : [];
@@ -53,11 +53,12 @@ function backend() {
     orders, onApplied: () => { consumed++;consumeCalls++; },
     beforeCommit: () => { if (stockError) throw stockError; },
   });
-  const mocks = {
+  const mocks = { ...require('./staff-test-mocks.cjs').legacyStaffMocks,
     'next/server': { NextResponse: { json: (body, init) => Response.json(body, init) } },
     '@/lib/db': { sql }, '@/lib/orders-schema': { ensureOrdersSchema: async () => {} },
     '@/lib/order-events': { publishOrderEvent: event => events.push(event) },
     '@/lib/menu-settings': {
+      getStoreConfig: async () => ({ events: [{ id: 'event-a', name: 'Event A' }] }),
       ensureMenuSettingsSchema: async () => {},
       getPaymentConfig: async () => ({ cashEnabled: true }),
       getResolvedMenuSections: async () => [{ id: 'food', items: [ { ...meal, name: { de: 'Meal' }, visible: true, availability: { status: 'limited', remainingQty: 0, resumeAt: null } }, { id: 'normal36', name: { de: '36 EUR' }, price: 36, visible: true } ] }, { id: 'dips', items: ['dip-green', 'custom-mango'].map(id => ({ id, name: { de: id }, price: 7, visible: true })) }],
@@ -68,12 +69,21 @@ function backend() {
   const post = load('src/app/api/orders/route.ts', mocks);
   const patch = load('src/app/api/orders/[id]/status/route.ts', mocks);
   const request = async (url, options) => {
-    const req = new Request('http://localhost' + url, options);
+    const req = new Request('http://localhost' + url, options); req.testActor=JSON.parse(options.body || '{}');
     return url === '/api/orders' ? post.POST(req) : patch.PATCH(req, { params: Promise.resolve({ id: decodeURIComponent(url.split('/')[3]) }) });
   };
   return { orders, events, request, get consumed() { return consumed; }, get consumeCalls() { return consumeCalls; }, set stockError(value) { stockError = value; }, set failStock(value) { failStock = value; }, get: url => post.GET(new Request(url)) };
 }
 const attempt = (total = 1000, items = [meal]) => ({ key: require('node:crypto').randomUUID(), userId: 'cashier', role: 'cashier', eventId: 'event-a', eventName: 'Event A', items, amountCents: total });
+
+test('cash creator is persisted and another authenticated fixture cannot reuse its claim', async () => {
+  const db = backend();
+  const key = require('node:crypto').randomUUID();
+  const request = userId => db.request('/api/orders', { method: 'POST', body: JSON.stringify({ payment: 'cash', eventId: 'event-a', eventName: 'forged label', posCashKey: key, userId, username: userId, items: [meal] }) });
+  assert.equal((await request('paul')).status, 200);
+  const row = db.orders.get(key);assert.equal(row.created_by, 'paul');assert.equal(row.event_name, 'Event A');
+  assert.equal((await request('marie')).status, 403);assert.equal(row.created_by, 'paul');
+});
 for (const [label, total, received, change] of [['A',1000,1000,0], ['B',1000,2000,1000], ['C',3700,5000,1300]]) test(label + ': total, reçu et monnaie persistés', async () => {
   const db = backend();const items = total === 3700 ? [{ ...meal, id: 'normal36', price: 36 }, { ...meal, id: 'dip-green', price: 0 }, { ...meal, id: 'custom-mango', price: 99 }] : [meal];
   const receipt = await cash.confirmPosCash(attempt(total, items), received, () => {}, db.request);

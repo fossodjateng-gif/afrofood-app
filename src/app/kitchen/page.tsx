@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import type { OrderRow } from "@/lib/schema";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { getSession, getStaffRoleLabel, type StaffRole, updateSessionCashierEventId } from "@/lib/staff-auth";
+import { getSession, staffFetch, getStaffRoleLabel, type StaffRole, updateSessionCashierEventId } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 
 const UI_TEXT: Record<
@@ -123,8 +123,8 @@ function KitchenPageContent() {
       const eventFilter = assignedEventId ? `&eventId=${encodeURIComponent(assignedEventId)}` : "";
 
       const [newRes, readyRes] = await Promise.all([
-        fetch(`/api/orders?status=NEW${eventFilter}`, { cache: "no-store", signal: controller.signal }),
-        fetch(`/api/orders?status=READY${eventFilter}`, { cache: "no-store", signal: controller.signal }),
+        staffFetch(`/api/orders?status=NEW${eventFilter}`, { cache: "no-store", signal: controller.signal }),
+        staffFetch(`/api/orders?status=READY${eventFilter}`, { cache: "no-store", signal: controller.signal }),
       ]);
 
       const newData = await newRes.json();
@@ -174,7 +174,7 @@ function KitchenPageContent() {
           let nextEventName = "";
           if (caisseEventId.trim()) {
             try {
-              const res = await fetch("/api/menu-config", { cache: "no-store" });
+              const res = await staffFetch("/api/menu-config", { cache: "no-store" });
               const data = await res.json().catch(() => null);
               const events = Array.isArray(data?.storeConfig?.events) ? data.storeConfig.events : [];
               nextEventName =
@@ -193,7 +193,7 @@ function KitchenPageContent() {
       let nextEventId = String(s.cashierEventId || "").trim();
       let nextEventName = "";
       try {
-        const res = await fetch("/api/menu-config", { cache: "no-store" });
+        const res = await staffFetch("/api/menu-config", { cache: "no-store" });
         const data = await res.json().catch(() => null);
         const events = Array.isArray(data?.storeConfig?.events)
           ? data.storeConfig.events
@@ -248,7 +248,7 @@ function KitchenPageContent() {
   }, [refresh]);
 
   async function updateStatus(id: string, status: "READY" | "DONE") {
-    await fetch(`/api/orders/${id}/status`, {
+    await staffFetch(`/api/orders/${id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),

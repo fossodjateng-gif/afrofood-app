@@ -105,8 +105,8 @@ export default function TeamLoginPage() {
         <button
           className="af-btn"
           type="button"
-          onClick={() => {
-            const out = login(username, password);
+          onClick={async () => {
+            const out = await login(username, password).catch(() => ({ ok: false as const, error: "Session unavailable" }));
             if (!out.ok) {
               setError(t.wrong);
               return;

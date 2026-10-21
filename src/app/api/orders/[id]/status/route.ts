@@ -1,5 +1,8 @@
 import { ensureOrdersSchema } from "@/lib/orders-schema";
 import { NextResponse } from "next/server";
+import { requireStaffSession, requireStaffOrigin, StaffAuthError } from "@/lib/staff-session-server";
+import { canAccessStaffEvent, canUseCashRegister } from "@/lib/staff-permissions";
+import { recordCashRegisterRequest } from "@/lib/staff-action-server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
 import { finalizeSale } from "@/lib/finalize-sale";
@@ -32,6 +35,10 @@ export async function PATCH(
       return NextResponse.json({ ok: false, error: "Invalid status" }, { status: 400 });
     }
 
+    requireStaffOrigin(req);
+    const actor = await requireStaffSession(req);
+    const displayedActor = req.headers.get("x-staff-user-id");
+    if (displayedActor && displayedActor !== actor.id) throw new StaffAuthError("cashier_changed", 409);
     await ensureOrdersSchema();
     const beforeRows = await sql`
       SELECT payment, UPPER(status) AS status, event_id, items, amount_cents, cash_received_cents, change_given_cents, pos_cash_key, pos_cash_state, pos_card_key
@@ -58,6 +65,9 @@ export async function PATCH(
     };
     const previousStatus = String(previousRow.status || "");
     const payment = String(previousRow.payment || "").toLowerCase();
+    if (!canAccessStaffEvent(actor, previousRow.event_id || "") || ((status === "NEW" || status === "CANCELED") && !canUseCashRegister(actor))) throw new StaffAuthError("cash_register_forbidden", 403);
+    await recordCashRegisterRequest(actor.id, `order_status_requested:${status}`, previousRow.event_id || "", id);
+
 
 
     if (body.cashReceivedCents !== undefined || (previousRow.pos_cash_key && status === "NEW" && previousStatus === "PENDING_PAYMENT")) {
@@ -163,6 +173,7 @@ export async function PATCH(
 
     return NextResponse.json({ ok: true, order: rows[0] });
   } catch (e: unknown) {
+    if (e instanceof StaffAuthError) return NextResponse.json({ ok: false, error: e.code }, { status: e.status });
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "Server error" },
       { status: 500 }

@@ -11,7 +11,7 @@ import { OrderHistory } from "@/components/pos/OrderHistory";
 import { getCashierLogMessage, getPaymentErrorMessage, paymentPresentation } from "@/components/pos/payment-presentation";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { clearSession, getSession, getStaffRoleLabel, resolveCashierEventId, type StaffRole, type StaffSession } from "@/lib/staff-auth";
+import { clearSession, getSession, staffFetch, getStaffRoleLabel, resolveCashierEventId, type StaffRole, type StaffSession } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 
 import {
@@ -384,7 +384,7 @@ export default function CaissePage() {
     setEventReady(false);
     const eventId = cashierEventId || selectedEventId;
     const query = eventId ? `?eventId=${encodeURIComponent(eventId)}` : "";
-    void fetch(`/api/admin/menu-config${query}`, {
+    void staffFetch(`/api/admin/menu-config${query}`, {
       headers: { "x-staff-role": staffRole },
       cache: "no-store",
     }).then(async (res) => {
@@ -404,7 +404,7 @@ export default function CaissePage() {
 
   async function sendCashierLock(action: "acquire" | "heartbeat" | "release") {
     if (!staffRole || !staffSession) return;
-    const res = await fetch("/api/cashier-lock", {
+    const res = await staffFetch("/api/cashier-lock", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -493,7 +493,7 @@ export default function CaissePage() {
       setActionError(null);
 
       const orderQuery = selectedEventId ? `?eventId=${encodeURIComponent(selectedEventId)}` : "";
-      const allRes = await fetch(`/api/orders${orderQuery}`, { cache: "no-store" });
+      const allRes = await staffFetch(`/api/orders${orderQuery}`, { cache: "no-store" });
       const allData = await allRes.json();
       const todayKey = getTodayKey();
       const todayOrders = (Array.isArray(allData) ? allData : []).filter((it) =>
@@ -521,7 +521,7 @@ export default function CaissePage() {
   }, [cashierEventId, selectedEventId, t.unknownError]);
 
   const loadOrderById = useCallback(async (orderId: string) => {
-    const res = await fetch("/api/orders", { cache: "no-store" });
+    const res = await staffFetch("/api/orders", { cache: "no-store" });
     const data = await res.json().catch(() => []);
     if (!res.ok || !Array.isArray(data)) return null;
     return (data as OrderRow[]).find((order) => order.id === orderId) || null;
@@ -628,7 +628,7 @@ export default function CaissePage() {
       setActionError(null);
       setValidatingId(order.id);
 
-      const res = await fetch(`/api/orders/${order.id}/status`, {
+      const res = await staffFetch(`/api/orders/${order.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "NEW" }),
@@ -739,7 +739,7 @@ export default function CaissePage() {
         )
       );
 
-      const res = await fetch(`/api/orders/${order.id}/status`, {
+      const res = await staffFetch(`/api/orders/${order.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "CANCELED" }),
@@ -923,8 +923,8 @@ export default function CaissePage() {
 		            <button
 		              className="af-btn"
 		              type="button"
-		              onClick={() => {
-		                clearSession();
+		              onClick={async () => {
+		                await clearSession();
 		                window.location.href = "/team/login";
 		              }}
 		              style={{ padding: "8px 12px", borderRadius: 10, border: "none", background: "#111", color: "white", fontWeight: 800, cursor: "pointer" }}

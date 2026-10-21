@@ -32,49 +32,7 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function defaultUsers(): StaffUser[] {
-  const now = nowIso();
-  return [
-    {
-      id: "u-admin-1",
-      username: "admin",
-      password: "0603",
-      role: "admin",
-      active: true,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "u-cashier-1",
-      username: "existinguser",
-      password: "0603",
-      role: "cashier",
-      cashierEventId: "",
-      active: true,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "u-kitchen-1",
-      username: "newuser",
-      password: "0603",
-      role: "kitchen",
-      cashierEventId: "",
-      active: true,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "u-cashier-kelle",
-      username: "kelle",
-      password: "0603",
-      role: "cashier",
-      active: true,
-      createdAt: now,
-      updatedAt: now,
-    },
-  ];
-}
+function defaultUsers(): StaffUser[] { return []; }
 
 function hasWindow() {
   return typeof window !== "undefined";
@@ -104,7 +62,8 @@ export function getUsers(): StaffUser[] {
     return defaults;
   }
   try {
-    const parsed = JSON.parse(raw) as StaffUser[];
+    const parsed = (JSON.parse(raw) as StaffUser[]).map((user) => ({ ...user, password: "" }));
+    localStorage.setItem(USERS_KEY, JSON.stringify(parsed));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("invalid");
     const deletedUsernames = getDeletedUsernames();
     const defaults = defaultUsers();
@@ -127,7 +86,7 @@ export function getUsers(): StaffUser[] {
 
 function saveUsers(next: StaffUser[]) {
   if (!hasWindow()) return;
-  localStorage.setItem(USERS_KEY, JSON.stringify(next));
+  localStorage.setItem(USERS_KEY, JSON.stringify(next.map((user) => ({ ...user, password: "" }))));
 }
 
 function normalizeCashierEventId(role: StaffRole, cashierEventId?: string) {
@@ -140,77 +99,49 @@ function resetTapSetupProgress(userId: string) {
   localStorage.removeItem(`${TAP_SETUP_PROGRESS_PREFIX}${userId}`);
 }
 
-export function getSession(): StaffSession | null {
-  if (!hasWindow()) return null;
-  const raw = localStorage.getItem(SESSION_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as StaffSession;
-  } catch {
-    return null;
-  }
+// Display cache only. Every sensitive API authenticates the HttpOnly cookie.
+let verifiedSession: StaffSession | null = null;
+function sessionFromUser(user: { id: string; username: string; role: StaffRole; cashierEventId?: string | null }): StaffSession {
+  return { userId: user.id, username: user.username, role: user.role, cashierEventId: user.cashierEventId || undefined, loggedAt: nowIso() };
 }
-
-export function clearSession() {
-  if (!hasWindow()) return;
-  localStorage.removeItem(SESSION_KEY);
+export async function refreshStaffSession(): Promise<StaffSession | null> {
+  const response = await fetch("/api/staff/session", { cache: "no-store" });
+  if (response.status === 401) { verifiedSession = null; return null; }
+  const data = await response.json();
+  if (!response.ok || !data.ok || !data.user) { verifiedSession = null; throw new Error("Staff session unavailable"); }
+  verifiedSession = sessionFromUser(data.user);
+  return verifiedSession;
 }
-
+export function getSession(): StaffSession | null { return verifiedSession; }
+export function staffFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const headers = new Headers(init?.headers);
+  if (verifiedSession) headers.set("x-staff-user-id", verifiedSession.userId);
+  return fetch(input, { ...init, headers });
+}
+export async function clearSession() {
+  const response = await fetch("/api/staff/session", { method: "DELETE" });
+  if (!response.ok) throw new Error("Logout could not be confirmed. Please retry.");
+  verifiedSession = null;
+  if (hasWindow()) localStorage.removeItem(SESSION_KEY);
+}
 export function updateSessionCashierEventId(cashierEventId: string) {
-  if (!hasWindow()) return;
-  const current = getSession();
-  if (!current) return;
-  const next: StaffSession = {
-    ...current,
-    cashierEventId: String(cashierEventId || "").trim() || undefined,
-  };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+  // Legacy kitchen display hint only; it cannot grant any server permission.
+  if (verifiedSession?.role === "kitchen") verifiedSession = { ...verifiedSession, cashierEventId };
 }
-
 export function resolveCashierEventId(session: StaffSession): string {
-  if (!hasWindow() || session.role !== "cashier") return "";
-  let storedUsers: unknown;
-  try {
-    storedUsers = JSON.parse(localStorage.getItem(USERS_KEY) || "null");
-  } catch {
-    throw new Error("Das gespeicherte Kassenkonto konnte nicht gelesen werden.");
-  }
-  // Read the saved account without creating defaults or changing assignments.
-  const username = String(session.username || "").trim().toLowerCase();
-  const account = Array.isArray(storedUsers)
-    ? storedUsers.find((value: unknown): value is StaffUser => {
-        if (!value || typeof value !== "object") return false;
-        const user = value as Partial<StaffUser>;
-        return typeof user.username === "string" && user.username.trim().toLowerCase() === username;
-      })
-    : undefined;
-  if (!account || !account.active || account.role !== "cashier") {
-    throw new Error("Kein aktives Kassenkonto für den angemeldeten Benutzer gefunden.");
-  }
-  const eventId = String(account.cashierEventId || "").trim();
-  if (session.cashierEventId !== (eventId || undefined)) {
-    updateSessionCashierEventId(eventId);
-    session.cashierEventId = eventId || undefined;
-  }
-  return eventId;
+  return session.role === "cashier" ? session.cashierEventId || "" : "";
 }
-
-export function login(username: string, password: string): { ok: true; session: StaffSession } | { ok: false; error: string } {
-  const users = getUsers();
-  const u = users.find(
-    (it) => it.username.toLowerCase() === String(username || "").trim().toLowerCase()
-  );
-  if (!u || !u.active) return { ok: false, error: "User not found or inactive" };
-  if (u.password !== password) return { ok: false, error: "Invalid credentials" };
-  const session: StaffSession = {
-    userId: u.id,
-    username: u.username,
-    role: u.role,
-    cashierEventId: normalizeCashierEventId(u.role, u.cashierEventId) || undefined,
-    loggedAt: nowIso(),
-  };
-  if (hasWindow()) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  return { ok: true, session };
+export async function login(username: string, password: string): Promise<{ ok: true; session: StaffSession } | { ok: false; error: string }> {
+  verifiedSession = null;
+  const response = await fetch("/api/staff/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
+  const data = await response.json();
+  if (!response.ok || !data.ok || !data.user) return { ok: false, error: "Invalid credentials or session unavailable" };
+  verifiedSession = sessionFromUser(data.user);
+  if (hasWindow()) {
+    localStorage.removeItem(SESSION_KEY);
+    // Old account records are never accepted as credentials by the server.
+  }
+  return { ok: true, session: verifiedSession };
 }
 
 export function createUser(input: { username: string; password: string; role: StaffRole; cashierEventId?: string }) {
@@ -266,19 +197,10 @@ export function updateUser(
       : u
   );
   saveUsers(next);
-  const current = getSession();
-  const updated = next.find((u) => u.id === userId);
-  if (current && updated && current.userId === userId && hasWindow()) {
-    const session: StaffSession = {
-      ...current,
-      role: updated.role,
-      cashierEventId: normalizeCashierEventId(updated.role, updated.cashierEventId) || undefined,
-    };
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  }
+
 }
 
-export function deleteUser(userId: string) {
+export async function deleteUser(userId: string) {
   const users = getUsers();
   const deleted = users.find((u) => u.id === userId);
   const next = users.filter((u) => u.id !== userId);
@@ -289,7 +211,7 @@ export function deleteUser(userId: string) {
   }
   saveUsers(next);
   const s = getSession();
-  if (s?.userId === userId) clearSession();
+  if (s?.userId === userId) await clearSession();
 }
 
 export function roleLandingPath(role: StaffRole) {

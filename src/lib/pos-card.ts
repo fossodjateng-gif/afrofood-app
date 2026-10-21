@@ -29,7 +29,7 @@ export async function checkPosCard(attempt: CardAttempt, request: typeof fetch =
 export async function preparePosCard(attempt: CardAttempt, persist: (attempt: CardAttempt) => void, request: typeof fetch = fetch) {
   if (await makeCardFingerprint(attempt) !== attempt.fingerprint) throw new Error("Die gespeicherte Kartenzahlung wurde verändert.");
   if (!attempt.orderId) {
-    const response = await request("/api/orders", { method: "POST", headers: { "Content-Type": "application/json", "x-staff-role": attempt.role }, body: JSON.stringify({ posCardKey: attempt.key, fingerprint: attempt.fingerprint, userId: attempt.userId, username: attempt.username, eventId: attempt.eventId, payment: "card", items: attempt.items }) });
+    const response = await request("/api/orders", { method: "POST", headers: { "Content-Type": "application/json", "x-staff-role": attempt.role, "x-staff-user-id": attempt.userId }, body: JSON.stringify({ posCardKey: attempt.key, fingerprint: attempt.fingerprint, userId: attempt.userId, username: attempt.username, eventId: attempt.eventId, payment: "card", items: attempt.items }) });
     const data = await response.json();
     if (!response.ok || !data?.ok || data.fingerprint !== attempt.fingerprint || !data.order?.id || data.order.eventId !== attempt.eventId || data.order.payment !== "card" || !Number.isSafeInteger(data.order.amountCents)) throw new Error(data?.error || "Bestellung noch nicht bestätigt. Dieselbe Zahlung prüfen.");
     attempt.orderId = data.order.id;
@@ -64,7 +64,7 @@ export async function cancelPosCard(attempt: CardAttempt, persist: (attempt: Car
   attempt.cancelRequested = true;
   persist(attempt);
   const response = await request(`/api/orders/${encodeURIComponent(attempt.orderId)}/cancel-card-payment`, {
-    method: "POST", headers: { "Content-Type": "application/json", "x-staff-role": attempt.role },
+    method: "POST", headers: { "Content-Type": "application/json", "x-staff-role": attempt.role, "x-staff-user-id": attempt.userId },
     body: JSON.stringify({ userId: attempt.userId, username: attempt.username, eventId: attempt.eventId }),
   });
   const data = await response.json();

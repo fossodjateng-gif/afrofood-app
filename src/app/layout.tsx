@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { StaffSessionBoundary } from "@/components/StaffSessionBoundary";
 
 export const metadata: Metadata = {
   title: "AfroFood",
@@ -14,7 +15,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        {children}
+        <StaffSessionBoundary>{children}</StaffSessionBoundary>
       </body>
     </html>
   );

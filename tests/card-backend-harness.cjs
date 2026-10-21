@@ -81,7 +81,7 @@ function backend() {
   const sql = require('./sale-transaction-harness.cjs').transactionalSql(baseSql, {
     orders, settings, mailboxes, beforeCommit:()=>hooks.beforeCommit?.(), onApplied: () => { consumed++;consumeCalls++; },
   });
-  const mocks={
+  const mocks={ ...require('./staff-test-mocks.cjs').legacyStaffMocks,
     'next/server':{NextResponse:{json:(body,init)=>Response.json(body,init)}},
     '@/lib/db':{sql},'@/lib/orders-schema':{ensureOrdersSchema:async()=>{}},
     '@/lib/order-events':{publishOrderEvent:event=>events.push(event)},
@@ -117,7 +117,7 @@ function backend() {
   const post=load('src/app/api/orders/route.ts',mocks,cache), pi=load('src/app/api/stripe/terminal/payment-intent/route.ts',mocks,cache), terminal=load('src/app/api/terminal-active-order/route.ts',mocks,cache), webhook=load('src/app/api/stripe/webhook/route.ts',mocks,cache), status=load('src/app/api/orders/[id]/status/route.ts',mocks,cache);
   const cancel=load('src/app/api/orders/[id]/cancel-card-payment/route.ts',mocks,cache),fallback=load('src/app/api/orders/[id]/stripe-confirm/route.ts',mocks,cache);
   const request=async(url,options={})=>{
-    const req=new Request('http://localhost'+url,options);
+    const req=new Request('http://localhost'+url,options); req.testActor=JSON.parse(options.body || '{}');
     if(url.startsWith('/api/orders?'))return post.GET(req);
     if(url==='/api/orders')return post.POST(req);
     if(url==='/api/stripe/terminal/payment-intent')return pi.POST(req);

@@ -162,8 +162,8 @@ function StaffCuisinePageContent() {
               <button
                 className="af-btn"
                 type="button"
-                onClick={() => {
-                  clearSession();
+                onClick={async () => {
+                  await clearSession();
                   window.location.href = "/team/login";
                 }}
                 style={{ padding: "8px 12px", borderRadius: 10, border: "none", background: "rgba(12,10,8,0.98)", color: "white", fontWeight: 800, cursor: "pointer" }}

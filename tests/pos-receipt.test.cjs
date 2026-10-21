@@ -75,7 +75,7 @@ test('D/E/F/H: succès sans ticket automatique, ticket à la demande et nouvelle
     const realCash = load('src/lib/pos-cash.ts');
     const Page = load('src/app/caisse/manual/page.tsx', {
       react: hooks, 'next/link': () => null, 'next/image': () => null,
-      '@/lib/staff-auth': { getSession: () => session, resolveCashierEventId: s => s.cashierEventId, getStaffRoleLabel: () => 'Kasse' },
+      '@/lib/staff-auth': { getSession: () => session, staffFetch: (...args) => fetch(...args), resolveCashierEventId: s => s.cashierEventId, getStaffRoleLabel: () => 'Kasse' },
       '@/lib/translations': { getSavedLang: () => 'de', saveLang: () => {} },
       '@/lib/pos-cash': { ...realCash, confirmPosCash: async () => { payments++;await Promise.resolve();return receipt; } },
     }).default;

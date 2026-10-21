@@ -19,7 +19,7 @@ export function quickCashAmounts(totalCents: number) {
 export async function confirmPosCash(attempt: CashAttempt, received: number, persist: (attempt: CashAttempt) => void, request: typeof fetch = fetch): Promise<CashReceipt> {
   if (!Number.isSafeInteger(received) || received < attempt.amountCents) throw new Error("Der erhaltene Betrag ist zu niedrig.");
   if (!attempt.orderId) {
-    const response = await request("/api/orders", { method: "POST", headers: { "Content-Type": "application/json", "x-staff-role": attempt.role }, body: JSON.stringify({ eventId: attempt.eventId, eventName: attempt.eventName, payment: "cash", posCashKey: attempt.key, items: attempt.items }) });
+    const response = await request("/api/orders", { method: "POST", headers: { "Content-Type": "application/json", "x-staff-role": attempt.role, "x-staff-user-id": attempt.userId }, body: JSON.stringify({ eventId: attempt.eventId, eventName: attempt.eventName, payment: "cash", posCashKey: attempt.key, items: attempt.items }) });
     const data = await response.json();
     if (!response.ok || !data.ok) throw Object.assign(new Error(data.error || "Die Bestellung konnte nicht erstellt werden."), { retryable: data.retryable === true });
     if (!data.order?.id || !Number.isSafeInteger(data.order.amountCents)) throw new Error("Ungültige Serverantwort. Dieselbe Zahlung erneut prüfen.");
@@ -29,7 +29,7 @@ export async function confirmPosCash(attempt: CashAttempt, received: number, per
     if (received < attempt.amountCents) throw new Error("Der Serverbetrag wurde aktualisiert. Bitte den erhaltenen Betrag prüfen.");
   }
   if (!attempt.orderId) throw new Error("Die Bestellung konnte nicht bestätigt werden.");
-  const response = await request(`/api/orders/${encodeURIComponent(attempt.orderId)}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "NEW", cashReceivedCents: received }) });
+  const response = await request(`/api/orders/${encodeURIComponent(attempt.orderId)}/status`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-staff-user-id": attempt.userId }, body: JSON.stringify({ status: "NEW", cashReceivedCents: received }) });
   const data = await response.json();
   if (!response.ok || !data.ok || data.order?.id !== attempt.orderId || !["NEW", "IN_PROGRESS", "READY", "DONE"].includes(data.order?.status) || !Number.isSafeInteger(data.order?.amount_cents) || !Number.isSafeInteger(data.order?.cash_received_cents) || !Number.isSafeInteger(data.order?.change_given_cents) || data.order.cash_received_cents < data.order.amount_cents || data.order.change_given_cents !== data.order.cash_received_cents - data.order.amount_cents) throw new Error(data.error || "Die Barzahlung konnte nicht bestätigt werden. Dieselbe Zahlung erneut prüfen.");
   return data.order;

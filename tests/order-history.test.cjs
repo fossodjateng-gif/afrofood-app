@@ -8,7 +8,7 @@ function sale(id, event_id, status, payment = 'cash') {
 }
 function route(rows) {
   const queries = [];
-  const api = load('src/app/api/orders/history/route.ts', {
+  const api = load('src/app/api/orders/history/route.ts', { ...require('./staff-test-mocks.cjs').legacyStaffMocks,
     'next/server': { NextResponse: { json: (body, init) => Response.json(body, init) } },
     '@/lib/db': { sql: async (strings, ...values) => {
       const query = strings.join('?');
@@ -17,8 +17,8 @@ function route(rows) {
       assert.doesNotMatch(query, /\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i);
       assert.match(query, /WHERE event_id = \?/);
       assert.match(query, /UPPER\(status\) IN \('NEW', 'IN_PROGRESS', 'READY', 'DONE'\)/);
-      assert.doesNotMatch(query, /paid_at IS NOT NULL/);
-      assert.doesNotMatch(query, /stripe_payment_intent_id|pos_card_key|pos_cash_key/);
+      // Financial eligibility is computed server-side, never inferred from status alone.
+      assert.doesNotMatch(query, /pos_card_key|pos_cash_key/);
       assert.match(query, /ORDER BY created_at DESC, id DESC/);
       return rows.filter(row => row.event_id === values[0] && ['NEW', 'IN_PROGRESS', 'READY', 'DONE'].includes(row.status.toUpperCase()))
         .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)).slice(values[2], values[2] + values[1]);
@@ -60,7 +60,7 @@ test('bounded pagination returns older sales without duplicate ids; database err
   const next = await (await api.GET(new Request('https://local/api/orders/history?eventId=a&limit=2&offset=2'))).json();
   assert.equal(first.hasMore, true); assert.equal(next.hasMore, false);
   assert.deepEqual([...first.orders, ...next.orders].map(row => row.id), ['3', '2', '1']);
-  const broken = load('src/app/api/orders/history/route.ts', {
+  const broken = load('src/app/api/orders/history/route.ts', { ...require('./staff-test-mocks.cjs').legacyStaffMocks,
     'next/server': { NextResponse: { json: (body, init) => Response.json(body, init) } },
     '@/lib/db': { sql: async () => { throw new Error('secret connection details'); } },
   });

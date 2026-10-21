@@ -11,7 +11,7 @@ test('A/B/D/Q/R: actual manual page double click, cash exclusion, waiting, reloa
   globalThis.window={addEventListener:()=>{},removeEventListener:()=>{},setInterval:()=>1,clearInterval:()=>{},print:()=>prints++,location:{}};
   Object.defineProperty(globalThis,'navigator',{configurable:true,value:{locks:{request:async(k,fn)=>fn()}}});
   globalThis.fetch=async(url,options)=>url.startsWith('/api/admin/menu-config')?Response.json({ok:true,storeConfig:{events:[{id:'event-a',name:'Event A'}]},sections:[{id:'food',title:{de:'Food'},items:[{id:'meal',name:{de:'Meal'},price:10,visible:true,availability:{status:'limited',remainingQty:0,resumeAt:null}}]}]}):db.request(url,options);
-  const mocks={'next/link':()=>null,'next/image':()=>null,'@/lib/staff-auth':{getSession:()=>session,resolveCashierEventId:s=>s.cashierEventId,getStaffRoleLabel:()=> 'Kasse'},'@/lib/translations':{getSavedLang:()=> 'de',saveLang:()=>{}}};
+  const mocks={'next/link':()=>null,'next/image':()=>null,'@/lib/staff-auth':{getSession:()=>session,staffFetch:(...args)=>fetch(...args),resolveCashierEventId:s=>s.cashierEventId,getStaffRoleLabel:()=> 'Kasse'},'@/lib/translations':{getSavedLang:()=> 'de',saveLang:()=>{}}};
   const component=(tree,name)=>findAll(tree,e=>e.type?.name===name)[0];
   let page=harness('src/app/caisse/manual/page.tsx',{},mocks),tree=page.render();page.effects.forEach(fn=>fn());await settle();tree=page.render();
   component(tree,'ProductGrid').props.onAdd({id:'meal'});tree=page.render();const cart=component(tree,'PosCart');
@@ -40,7 +40,7 @@ test('X: existing caisse card button uses shared preparation, same terminal, no 
  try{
   globalThis.window={setTimeout:()=>1,print:()=>{throw Error('Unexpected print');}};globalThis.localStorage={getItem:()=>null};
   globalThis.fetch=async(url,options)=>{calls.push([url,options]);return url==='/api/orders?eventId=event-a'?Response.json([row]):db.request(url,options);};
-  const h=harness('src/app/caisse/page.tsx',{isUnlocked:true,staffRole:'cashier',staffSession:session,eventReady:true,activeEventName:'Event A',selectedEventId:'event-a',orders:[row],loading:false},{'@/lib/staff-auth':{getSession:()=>session,getStaffRoleLabel:()=> 'Kasse'}});
+  const h=harness('src/app/caisse/page.tsx',{isUnlocked:true,staffRole:'cashier',staffSession:session,eventReady:true,activeEventName:'Event A',selectedEventId:'event-a',orders:[row],loading:false},{'@/lib/staff-auth':{getSession:()=>session,staffFetch:(...args)=>fetch(...args),getStaffRoleLabel:()=> 'Kasse'}});
   const tree=h.render();const button=findAll(tree,e=>e.type==='button'&&String(e.props.onClick).includes('initTapToPay'))[0];assert.ok(button);assert.equal(button.props.disabled,false);
   button.props.onClick();for(let n=0;n<8;n++)await new Promise(resolve=>setImmediate(resolve));
   assert.equal(db.stripeCreates,1);assert.equal(db.mailboxes.get('kasse').order_id,row.id);assert.equal(row.status,'PENDING_PAYMENT');assert.ok(!calls.some(([,options])=>options?.method==='PATCH'));

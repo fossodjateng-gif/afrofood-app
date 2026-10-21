@@ -263,7 +263,7 @@ test('manual page reload resumes cancellation only, then allows a new sale after
       if(url.startsWith('/api/admin/menu-config'))return Response.json({ok:true,storeConfig:{events:[{id:context.eventId,name:h.row.event_name}]},sections:[]});
       return h.db.request(url,opts);
     };
-    const page=harness('src/app/caisse/manual/page.tsx',{}, {'next/link':()=>null,'next/image':()=>null,'@/lib/staff-auth':{getSession:()=>session,resolveCashierEventId:s=>s.cashierEventId,getStaffRoleLabel:()=> 'Kasse'},'@/lib/translations':{getSavedLang:()=> 'de',saveLang:()=>{}}});
+    const page=harness('src/app/caisse/manual/page.tsx',{}, {'next/link':()=>null,'next/image':()=>null,'@/lib/staff-auth':{getSession:()=>session,staffFetch:(...args)=>fetch(...args),resolveCashierEventId:s=>s.cashierEventId,getStaffRoleLabel:()=> 'Kasse'},'@/lib/translations':{getSavedLang:()=> 'de',saveLang:()=>{}}});
     page.render();page.effects.forEach(fn=>fn());await settle();page.render();
     page.effects.find(fn=>String(fn).includes('cardAttempt.published'))();await settle();
     let tree=page.render();let panel=findAll(tree,e=>e.type?.name==='CardPayment')[0];

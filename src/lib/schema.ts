@@ -19,6 +19,8 @@ export type OrderItem = {
 };
 
 export type OrderRow = {
+  refund?: { state: "requested" | "processing" | "refunded" | "requires_review"; amountCents: number; currency: string; refundedAt: string | null } | null;
+  can_refund?: boolean;
   id: string;                // ex: AF-20260219-001
   created_at: string;        // ISO
   customer_name: string | null;

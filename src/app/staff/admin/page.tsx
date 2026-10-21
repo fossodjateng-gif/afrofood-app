@@ -171,8 +171,8 @@ export default function StaffAdminPage() {
             <button
               className="af-btn"
               type="button"
-              onClick={() => {
-                clearSession();
+              onClick={async () => {
+                await clearSession();
                 window.location.href = "/team/login";
               }}
               style={{ padding: "8px 12px", borderRadius: 10, border: "none", background: "#111", color: "white", fontWeight: 800, cursor: "pointer" }}
