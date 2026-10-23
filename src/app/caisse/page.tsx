@@ -21,7 +21,6 @@ import {
   type ClientPlatform,
 } from "@/lib/payment-platform";
 
-const CASHIER_PIN = process.env.NEXT_PUBLIC_CAISSE_PIN || "1955";
 const CAISSE_EVENT_ID_KEY = "af_caisse_event_id";
 
 type CaisseCard = OrderRow & { isJustValidated?: boolean };
@@ -34,11 +33,8 @@ const UI_TEXT: Record<
     validatePaymentError: string;
     back: string;
     logout: string;
-    lockTitle: string;
-    lockSubtitle: string;
-    pinPlaceholder: string;
-    pinWrong: string;
-    validate: string;
+    accessBlocked: string;
+    lockError: string;
     title: string;
 	    subtitle: string;
 	    loggedAs: string;
@@ -80,11 +76,8 @@ const UI_TEXT: Record<
     validatePaymentError: "Fehler bei der Zahlungsfreigabe",
     back: "Zuruck",
     logout: "Abmelden",
-    lockTitle: "Geschutzte Kasse",
-    lockSubtitle: "4-stelligen Code eingeben",
-    pinPlaceholder: "PIN Code",
-    pinWrong: "Falscher Code",
-    validate: "Bestatigen",
+    accessBlocked: "Kassenzugriff blockiert",
+    lockError: "Die Kassensperre konnte nicht bestätigt werden",
 	    title: "Kasse - Zahlungsfreigabe",
 	    subtitle: "Manuelle Freigabe und Weiterleitung an die Kuche",
 	    loggedAs: "Angemeldet als",
@@ -125,11 +118,8 @@ const UI_TEXT: Record<
     validatePaymentError: "Erreur pendant la validation du paiement",
     back: "Retour",
     logout: "Se deconnecter",
-    lockTitle: "Caisse securisee",
-    lockSubtitle: "Entrer le code a 4 chiffres",
-    pinPlaceholder: "Code PIN",
-    pinWrong: "Code incorrect",
-    validate: "Valider",
+    accessBlocked: "Accès à la caisse bloqué",
+    lockError: "Le verrou de caisse n'a pas pu être confirmé",
 	    title: "Caisse - Validation Paiement",
 	    subtitle: "Validation manuelle puis envoi cuisine",
 	    loggedAs: "Connecte en tant que",
@@ -170,11 +160,8 @@ const UI_TEXT: Record<
     validatePaymentError: "Error while validating payment",
     back: "Back",
     logout: "Logout",
-    lockTitle: "Secured cashier",
-    lockSubtitle: "Enter the 4-digit code",
-    pinPlaceholder: "PIN code",
-    pinWrong: "Incorrect code",
-    validate: "Validate",
+    accessBlocked: "Cash register access blocked",
+    lockError: "The cash register lock could not be confirmed",
 	    title: "Cashier - Payment Validation",
 	    subtitle: "Manual validation then send to kitchen",
 	    loggedAs: "Logged in as",
@@ -276,9 +263,9 @@ export default function CaissePage() {
   const [activeTerminalOrderId, setActiveTerminalOrderId] = useState<string | null>(null);
   const handledPaymentOrderIdsRef = useRef<Set<string>>(new Set());
   const [tapToPayInfo, setTapToPayInfo] = useState<Record<string, { paymentIntentId: string; status: string }>>({});
-  const [pin, setPin] = useState("");
+  const [staffReady, setStaffReady] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
-  const [pinError, setPinError] = useState<string | null>(null);
+  const [accessError, setAccessError] = useState<string | null>(null);
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
   const [staffUsername, setStaffUsername] = useState("");
 
@@ -323,13 +310,13 @@ export default function CaissePage() {
         try {
           assignedEventId = resolveCashierEventId(s);
         } catch (error: unknown) {
-          if (alive) setActionError(error instanceof Error ? error.message : "Kassenkonto nicht verfügbar.");
+          if (alive) setAccessError(error instanceof Error ? error.message : "Kassenkonto nicht verfügbar.");
           return;
         }
 
         if (!assignedEventId) {
           if (alive) {
-            setActionError(
+            setAccessError(
               lang === "fr"
                 ? "Aucun evenement n'est assigne a cette caisse."
                 : lang === "de"
@@ -347,10 +334,12 @@ export default function CaissePage() {
       }
 
       if (!alive) return;
-      setIsUnlocked(true);
+      setStaffReady(true);
     }
 
-    void boot();
+    void boot().catch((error: unknown) => {
+      if (alive) setAccessError(error instanceof Error ? error.message : "Kassenkonto nicht verfügbar.");
+    });
     return () => {
       alive = false;
     };
@@ -382,6 +371,7 @@ export default function CaissePage() {
     if (!staffRole || (staffRole === "cashier" && !cashierEventId)) return;
     let stopped = false;
     setEventReady(false);
+    setIsUnlocked(false);
     const eventId = cashierEventId || selectedEventId;
     const query = eventId ? `?eventId=${encodeURIComponent(eventId)}` : "";
     void staffFetch(`/api/admin/menu-config${query}`, {
@@ -397,7 +387,7 @@ export default function CaissePage() {
         setEventReady(true);
       }
     }).catch((error: unknown) => {
-      if (!stopped) setActionError(error instanceof Error ? error.message : t.unknownError);
+      if (!stopped) setAccessError(error instanceof Error ? error.message : t.unknownError);
     });
     return () => { stopped = true; };
   }, [staffRole, cashierEventId, selectedEventId, t.unknownError]);
@@ -434,15 +424,16 @@ export default function CaissePage() {
   }
 
   useEffect(() => {
-    if (!isUnlocked || !staffRole || !staffSession || !eventReady) return;
+    if (!staffReady || !staffRole || !staffSession || !eventReady || accessError) return;
     let stopped = false;
 
     async function heartbeat() {
       try {
         await sendCashierLock("heartbeat");
+        if (!stopped) setIsUnlocked(true);
       } catch (e: unknown) {
         if (!stopped) {
-          setActionError(e instanceof Error ? e.message : t.unknownError);
+          setAccessError(`${t.lockError}: ${e instanceof Error ? e.message : t.unknownError}`);
           setIsUnlocked(false);
         }
       }
@@ -456,7 +447,7 @@ export default function CaissePage() {
       stopped = true;
       window.clearInterval(id);
     };
-  }, [isUnlocked, staffRole, staffSession, activeEventName, eventReady, lang]);
+  }, [staffReady, staffRole, staffSession, activeEventName, eventReady, accessError, lang, t.lockError, t.unknownError]);
 
   const sortedOrders = useMemo(() => {
     return [...orders].sort((a, b) => {
@@ -771,7 +762,7 @@ export default function CaissePage() {
     }
   }
 
-  if (!isUnlocked) {
+  if (!isUnlocked || accessError) {
     return (
       <main
         style={{
@@ -821,34 +812,9 @@ export default function CaissePage() {
               </button>
             ))}
           </div>
-          <h1 style={{ margin: "10px 0 0 0", fontSize: 24, fontWeight: 900 }}>{t.lockTitle}</h1>
-          <p style={{ marginTop: 8, opacity: 0.8 }}>{t.lockSubtitle}</p>
-          <input
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
-            type="password"
-            autoComplete="off"
-            inputMode="numeric"
-            placeholder={t.pinPlaceholder}
-            style={{ marginTop: 10, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #475569", background: "#0f172a", color: "white" }}
-          />
-          {pinError ? <div style={{ marginTop: 8, color: "#fca5a5", fontWeight: 700 }}>{pinError}</div> : null}
-          {actionError ? <div style={{ marginTop: 8, color: "#fca5a5", fontWeight: 700 }}>{getPaymentErrorMessage(actionError, lang)}</div> : null}
-          <button
-            className="af-btn"
-            type="button"
-            onClick={() => {
-              if (pin === CASHIER_PIN) {
-                setPinError(null);
-                setIsUnlocked(true);
-              } else {
-                setPinError(t.pinWrong);
-              }
-            }}
-            style={{ marginTop: 10, width: "100%", padding: "10px 14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#ff7a00,#ff3c00)", color: "white", fontWeight: 900, cursor: "pointer" }}
-          >
-            {t.validate}
-          </button>
+          <h1 style={{ margin: "10px 0 0 0", fontSize: 24, fontWeight: 900 }}>{accessError ? t.accessBlocked : t.title}</h1>
+          <p role={accessError ? "alert" : "status"} style={{ marginTop: 8, opacity: 0.8 }}>{accessError || t.loading}</p>
+          {actionError || activeTerminalOrderId ? <div role="alert" style={{ marginTop: 8, color: "#fca5a5", fontWeight: 700 }}>{getPaymentErrorMessage(actionError || "", lang)}</div> : null}
         </div>
       </main>
     );
