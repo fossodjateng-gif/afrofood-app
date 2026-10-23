@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { sql } from "@/lib/db";
+import { releaseCashierSessionLocks } from "@/lib/cashier-locks";
 import { canAccessStaffEvent, canUseCashRegister, type AuthenticatedStaff } from "@/lib/staff-permissions";
 
 export const STAFF_COOKIE = "af_staff_session";
@@ -43,6 +44,13 @@ export async function requireStaffSession(req: Request): Promise<AuthenticatedSt
   return { id: String(row.id), username: String(row.username), role: row.role as AuthenticatedStaff["role"], active: true, cashierEventId: row.cashier_event_id ? String(row.cashier_event_id) : null };
 }
 
+// Server-only lease binding; never send this digest to the browser.
+export function staffSessionHash(req: Request) {
+  const token = cookieToken(req);
+  if (!token) throw new StaffAuthError("session_required");
+  return tokenHash(token);
+}
+
 export async function requireCashRegisterPermission(req: Request, eventId?: string) {
   const user = await requireStaffSession(req);
   if (!canUseCashRegister(user) || (eventId !== undefined && !canAccessStaffEvent(user, eventId))) throw new StaffAuthError("cash_register_forbidden", 403);
@@ -51,7 +59,11 @@ export async function requireCashRegisterPermission(req: Request, eventId?: stri
 
 export async function revokeStaffSession(req: Request) {
   const token = cookieToken(req);
-  if (token) await sql`UPDATE staff_sessions SET revoked_at = COALESCE(revoked_at, NOW()) WHERE token_hash = ${tokenHash(token)}`;
+  if (token) {
+    const hash = tokenHash(token);
+    await sql`UPDATE staff_sessions SET revoked_at = COALESCE(revoked_at, NOW()) WHERE token_hash = ${hash}`;
+    await releaseCashierSessionLocks(hash);
+  }
 }
 
 export async function createStaffSession(req: Request, userId: string) {

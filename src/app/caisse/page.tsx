@@ -4,7 +4,7 @@ import { prepareTerminalCheckout } from "@/lib/terminal-checkout";
 
 import { getOrderBreakdownEur } from "@/lib/pricing";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type { OrderRow } from "@/lib/schema";
 import { OnDemandOrderReceipt } from "@/components/OnDemandOrderReceipt";
 import { OrderHistory } from "@/components/pos/OrderHistory";
@@ -13,6 +13,7 @@ import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { clearSession, getSession, staffFetch, getStaffRoleLabel, resolveCashierEventId, type StaffRole, type StaffSession } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
+import { openCashierLease } from "@/lib/cashier-lease-client";
 
 import {
   detectClientPlatform,
@@ -281,6 +282,8 @@ export default function CaissePage() {
   const [historyReceiptOrderId, setHistoryReceiptOrderId] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [cashierEventId, setCashierEventId] = useState("");
+  const cashierLeaseRef = useRef<Awaited<ReturnType<typeof openCashierLease>> | null>(null);
+  const closingRef = useRef(false);
 
   const t = UI_TEXT[lang];
   const initCardPaymentLabel = getCashierInitCardPaymentLabel(lang, clientPlatform);
@@ -392,62 +395,87 @@ export default function CaissePage() {
     return () => { stopped = true; };
   }, [staffRole, cashierEventId, selectedEventId, t.unknownError]);
 
-  async function sendCashierLock(action: "acquire" | "heartbeat" | "release") {
-    if (!staffRole || !staffSession) return;
-    const res = await staffFetch("/api/cashier-lock", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-staff-role": staffRole,
-      },
-      body: JSON.stringify({
-        action,
-        eventName: activeEventName,
-        userId: staffSession.userId,
-        username: staffSession.username,
-      }),
-      keepalive: action === "release",
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.ok) {
-      const activeCashier = String(data?.lock?.username || "").trim();
-      throw new Error(
-        activeCashier
-          ? txt(
-              `Cet evenement est deja ouvert par ${activeCashier}.`,
-              `Dieses Event ist bereits von ${activeCashier} geoffnet.`,
-              `This event is already open by ${activeCashier}.`
-            )
-          : data?.error || t.unknownError
-      );
+  async function leaveCashier(navigate: () => void) {
+    closingRef.current = true;
+    setIsUnlocked(false);
+    try {
+      await cashierLeaseRef.current?.release();
+      navigate();
+    } catch (error) {
+      setAccessError(`${t.lockError}: ${error instanceof Error ? error.message : t.unknownError}`);
     }
   }
 
-  useEffect(() => {
-    if (!staffReady || !staffRole || !staffSession || !eventReady || accessError) return;
-    let stopped = false;
+  function leaveViaLink(event: MouseEvent<HTMLElement>) {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const link = (event.target as Element).closest("a[href]");
+    const href = link?.getAttribute("href");
+    if (!href || href.startsWith("#") || link?.getAttribute("target") === "_blank" || link?.hasAttribute("download")) return;
+    event.preventDefault();
+    void leaveCashier(() => { window.location.href = href; });
+  }
 
-    async function heartbeat() {
+  useEffect(() => {
+    if (!staffReady || !staffRole || !staffSession || !eventReady || accessError || closingRef.current) return;
+    let stopped = false;
+    let hidden = false;
+    const previous = cashierLeaseRef.current;
+    let lease: Awaited<ReturnType<typeof openCashierLease>> | null = null;
+    let busy = false;
+
+    async function heartbeat(initial = false) {
+      if (stopped || busy || closingRef.current) return;
+      busy = true;
       try {
-        await sendCashierLock("heartbeat");
-        if (!stopped) setIsUnlocked(true);
+        if (initial && previous) await previous.release();
+        if (stopped || closingRef.current) return;
+        if (initial) {
+          lease = await openCashierLease(selectedEventId);
+          if (stopped || closingRef.current) {
+            if (hidden) void lease.detach();
+            else void lease.release().catch(() => undefined);
+            return;
+          }
+          cashierLeaseRef.current = lease;
+        }
+        if (!lease) return;
+        await (initial && !lease.handedOff ? lease.acquire() : lease.heartbeat());
+        if (!stopped && !closingRef.current) setIsUnlocked(true);
       } catch (e: unknown) {
-        if (!stopped) {
+        if (!stopped && !closingRef.current) {
           setAccessError(`${t.lockError}: ${e instanceof Error ? e.message : t.unknownError}`);
           setIsUnlocked(false);
         }
+      } finally {
+        busy = false;
       }
     }
 
-    void heartbeat();
+    void heartbeat(true);
     const id = window.setInterval(() => {
       void heartbeat();
     }, 30000);
+    const hide = () => {
+      hidden = true;
+      stopped = true;
+      closingRef.current = true;
+      setIsUnlocked(false);
+      window.clearInterval(id);
+      void lease?.detach(); // No server release on refresh; abrupt closure uses TTL.
+    };
+    const restored = (event: PageTransitionEvent) => {
+      if (event.persisted) setAccessError("cashier_lock_lost");
+    };
+    window.addEventListener("pagehide", hide);
+    window.addEventListener("pageshow", restored);
     return () => {
+      window.removeEventListener("pagehide", hide);
+      window.removeEventListener("pageshow", restored);
       stopped = true;
       window.clearInterval(id);
+      if (!hidden) void lease?.release().catch(() => undefined);
     };
-  }, [staffReady, staffRole, staffSession, activeEventName, eventReady, accessError, lang, t.lockError, t.unknownError]);
+  }, [staffReady, staffRole, staffSession, selectedEventId, eventReady, accessError, t.lockError, t.unknownError]);
 
   const sortedOrders = useMemo(() => {
     return [...orders].sort((a, b) => {
@@ -784,7 +812,7 @@ export default function CaissePage() {
           <div style={{ display: "flex", gap: 8 }}>
             <button
               type="button"
-              onClick={() => goBackOr("/staff")}
+              onClick={() => void leaveCashier(() => goBackOr("/staff"))}
               className="af-link-btn"
               style={{
                 padding: "6px 10px",
@@ -821,7 +849,7 @@ export default function CaissePage() {
   }
 
 	  return (
-	    <main
+	    <main onClickCapture={leaveViaLink}
 	      style={{
 	        padding: 24,
         fontFamily: "system-ui",
@@ -880,7 +908,7 @@ export default function CaissePage() {
 	            ))}
 			            <button
 			              type="button"
-			              onClick={() => goBackOr("/staff")}
+			              onClick={() => void leaveCashier(() => goBackOr("/staff"))}
 			              className="af-link-btn"
 			              style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, cursor: "pointer" }}
 			            >
@@ -890,8 +918,16 @@ export default function CaissePage() {
 		              className="af-btn"
 		              type="button"
 		              onClick={async () => {
-		                await clearSession();
-		                window.location.href = "/team/login";
+		                closingRef.current = true;
+		                setIsUnlocked(false);
+		                // Revocation/cleanup must never wait for a stalled release or heartbeat.
+		                void cashierLeaseRef.current?.release().catch(() => undefined);
+		                try {
+		                  await clearSession();
+		                  window.location.href = "/team/login";
+		                } catch (error) {
+		                  setAccessError(error instanceof Error ? error.message : t.unknownError);
+		                }
 		              }}
 		              style={{ padding: "8px 12px", borderRadius: 10, border: "none", background: "#111", color: "white", fontWeight: 800, cursor: "pointer" }}
 		            >

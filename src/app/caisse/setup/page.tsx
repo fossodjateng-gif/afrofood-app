@@ -10,6 +10,7 @@ import { detectClientPlatform, type ClientPlatform } from "@/lib/payment-platfor
 import { getSession, getStaffRoleLabel, type StaffRole, type StaffSession } from "@/lib/staff-auth";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { goBackOr } from "@/lib/client-nav";
+import { createCashierLease } from "@/lib/cashier-lease-client";
 
 type TapToPayConfig = {
   awarenessSeen: boolean;
@@ -286,7 +287,7 @@ export default function CaisseSetupPage() {
   const [prepareMessage, setPrepareMessage] = useState<string | null>(null);
   const [termsChecked, setTermsChecked] = useState(false);
   const [hasCompletedSetupBefore, setHasCompletedSetupBefore] = useState(false);
-  const [activeEventName, setActiveEventName] = useState("");
+  const [cashierLockEventId, setCashierLockEventId] = useState("");
   const [terminalSetupUrl, setTerminalSetupUrl] = useState("");
   const [tapConfig, setTapConfig] = useState<TapToPayConfig>({
     awarenessSeen: false,
@@ -425,11 +426,8 @@ export default function CaisseSetupPage() {
           data.storeConfig?.activeEventId ||
           ""
       ).trim();
-      const selectedEvent = (
-        data.storeConfig?.events as Array<{ id: string; name: string }> | undefined
-      )?.find((event) => event.id === selectedEventId);
       if (selectedEventId) localStorage.setItem("af_caisse_event_id", selectedEventId);
-      setActiveEventName(String(selectedEvent?.name || data.storeConfig?.activeEventName || "").trim());
+      setCashierLockEventId(selectedEventId);
       const serverProgress: TapToPayConfig = {
         awarenessSeen: Boolean(incoming?.awarenessSeen),
         termsViewed: Boolean(incoming?.termsViewed),
@@ -610,35 +608,13 @@ export default function CaisseSetupPage() {
     }
     setError(null);
     setSavingId("cashier-lock");
+    const lease = createCashierLease(cashierLockEventId);
     try {
-      const res = await fetch("/api/cashier-lock", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-staff-role": staffRole,
-        },
-        body: JSON.stringify({
-          action: "acquire",
-          eventName: activeEventName,
-          userId: session.userId,
-          username: session.username,
-        }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok) {
-        const activeCashier = String(data?.lock?.username || "").trim();
-        throw new Error(
-          activeCashier
-            ? lang === "de"
-              ? `Dieses Event ist bereits von ${activeCashier} geoffnet.`
-              : lang === "en"
-              ? `This event is already open by ${activeCashier}.`
-              : `Cet evenement est deja ouvert par ${activeCashier}.`
-            : data?.error || "Cashier lock failed"
-        );
-      }
+      await lease.acquire();
+      lease.handoff();
       window.location.href = "/caisse";
     } catch (e: unknown) {
+      await lease.release().catch(() => undefined);
       setError(e instanceof Error ? e.message : "Cashier lock failed");
     } finally {
       setSavingId(null);

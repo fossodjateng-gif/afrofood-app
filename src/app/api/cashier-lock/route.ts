@@ -1,55 +1,33 @@
 import { NextResponse } from "next/server";
-import {
-  acquireCashierLock,
-  heartbeatCashierLock,
-  releaseCashierLock,
-} from "@/lib/cashier-locks";
-
-function isCashierAuthorized(req: Request) {
-  const role = String(req.headers.get("x-staff-role") || "").trim().toLowerCase();
-  return role === "admin" || role === "cashier";
-}
+import { acquireCashierLock, heartbeatCashierLock, releaseCashierLock } from "@/lib/cashier-locks";
+import { requireCashRegisterPermission, requireStaffOrigin, staffSessionHash, StaffAuthError } from "@/lib/staff-session-server";
+import { getStoreConfig } from "@/lib/menu-settings";
 
 export async function POST(req: Request) {
   try {
-    if (!isCashierAuthorized(req)) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    requireStaffOrigin(req);
+    const user = await requireCashRegisterPermission(req);
+    const body = await req.json().catch(() => null);
+    const action = body?.action;
+    if (!["acquire", "heartbeat", "release"].includes(action)) throw new StaffAuthError("invalid_lock_action", 400);
+    const instanceId = body?.instanceId;
+    if (typeof instanceId !== "string" || !/^[a-f0-9-]{36}$/.test(instanceId)) throw new StaffAuthError("invalid_lock_instance", 400);
+    const eventId = user.role === "cashier" ? user.cashierEventId : body?.eventId;
+    if (typeof eventId !== "string" || !eventId || (body?.eventId !== undefined && body.eventId !== eventId)) throw new StaffAuthError("cash_register_forbidden", 403);
+    // Release stays owner-bound even if an event was removed from configuration.
+    if (action !== "release") {
+      const config = await getStoreConfig();
+      if (!config.events.some(event => event.id === eventId)) throw new StaffAuthError("invalid_lock_event", 403);
     }
-
-    const body = await req.json().catch(() => ({}));
-    const action = String(body?.action || "").trim();
-    const eventName = String(body?.eventName || "").trim();
-    const userId = String(body?.userId || "").trim();
-    const username = String(body?.username || "").trim();
-
-    if (!userId) {
-      return NextResponse.json({ ok: false, error: "Missing userId" }, { status: 400 });
-    }
-
+    const lease = { eventId, instanceId, userId: user.id, username: user.username, sessionHash: staffSessionHash(req) };
     if (action === "release") {
-      await releaseCashierLock({ eventName, userId });
+      await releaseCashierLock(lease);
       return NextResponse.json({ ok: true });
     }
-
-    const result =
-      action === "heartbeat"
-        ? await heartbeatCashierLock({ eventName, userId, username })
-        : await acquireCashierLock({ eventName, userId, username });
-
-    if (!result.ok) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "cashier_locked",
-          lock: result.lock,
-        },
-        { status: 423 }
-      );
-    }
-
+    const result = action === "acquire" ? await acquireCashierLock(lease) : await heartbeatCashierLock(lease);
+    if (!result.ok) return NextResponse.json({ ok: false, error: result.reason === "locked" ? "cashier_locked" : "cashier_lock_lost", lock: result.lock }, { status: result.reason === "locked" ? 423 : 409 });
     return NextResponse.json({ ok: true, lock: result.lock });
-  } catch (e: unknown) {
-    const error = e instanceof Error ? e.message : "Server error";
-    return NextResponse.json({ ok: false, error }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof StaffAuthError ? error.code : "cashier_lock_unavailable" }, { status: error instanceof StaffAuthError ? error.status : 503 });
   }
 }

@@ -15,6 +15,7 @@ async function staffHarness() {
     if (q.includes('WHERE username =')) return [...users.values()].filter(user => user.username === v[0]);
     if (q.includes('INSERT INTO staff_sessions')) { sessions.set(v[0], { user_id: v[1], expires_at: Date.now() + 7200000, revoked_at: null });return []; }
     if (q.includes('UPDATE staff_sessions')) { const row = sessions.get(v[0]);if (row) row.revoked_at = Date.now();return []; }
+    if (q.includes('DELETE FROM cashier_event_locks')) return [];
     if (q.includes('FROM staff_sessions s JOIN')) {
       const session = sessions.get(v[0]), user = users.get(session?.user_id);
       return session && !session.revoked_at && session.expires_at > Date.now() && user?.active ? [{ ...user }] : [];
