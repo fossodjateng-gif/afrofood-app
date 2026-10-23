@@ -7,7 +7,8 @@ process.env.REFUND_CREATE_ENABLED = '1';
 for (const role of ['cashier', 'admin']) test(`total refund authorized for ${role}; no sale/kitchen/quantity mutation`, async () => {
   const h = refundHarness(), before = structuredClone(h.order);
   const row = await h.request({ ...h.user, role });
-  assert.equal(row.refund_state, 'refunded');assert.equal(row.refund_amount_cents, 1250);assert.equal(row.requested_by, 'paul');assert.ok(row.refunded_at);
+  assert.equal(row.refund_state, 'processing');assert.equal(row.refund_amount_cents, 1250);assert.equal(row.requested_by, 'paul');assert.equal(row.refunded_at, null);
+  assert.equal((await h.read()).refund_state, 'refunded');assert.ok(h.rows.get(h.order.id).refunded_at);
   assert.deepEqual(h.order, before);assert.equal(h.keys.size, 1);
   await h.request();assert.equal(h.keys.size, 1);
 });
@@ -53,7 +54,7 @@ test('GET never claims or creates; POST disabled by default remains a durable re
 test('timeout before Stripe leaves the same durable key for retry', async () => {
   const h = refundHarness();h.failGet = true;
   const first = await h.request();assert.equal(first.refund_state, 'requested');assert.equal(h.keys.size, 0);
-  h.failGet = false;const second = await h.request();assert.equal(second.refund_key, first.refund_key);assert.equal(second.refund_state, 'refunded');
+  h.failGet = false;const second = await h.request();assert.equal(second.refund_key, first.refund_key);assert.equal(second.refund_state, 'processing');
 });
 test('lost response after Stripe success is reconciled without a second POST', async () => {
   const h = refundHarness();h.loseCreate = true;
@@ -102,4 +103,55 @@ for (const patch of [{ status: 'unknown' }, { amount: 1 }, { metadata: {} }, { p
 test('financial service has no dependency on sale finalization, quantities, Terminal or printing', () => {
   const source = fs.readFileSync('src/lib/refund-server.ts', 'utf8');
   assert.doesNotMatch(source, /finalizeSale|reconcileCardPayment|cancelCardPayment|publishOrderEvent|window\.print|UPDATE orders|app_settings|terminal-active/);
+});
+
+for (const amount of [1251, 999999999, 500, -1, 1.5, '1250', null]) test(`full Refund V1 refuses invalid requested amount ${JSON.stringify(amount)}`, async () => {
+  const h = refundHarness();
+  await assert.rejects(h.request(h.user, amount), /refund_invalid_amount/);
+  assert.equal(h.rows.size, 0);assert.equal(h.calls.length, 0);
+});
+
+test('create success is processing until independently retrieved; audit and payer remain distinct', async () => {
+  const h = refundHarness();
+  Object.assign(h.order, { paid_by: 'marie', paid_by_username: 'Marie', paid_register_id: 'other-register', paid_register_name: 'Caisse 2' });
+  const before = structuredClone(h.order);
+  const row = await h.request();
+  assert.equal(row.refund_state, 'processing');assert.equal(row.refunded_at, null);
+  assert.deepEqual([row.requested_by, row.requested_by_username, row.requested_event_id, row.requested_register_id, row.requested_register_name], ['paul', 'paul', 'event-x', h.user.workstationId, 'Caisse 1']);
+  h.user.username = 'renamed';h.user.workstationName = 'Renamed register';
+  const retry = await h.request();
+  assert.equal(retry.refund_state, 'refunded');assert.equal(retry.requested_by_username, 'paul');assert.equal(retry.requested_register_name, 'Caisse 1');
+  assert.deepEqual(h.order, before);assert.equal(h.calls.filter(c => c[0] === 'POST').length, 1);
+});
+
+test('revoked lease rejects the transaction before the durable refund claim', async () => {
+  const h = refundHarness();h.guardError = true;
+  await assert.rejects(h.request(), /lease revoked/);
+  assert.equal(h.rows.size, 0);assert.equal(h.calls.length, 0);
+});
+
+for (const patch of [{ workstationId: null }, { workstationType: 'kitchen' }, { role: 'admin', cashierEventId: 'other' }]) test(`refund rejects incompatible server assignment ${JSON.stringify(patch)}`, async () => {
+  const h = refundHarness();await assert.rejects(h.request({ ...h.user, ...patch }), /forbidden/);
+  assert.equal(h.calls.length, 0);assert.equal(h.rows.size, 0);
+});
+
+for (const status of ['failed', 'canceled', 'requires_action']) test(`retrieved refund ${status} blocks automatic recreation`, async () => {
+  const h = refundHarness();h.pending = true;
+  const row = await h.request();h.stripeRefunds.get(row.stripe_refund_id).status = status;
+  assert.equal((await h.read()).refund_state, 'requires_review');
+  assert.equal((await h.request()).refund_state, 'requires_review');
+  assert.equal(h.calls.filter(c => c[0] === 'POST').length, 1);
+});
+
+test('stale pending response cannot erase a concurrently recorded failure or confirmed success', async () => {
+  const h = refundHarness();h.pending = true;const row = await h.request();
+  const original = h.stripe.stripeGet;
+  h.stripe.stripeGet = async path => {
+    const refund = await original(path);
+    if (path.startsWith('/refunds/')) Object.assign(h.rows.get(row.order_id), { refund_state: 'requires_review', refund_error: 'REFUND_FAILED' });
+    return refund;
+  };
+  assert.equal((await h.read()).refund_state, 'requires_review');assert.equal(h.rows.get(row.order_id).refund_error, 'REFUND_FAILED');
+  Object.assign(h.rows.get(row.order_id), { refund_state: 'refunded', refunded_at: new Date().toISOString() });
+  assert.equal((await h.read()).refund_state, 'refunded');
 });

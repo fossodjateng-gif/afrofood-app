@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
-import { getSession } from "@/lib/staff-auth";
+import { getSession, staffFetch } from "@/lib/staff-auth";
 import type { Lang } from "@/lib/translations";
 
 export type PublicRefund = { state: "requested" | "processing" | "refunded" | "requires_review"; amountCents: number; currency: string; refundedAt: string | null };
@@ -20,14 +20,21 @@ export function RefundAction({ orderId, amountCents, currency, eligible, refund,
   const value = current?.state === "refunded" ? current : refund?.state === "refunded" ? refund : current || refund;
   const locale = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
   const money = (amount: number, code: string) => new Intl.NumberFormat(locale, { style: "currency", currency: code }).format(amount / 100);
+  const balances = {
+    de: { paid: "Karte bezahlt", refunded: "Bereits erstattet", remaining: "Noch erstattbar", unknown: "Zu prüfen", requested: "Anfrage gespeichert · Verarbeitung ausstehend" },
+    fr: { paid: "Montant payé carte", refunded: "Déjà remboursé", remaining: "Encore remboursable", unknown: "À vérifier", requested: "Demande enregistrée · En attente de traitement" },
+    en: { paid: "Card amount paid", refunded: "Already refunded", remaining: "Still refundable", unknown: "Needs verification", requested: "Request recorded · Awaiting processing" },
+  }[lang];
+  const refundedCents = value?.state === "refunded" ? value.amountCents : 0;
   async function request(create: boolean) {
-    if (inFlight.current) return;
+    if (inFlight.current || (create && !eligible)) return;
     inFlight.current = true;
     setBusy(true);setError(false);
     try {
-      const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/refund`, {
+      const response = await staffFetch(`/api/orders/${encodeURIComponent(orderId)}/refund`, {
         method: create ? "POST" : "GET", cache: "no-store",
-        headers: { "x-staff-user-id": getSession()?.userId || "" },
+        headers: { "x-staff-user-id": getSession()?.userId || "", ...(create ? { "Content-Type": "application/json" } : {}) },
+        ...(create ? { body: JSON.stringify({ amountCents }) } : {}),
       });
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error("Refund unavailable");
@@ -37,17 +44,23 @@ export function RefundAction({ orderId, amountCents, currency, eligible, refund,
   }
   if (!eligible && !value) return null;
   return <div style={{ marginTop: 12, overflowWrap: "anywhere" }}>
+    <p>{orderId}</p>
+    <dl>
+      <dt>{balances.paid}</dt><dd>{money(amountCents, currency)}</dd>
+      <dt>{balances.refunded}</dt><dd>{value?.state === "requires_review" ? balances.unknown : money(refundedCents, currency)}</dd>
+      <dt>{balances.remaining}</dt><dd>{value?.state === "requires_review" ? balances.unknown : money(Math.max(0, amountCents - refundedCents), currency)}</dd>
+    </dl>
     {value ? <>
-      <p role="status">{value.state === "refunded" ? text.refunded : value.state === "requires_review" ? text.review : text.pending}</p>
+      <p role="status">{value.state === "refunded" ? text.refunded : value.state === "requires_review" ? text.review : value.state === "requested" ? balances.requested : text.pending}</p>
       <p>{money(value.amountCents, value.currency)}{value.refundedAt ? ` · ${new Date(value.refundedAt).toLocaleString(locale)}` : ""}</p>
       {value.state !== "refunded" ? <button type="button" className="af-link-btn" disabled={busy} onClick={() => void request(false)}>{text.check}</button> : null}
-      {value.state === "requested" ? <button type="button" className="af-link-btn" disabled={busy} onClick={() => setConfirm(true)}>{text.retry}</button> : null}
+      {value.state === "requested" && eligible ? <button type="button" className="af-link-btn" disabled={busy} onClick={() => setConfirm(true)}>{text.retry}</button> : null}
     </> : <>
       <p>{text.paid}</p>
       <button type="button" className="af-link-btn" disabled={busy} onClick={() => setConfirm(true)}>{text.action}</button>
     </>}
     {error ? <p role="alert">{text.error} <button type="button" disabled={busy} onClick={() => void request(false)}>{text.check}</button></p> : null}
-    {confirm ? <section role="dialog" aria-modal="false" aria-label={text.action} style={{ border: "1px solid var(--af-border)", padding: 16, marginTop: 12 }}>
+    {confirm && eligible ? <section role="dialog" aria-modal="false" aria-label={text.action} style={{ border: "1px solid var(--af-border)", padding: 16, marginTop: 12 }}>
       <strong>{orderId} · {money(amountCents, currency)}</strong>
       <p>{text.warning}</p>
       <button type="button" disabled={busy} onClick={() => void request(true)}>{text.confirm}</button>

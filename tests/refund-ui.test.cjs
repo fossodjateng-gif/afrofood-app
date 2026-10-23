@@ -8,7 +8,7 @@ for (const [lang, action, confirm, refunded] of [['de', 'Rückerstattung', 'Gesa
     const saved = global.fetch, calls = [];
     global.fetch = async (url, options) => { calls.push([url, options]);return Response.json({ ok: true, refund: { state: 'refunded', amountCents: 1250, currency: 'eur', refundedAt: '2026-10-21T10:00:00Z' } }); };
     try {
-      const h = harness('src/components/pos/RefundAction.tsx', {}, { '@/lib/staff-auth': { getSession: () => ({ userId: 'paul' }) } });
+      const h = harness('src/components/pos/RefundAction.tsx', {}, { '@/lib/staff-auth': { getSession: () => ({ userId: 'paul' }), staffFetch: (...args) => fetch(...args) } });
       const render = extra => h.render(h.component.RefundAction, { ...props, lang, ...extra });
       let tree = render();assert.equal(calls.length, 0);
       findAll(tree, node => node.type === 'button' && text(node) === action)[0].props.onClick();tree = render();
@@ -35,4 +35,33 @@ test('server client session ignores forged localStorage, uses single login and w
     await auth.clearSession();assert.equal(auth.getSession(), null);assert.equal(calls.at(-1)[1].method, 'DELETE');
     assert.ok([...values.values()].every(value => !/fixture-only-password/.test(value)));
   } finally { Object.assign(global, previous); }
+});
+
+test('Refund UI displays order, paid/refunded/remaining amounts and never offers review or unauthorized creation', () => {
+  for (const state of ['processing', 'refunded', 'requires_review', 'requested']) {
+    const h = harness('src/components/pos/RefundAction.tsx');
+    const tree = h.render(h.component.RefundAction, { ...props, lang: 'fr', eligible: false, refund: { state, amountCents: 1250, currency: 'eur', refundedAt: null } });
+    const content = text(tree);
+    for (const label of ['ORDER-X', 'Montant payé carte', 'Déjà remboursé', 'Encore remboursable']) assert.ok(content.includes(label));
+    assert.equal(findAll(tree, node => node.type === 'button' && ['Remboursement', 'Reprendre le même remboursement', 'Rembourser le montant total'].includes(text(node))).length, 0);
+    const values = findAll(tree, node => node.type === 'dd').map(text);
+    assert.equal(values[1].includes('12,50'), state === 'refunded');
+    assert.equal(values[2].includes('12,50'), ['processing', 'requested'].includes(state));
+    if (state === 'requires_review') assert.deepEqual(values.slice(1), ['À vérifier', 'À vérifier']);
+  }
+});
+
+test('Refund UI sends only the confirmed amount through staffFetch and does not display premature success', async () => {
+  const calls = [];
+  const h = harness('src/components/pos/RefundAction.tsx', {}, { '@/lib/staff-auth': {
+    getSession: () => ({ userId: 'paul' }),
+    staffFetch: async (...args) => { calls.push(args);return Response.json({ ok: true, refund: { state: 'processing', amountCents: 1250, currency: 'eur', refundedAt: null } }); },
+  } });
+  const render = () => h.render(h.component.RefundAction, { ...props, lang: 'fr' });
+  findAll(render(), n => n.type === 'button' && text(n) === 'Remboursement')[0].props.onClick();
+  findAll(render(), n => n.type === 'button' && text(n) === 'Rembourser le montant total')[0].props.onClick();
+  for (let i = 0; i < 5; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(JSON.parse(calls[0][1].body), { amountCents: 1250 });
+  assert.equal(text(findAll(render(), n => n.props.role === 'status')[0]).includes('en cours'), true);
+  assert.equal(findAll(render(), n => n.type === 'button' && text(n) === 'Remboursement').length, 0);
 });

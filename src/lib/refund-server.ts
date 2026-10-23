@@ -3,6 +3,8 @@ import { sql } from "@/lib/db";
 import { stripeGet, stripePost } from "@/lib/stripe-server";
 import { canAccessStaffEvent, canUseCashRegister, type AuthenticatedStaff } from "@/lib/staff-permissions";
 import type { OrderRow } from "@/lib/schema";
+import { cashierLeaseGuard } from "@/lib/cashier-locks";
+import type { CashierWriteContext } from "@/lib/cashier-write-context";
 
 export type RefundState = "requested" | "processing" | "refunded" | "requires_review";
 export type RefundRow = {
@@ -10,6 +12,8 @@ export type RefundRow = {
   refund_amount_cents: number; currency: string; refund_state: RefundState;
   stripe_refund_id: string | null; refund_requested_at: string; requested_by: string;
   refunded_at: string | null; refund_error: string | null;
+  requested_by_username?: string | null; requested_event_id?: string | null;
+  requested_register_id?: string | null; requested_register_name?: string | null;
 };
 type StripeRefund = { id: string; payment_intent: string; amount: number; currency: string; status: string; metadata?: Record<string, string> };
 type Intent = { id: string; status: string; amount: number; amount_received: number; currency: string; metadata?: Record<string, string> };
@@ -36,7 +40,8 @@ async function save(row: RefundRow, state: RefundState, error: string | null, re
     updated_at = NOW()
     WHERE order_id = ${row.order_id} AND refund_key = ${row.refund_key} AND refund_state <> 'refunded'
       AND (${state} <> 'requested' OR refund_state = 'requested')
-      AND (stripe_refund_id IS NULL OR stripe_refund_id IS NOT DISTINCT FROM ${refundId}::text)`;
+      AND (stripe_refund_id IS NULL OR stripe_refund_id IS NOT DISTINCT FROM ${refundId}::text)
+      AND (${state} <> 'processing' OR refund_state IN ('requested', 'processing'))`;
   return (await readRefund(row.order_id))!;
 }
 function refundMatches(refund: StripeRefund, row: RefundRow, external = false) {
@@ -47,11 +52,11 @@ function refundMatches(refund: StripeRefund, row: RefundRow, external = false) {
     && (!refund.metadata?.refund_key || refund.metadata.refund_key === row.refund_key);
   return refund.metadata?.order_id === row.order_id && refund.metadata?.refund_key === row.refund_key;
 }
-async function accept(row: RefundRow, refund: StripeRefund, external = false) {
+async function accept(row: RefundRow, refund: StripeRefund, external = false, confirmed = true) {
   if (!refundMatches(refund, row, external)) return save(row, "requires_review", "REFUND_MISMATCH");
-  if (refund.status === "succeeded") return save(row, "refunded", external ? "EXTERNAL_REFUND" : null, refund.id);
+  if (refund.status === "succeeded") return save(row, confirmed ? "refunded" : "processing", external ? "EXTERNAL_REFUND" : null, refund.id);
   if (refund.status === "pending") return save(row, "processing", external ? "EXTERNAL_REFUND" : null, refund.id);
-  return save(row, "requires_review", "REFUND_STATE_REQUIRES_REVIEW", refund.id);
+  return save(row, "requires_review", refund.status === "failed" ? "REFUND_FAILED" : refund.status === "canceled" ? "REFUND_CANCELED" : "REFUND_STATE_REQUIRES_REVIEW", refund.id);
 }
 
 export async function reconcileRefund(row: RefundRow, order: OrderRow, allowCreate = false): Promise<RefundRow> {
@@ -104,21 +109,37 @@ export async function reconcileRefund(row: RefundRow, order: OrderRow, allowCrea
       "metadata[order_id]": row.order_id, "metadata[refund_key]": row.refund_key,
     }, `afrofood-refund-full:v1:${row.refund_key}`);
   } catch { return save(row, "requested", "STRIPE_CREATE_UNCERTAIN"); }
-  return accept(row, refund);
+  // A create acknowledgement is not final confirmation. Retrieve current state
+  // on the next reconciliation (GET/retry/webhook) before recording success.
+  return accept(row, refund, false, false);
 }
 
-export async function getOrderRefund(orderId: string, user: AuthenticatedStaff, create: boolean) {
+export async function getOrderRefund(orderId: string, user: AuthenticatedStaff, create: boolean, context?: CashierWriteContext, requestedAmount?: unknown) {
   const order = (await sql`SELECT * FROM orders WHERE id = ${orderId} LIMIT 1`)[0] as OrderRow | undefined;
   if (!order) throw new RefundError("order_not_found", 404);
   if (!canUseCashRegister(user) || !canAccessStaffEvent(user, order.event_id || "")) throw new RefundError("refund_forbidden", 403);
+  if (!user.workstationId || user.workstationType !== "cashier" || user.cashierEventId !== order.event_id) throw new RefundError("refund_context_forbidden", 403);
   if (!eligibleCardSale(order)) throw new RefundError("refund_not_eligible");
+  // V1 is full-refund only. The client may confirm the amount, never choose it.
+  if (requestedAmount !== undefined && (!Number.isSafeInteger(requestedAmount) || requestedAmount !== order.amount_cents)) throw new RefundError("refund_invalid_amount", 400);
+  if (create && (!context || context.userId !== user.id || context.eventId !== order.event_id || context.workstationId !== user.workstationId)) throw new RefundError("refund_context_forbidden", 403);
   let row = await readRefund(orderId);
   if (!row && create) {
     // The unique order/PI constraints serialize claims. No network call occurs
     // until this INSERT commits. requested_by is never updated by retries.
-    await sql`INSERT INTO order_refunds (order_id, refund_key, stripe_payment_intent_id, refund_amount_cents, currency, refund_state, requested_by)
-      VALUES (${order.id}, ${randomUUID()}, ${order.stripe_payment_intent_id}, ${order.amount_cents}, ${order.currency}, 'requested', ${user.id})
-      ON CONFLICT DO NOTHING`;
+    await sql.transaction([
+      cashierLeaseGuard(context!),
+      sql`INSERT INTO order_refunds (order_id, refund_key, stripe_payment_intent_id, refund_amount_cents, currency, refund_state, requested_by,
+        requested_by_username, requested_event_id, requested_register_id, requested_register_name)
+        SELECT id, ${randomUUID()}, stripe_payment_intent_id, amount_cents, currency, 'requested', ${user.id},
+          ${context!.username}, ${context!.eventId}, ${context!.workstationId}, ${context!.workstationName}
+        FROM orders WHERE id = ${order.id} AND event_id = ${context!.eventId}
+          AND payment = 'card' AND payment_provider = 'stripe' AND paid_at IS NOT NULL
+          AND UPPER(status) IN ('NEW','IN_PROGRESS','READY','DONE')
+          AND stripe_payment_intent_id = ${order.stripe_payment_intent_id}
+          AND amount_cents = ${order.amount_cents} AND currency = ${order.currency}
+        ON CONFLICT DO NOTHING`,
+    ], { isolationLevel: "ReadCommitted" });
     row = await readRefund(orderId);
     if (!row) throw new RefundError("refund_conflict");
   }

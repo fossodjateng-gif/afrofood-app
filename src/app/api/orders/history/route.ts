@@ -20,7 +20,7 @@ export async function GET(req: Request) {
         UPPER(status) AS status, items,
         (payment = 'card' AND payment_provider = 'stripe' AND paid_at IS NOT NULL
           AND stripe_payment_intent_id IS NOT NULL AND amount_cents > 0 AND currency = 'eur'
-          AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.order_id = orders.id)) AS can_refund,
+          AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.order_id = orders.id AND r.refund_state <> 'requested')) AS can_refund,
         (SELECT jsonb_build_object('state', r.refund_state, 'amountCents', r.refund_amount_cents,
           'currency', r.currency, 'refundedAt', r.refunded_at)
           FROM order_refunds r WHERE r.order_id = orders.id) AS refund
