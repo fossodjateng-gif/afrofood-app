@@ -1,4 +1,5 @@
 import { requireCashierWrite } from "@/lib/cashier-write-context";
+import { cashierLeaseGuard } from "@/lib/cashier-locks";
 import { ensureOrdersSchema } from "@/lib/orders-schema";
 import { NextResponse } from "next/server";
 import { requireStaffWorkstation, requireStaffOrigin, staffSessionHash, StaffAuthError } from "@/lib/staff-session-server";
@@ -64,7 +65,7 @@ export async function PATCH(
       event_id?: string | null;
       items?: Array<{ id?: string; qty?: number }>;
     };
-    const paymentContext = status === "NEW" ? await requireCashierWrite(req, previousRow.event_id || "", body.workstationId) : undefined;
+    const paymentContext = status === "NEW" || status === "CANCELED" ? await requireCashierWrite(req, previousRow.event_id || "", body.workstationId) : undefined;
     const previousStatus = String(previousRow.status || "");
     const payment = String(previousRow.payment || "").toLowerCase();
     if (!canAccessStaffEvent(actor, previousRow.event_id || "") || ((status === "NEW" || status === "CANCELED") && !canUseCashRegister(actor))) throw new StaffAuthError("cash_register_forbidden", 403);
@@ -125,7 +126,7 @@ export async function PATCH(
     }
 
     const transition = await sql.transaction([
-      sql`SELECT af_assert_staff_assignment(${staffSessionHash(req)}, ${actor.id}, ${previousRow.event_id || ""}, ${actor.workstationId || null})`,
+      paymentContext ? cashierLeaseGuard(paymentContext) : sql`SELECT af_assert_staff_assignment(${staffSessionHash(req)}, ${actor.id}, ${previousRow.event_id || ""}, ${actor.workstationId || null})`,
       sql`
       UPDATE orders
       SET status = ${status}

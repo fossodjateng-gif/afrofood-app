@@ -16,7 +16,7 @@ function setup(state='requires_payment_method',withPi=true){
   if(withPi)db.intents.set(piKey,pi);
   db.settings.set('item_availability:local-event',{meal:{status:'limited',remainingQty:12,resumeAt:null}});
   const cancel=(patch={})=>db.request(`/api/orders/${row.id}/cancel-card-payment`,{method:'POST',headers:{'x-staff-role':patch.role??context.role},body:JSON.stringify({...context,...patch})});
-  const prepare=()=>db.request('/api/stripe/terminal/payment-intent',{method:'POST',body:JSON.stringify({orderId:row.id})});
+  const prepare=()=>db.request('/api/stripe/terminal/payment-intent',{method:'POST',body:JSON.stringify({orderId:row.id,includeClientSecret:false})});
   const publish=()=>db.terminal.setTerminalActiveOrder({username:context.username,userId:context.userId,eventName:row.event_name,orderId:row.id,paymentIntentId:row.stripe_payment_intent_id});
   const qty=()=>db.settings.get('item_availability:local-event').meal.remainingQty;
   return {db,row,pi,cancel,prepare,publish,qty};

@@ -10,7 +10,7 @@ import { getPaymentConfig, getResolvedMenuSections, getStoreConfig } from "@/lib
 import { calculateOrderTotalCents } from "@/lib/pricing";
 import { ensureOrdersSchema } from "@/lib/orders-schema";
 import { recordCashRegisterRequest } from "@/lib/staff-action-server";
-import { requireStaffSession, StaffAuthError } from "@/lib/staff-session-server";
+import { requireStaffWorkstation, StaffAuthError } from "@/lib/staff-session-server";
 
 type PaymentMethod = "cash" | "card" | "cashless";
 type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE" | "CANCELED";
@@ -36,7 +36,7 @@ export async function GET(req: Request) {
     const statusParam = (searchParams.get("status") || "").toUpperCase();
     const idParam = String(searchParams.get("id") || "").trim();
 
-    const staff = !idParam || req.headers.get("cookie")?.includes("af_staff_session=") ? await requireStaffSession(req) : null;
+    const staff = !idParam || req.headers.get("cookie")?.includes("af_staff_session=") ? await requireStaffWorkstation(req) : null;
     const requestedEvent = searchParams.get("eventId");
     if (staff && requestedEvent && !canAccessStaffEvent(staff, requestedEvent)) throw new StaffAuthError("staff_event_forbidden", 403);
     let rows;

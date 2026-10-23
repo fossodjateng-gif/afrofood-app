@@ -226,3 +226,43 @@ test('public order keeps an anonymous creator; later cashier payment records the
   await h.lease('b');const c=await h.api('src/lib/cashier-write-context.ts').requireCashierWrite(h.req('b'),'event-a');
   await h.api('src/lib/finalize-sale.ts').finalizeSale(row.id,{payment:'cash',received:1000},c);assert.equal(row.paid_by,'louka');assert.equal(row.created_by,null);
 });
+
+test('unassigned admin cannot access native terminal credentials or cashier history', async () => {
+  const h = fixture();
+  const auth = h.api('src/lib/staff-session-server.ts');
+  await assert.rejects(auth.requireAssignedCashRegister(h.req('c')), error => error.code === 'workstation_assignment_required');
+  const response = await h.api('src/app/api/orders/history/route.ts').GET(new Request('https://afro.test/api/orders/history?eventId=event-a', { headers: h.req('c').headers }));
+  assert.equal(response.status, 403);
+});
+
+test('legacy staff order reads reject invalid assignments before reading orders', async () => {
+  const h = fixture();
+  h.settings.get('workstations:event-a').kitchen[0].active = false;
+  const response = await h.api('src/app/api/orders/route.ts').GET(new Request('https://afro.test/api/orders?status=NEW', { headers: h.req('d').headers }));
+  assert.equal(response.status, 403);
+  assert.equal(h.queries.some(q => q.includes('FROM orders')), false);
+});
+
+test('card attribution survives asynchronous confirmation and duplicate confirmation by another cashier', async () => {
+  const h = fixture();
+  await h.lease('a'); await h.lease('b');
+  h.orders.set('card', { id: 'card', event_id: 'event-a', payment: 'card', status: 'PENDING_PAYMENT', created_by: 'louka', created_by_username: 'louka', register_id: station2, stripe_payment_intent_id: 'pi_reserved', amount_cents: 1000, currency: 'eur' });
+  const guard = h.api('src/lib/cashier-write-context.ts');
+  await guard.reserveCardCashier('card', await guard.requireCashierWrite(h.req('a'), 'event-a'));
+  const finalize = h.api('src/lib/finalize-sale.ts');
+  const payment = { payment: 'card', paymentIntentId: 'pi_reserved', amountReceived: 1000, currency: 'eur' };
+  assert.equal((await finalize.finalizeSale('card', payment)).changed, true);
+  assert.equal((await finalize.finalizeSale('card', payment)).changed, false);
+  const row = h.orders.get('card');
+  assert.equal(row.created_by, 'louka'); assert.equal(row.register_id, station2);
+  assert.equal(row.paid_by, 'cem'); assert.equal(row.paid_by_username, 'cem'); assert.equal(row.paid_register_id, station1);
+  await assert.rejects(guard.reserveCardCashier('card', await guard.requireCashierWrite(h.req('b'), 'event-a')));
+  assert.equal(row.paid_by, 'cem');
+});
+
+test('card cancellation requires the assigned register lease before any cancellation work', async () => {
+  const h = fixture();
+  const response = await h.api('src/app/api/orders/[id]/cancel-card-payment/route.ts').POST(h.req('a', { eventId: 'event-a' }), { params: Promise.resolve({ id: 'card' }) });
+  assert.equal(response.status, 423);
+  assert.equal(h.queries.some(q => q.includes('FROM orders') || q.includes('UPDATE orders')), false);
+});

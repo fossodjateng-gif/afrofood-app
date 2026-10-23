@@ -58,6 +58,7 @@ export async function requireStaffWorkstation(req: Request): Promise<Authenticat
 }
 export async function requireAssignedCashRegister(req: Request, eventId?: string) {
   const actor = await requireStaffWorkstation(req);
+  if (!actor.cashierEventId || !actor.workstationId || actor.workstationType !== "cashier") throw new StaffAuthError("workstation_assignment_required", 403);
   if (!canUseCashRegister(actor) || eventId !== undefined && !canAccessStaffEvent(actor, eventId)) throw new StaffAuthError("cash_register_forbidden", 403);
   return actor;
 }

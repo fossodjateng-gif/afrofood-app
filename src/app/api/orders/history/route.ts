@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { requireCashRegisterPermission, StaffAuthError } from "@/lib/staff-session-server";
+import { requireAssignedCashRegister, StaffAuthError } from "@/lib/staff-session-server";
 
 export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
@@ -12,7 +12,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Invalid pagination" }, { status: 400 });
   }
   try {
-    await requireCashRegisterPermission(req, eventId);
+    await requireAssignedCashRegister(req, eventId);
     const rows = await sql`
       SELECT id, created_at, customer_name, event_id, event_name, created_by, created_by_username, register_id, register_name, paid_by, paid_by_username, paid_register_id, paid_register_name,
         reservation_requested, reservation_time, payment, amount_cents,
