@@ -12,9 +12,8 @@ export const tokenHash = (token: string) => createHash("sha256").update(token).d
 export function requireStaffOrigin(req: Request) {
   const url = new URL(req.url);
   const configured = process.env.STAFF_AUTH_ORIGIN;
-  const local = process.env.NODE_ENV !== "production" && ["localhost", "127.0.0.1"].includes(url.hostname);
-  const expected = configured || (local ? url.origin : "");
-  if (!expected || req.headers.get("origin") !== expected || req.headers.get("sec-fetch-site") === "cross-site") throw new StaffAuthError("invalid_origin", 403);
+  const origin = req.headers.get("origin");
+  if (!origin || (origin !== configured && origin !== url.origin) || req.headers.get("sec-fetch-site") === "cross-site") throw new StaffAuthError("invalid_origin", 403);
 }
 
 function cookieToken(req: Request) {
