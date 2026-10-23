@@ -33,8 +33,15 @@ export async function saveStaff(req: Request, body: Record<string, unknown>, cre
     const station = findWorkstation(config, stationId);
     if (!station?.active || (role !== "admin" && station.type !== role)) throw new StaffAuthError("workstation_assignment_invalid", 400);
   }
-  const id = create ? randomUUID() : String(body.id || "");
-  if (!id) throw new StaffAuthError("invalid_staff_id", 400);
+  let id = create ? randomUUID() : String(body.id || "");
+  if (!create && !id) {
+    // Editing is never a create/upsert. Resolve legacy/missing IDs through the
+    // unique username, after authenticating the administrator above.
+    const username = String(body.username || "").trim().toLowerCase();
+    const target = username ? (await sql`SELECT id FROM staff_users WHERE username = ${username} LIMIT 1`)[0] : undefined;
+    if (!target || typeof target.id !== "string") throw new StaffAuthError("invalid_staff_id", 400);
+    id = target.id;
+  }
   if (id === admin.id && (role !== "admin" || !body.active)) throw new StaffAuthError("cannot_disable_current_admin", 409);
   const expected = JSON.stringify(config);
   const assignmentLock = sql`SELECT setting_value FROM app_settings WHERE setting_key = ${`workstations:${eventId}`} FOR SHARE`;

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const test = require('node:test'), assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
-const { load } = require('./ui-harness.cjs');
+const { load, harness, findAll } = require('./ui-harness.cjs');
 const station1 = '11111111-1111-4111-8111-111111111111', station2 = '22222222-2222-4222-8222-222222222222';
 const kitchen1 = '33333333-3333-4333-8333-333333333333', kitchen2 = '44444444-4444-4444-8444-444444444444';
 const instance = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -89,8 +89,9 @@ function fixture() {
       return [];
     }
     if (q.includes('SELECT id, username, role, active')) return [...users.values()].map(({id,username,role,active,cashier_event_id,workstation_id}) => ({id,username,role,active,cashier_event_id,workstation_id}));
+    if (q.includes('SELECT id FROM staff_users WHERE username')) return [...users.values()].filter(u => u.username === v[0]).map(u => ({ id: u.id }));
     if (q.includes('UPDATE staff_users')) { const u = [...users.values()].find(u => u.id === v[4]); if (!u) return []; Object.assign(u, { role: v[0], active: v[1], cashier_event_id: v[2], workstation_id: v[3] }); return [{ id: u.id }]; }
-    if (q.includes('INSERT INTO staff_users')) { const u = { id: v[0], username: v[1], password_hash: v[2], role: v[3], active: v[4], cashier_event_id: v[5], workstation_id: v[6] }; users.set(u.id, u); return [{ id: u.id }]; }
+    if (q.includes('INSERT INTO staff_users')) { if ([...users.values()].some(u => u.username === v[1])) return []; const u = { id: v[0], username: v[1], password_hash: v[2], role: v[3], active: v[4], cashier_event_id: v[5], workstation_id: v[6] }; users.set(u.id, u); return [{ id: u.id }]; }
     if (q.includes('INSERT INTO app_settings')) { const old = settings.get(v[0]); if (old && JSON.stringify(old) !== v[2]) return []; settings.set(v[0], JSON.parse(v[1])); return [{ setting_key: v[0] }]; }
     if (q.includes('paid_by = COALESCE')) {
       const row = orders.get(v[4]); if (!row || row.event_id !== v[5] || row.paid_at || row.paid_by && (row.paid_by !== v[6] || row.paid_register_id !== v[7])) return [];
@@ -265,4 +266,88 @@ test('card cancellation requires the assigned register lease before any cancella
   const response = await h.api('src/app/api/orders/[id]/cancel-card-payment/route.ts').POST(h.req('a', { eventId: 'event-a' }), { params: Promise.resolve({ id: 'card' }) });
   assert.equal(response.status, 423);
   assert.equal(h.queries.some(q => q.includes('FROM orders') || q.includes('UPDATE orders')), false);
+});
+
+for (const [token, username, workstationId, identifier] of [['a', 'cem', station1, 'normal'], ['b', 'louka', station2, 'normal'], ['a', 'cem', station1, 'empty'], ['b', 'louka', station2, 'omitted']]) {
+  test(`admin form edits existing unassigned ${username} on testmaison through PATCH: ${identifier} id`, async () => {
+    const h = fixture();
+    assert.equal((await h.lease(token)).status, 200);
+    const config = h.settings.get('workstations:event-a');
+    h.settings.get('store_config').events.push({ id: 'testmaison', name: 'testmaison' });
+    h.settings.set('workstations:testmaison', config);
+    const user = h.users.get(token);
+    if (identifier === 'empty') user.id = '';
+    Object.assign(user, { cashier_event_id: 'testmaison', workstation_id: null });
+    const api = h.api('src/app/api/staff/users/route.ts');
+    const calls = [];
+    const staffFetch = async (url, options = {}) => {
+      const method = options.method || 'GET';
+      const body = options.body ? JSON.parse(options.body) : {};
+      calls.push({ url, method, body });
+      const request = h.req('c', body, { method });
+      if (url === '/api/staff/users') {
+        const response = await api[method](request);
+        if (method === 'GET' && identifier === 'omitted') {
+          const data = await response.json();
+          for (const row of data.users) if (row.username === username) delete row.id;
+          return Response.json(data);
+        }
+        return response;
+      }
+      if (url === '/api/staff/workstations') return h.api('src/app/api/staff/workstations/route.ts').GET(request);
+      throw Error('Unexpected endpoint: ' + url);
+    };
+    const page = harness('src/app/staff/admin/users/page.tsx', {}, { '@/lib/staff-auth': { staffFetch } });
+    let tree = page.render();
+    page.effects[0]();
+    for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve));
+    tree = page.render();
+    const account = findAll(tree, node => node.type === 'li' && node.props.children[0] === username)[0];
+    findAll(account, node => node.type === 'button')[0].props.onClick();
+    tree = page.render();
+    let form = findAll(tree, node => node.type === 'form')[0];
+    assert.equal(findAll(form, node => node.type === 'h2')[0].props.children, `Modifier ${username}`);
+    assert.equal(findAll(form, node => node.type === 'input' && node.props.type === 'password').length, 0);
+    findAll(form, node => node.type === 'select')[1].props.onChange({ target: { value: 'testmaison' } });
+    tree = page.render();
+    form = findAll(tree, node => node.type === 'form')[0];
+    findAll(form, node => node.type === 'select')[2].props.onChange({ target: { value: workstationId } });
+    tree = page.render();
+    form = findAll(tree, node => node.type === 'form')[0];
+    await form.props.onSubmit({ preventDefault() {} });
+    const writes = calls.filter(call => call.method !== 'GET');
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].method, 'PATCH');
+    assert.equal(writes[0].body.id, identifier === 'omitted' ? undefined : user.id);
+    assert.equal(page.state.error, '');
+    assert.equal(user.workstation_id, workstationId);
+    assert.equal(h.sessions.get(hash(token.repeat(64))).revoked, true);
+    assert.equal(h.locks.size, 0);
+    assert.equal(h.queries.some(q => q.includes('INSERT INTO staff_users')), false);
+  });
+}
+
+test('real create request for an existing username remains rejected', async () => {
+  const h = fixture();
+  const before = structuredClone(h.users.get('a'));
+  const response = await h.api('src/app/api/staff/users/route.ts').POST(h.req('c', {
+    id: before.id, username: 'cem', password: 'fixture-only-long-password', role: 'cashier', active: true,
+    eventId: 'event-a', workstationId: station2,
+  }));
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error, 'account_exists_or_assignment_changed');
+  assert.deepEqual(h.users.get('a'), before);
+  assert.equal(h.users.size, 6);
+  assert.equal(h.sessions.get(hash('a'.repeat(64))).revoked, false);
+});
+
+test('editing a missing username without an id never creates an account or revokes sessions', async () => {
+  const h = fixture();
+  const response = await h.api('src/app/api/staff/users/route.ts').PATCH(h.req('c', {
+    username: 'missing-user', role: 'cashier', active: true, eventId: 'event-a', workstationId: station1,
+  }));
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error, 'invalid_staff_id');
+  assert.equal(h.users.size, 6);
+  assert.equal(h.queries.some(q => q.includes('INSERT INTO staff_users') || q.includes('UPDATE staff_users') || q.includes('UPDATE staff_sessions')), false);
 });
