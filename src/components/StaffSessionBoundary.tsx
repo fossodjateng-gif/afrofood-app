@@ -27,5 +27,5 @@ export function StaffSessionBoundary({ children }: { children: ReactNode }) {
   }, [path, staffPath]);
   if (!staffPath) return children;
   if (!snapshot || snapshot.path !== path) return <main role="status">{failed ? "Staff session unavailable. Please reload." : "AfroFood…"}</main>;
-  return <div key={`${snapshot.session.userId}:${snapshot.session.role}:${snapshot.session.cashierEventId || ""}`}>{children}</div>;
+  return <div key={`${snapshot.session.userId}:${snapshot.session.role}:${snapshot.session.cashierEventId || ""}:${snapshot.session.workstationId || ""}`}>{children}</div>;
 }

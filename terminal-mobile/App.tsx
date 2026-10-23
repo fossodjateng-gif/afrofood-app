@@ -64,27 +64,6 @@ type NativeSession = {
   loggedAt: string;
 };
 
-type NativeUser = {
-  username: string;
-  password: string;
-  role: NativeRole;
-};
-
-function getNativeRole(value: string | null): NativeRole {
-  return value === "admin" || value === "cashier" || value === "kitchen"
-    ? value
-    : "cashier";
-}
-
-function getNativeSessionFromLink(username: string | null, role: string | null): NativeSession {
-  const cleanUsername = String(username || "").trim() || "cashier";
-  return {
-    username: cleanUsername,
-    role: getNativeRole(role),
-    loggedAt: new Date().toISOString(),
-  };
-}
-
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_AFROFOOD_API_BASE_URL || "https://afrofood-app.vercel.app";
 const TERMINAL_LOCATION_ID =
@@ -96,11 +75,17 @@ const APPLE_TAP_TO_PAY_TERMS_URL =
 const PRIVACY_POLICY_URL = "https://www.afrofoodoffenburg.de/privacy";
 const SUPPORT_URL = "https://www.afrofoodoffenburg.de/support";
 
-const NATIVE_DEMO_USERS: NativeUser[] = [
-  { username: "admin", password: "0603", role: "admin" },
-  { username: "existinguser", password: "0603", role: "cashier" },
-  { username: "newuser", password: "0603", role: "kitchen" },
-];
+async function nativeStaffFetch(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  if (init.method && init.method !== "GET") headers.set("Origin", new URL(API_BASE_URL).origin);
+  return fetch(input, { ...init, headers, credentials: "include" });
+}
+async function authenticatedNativeSession(): Promise<NativeSession | null> {
+  const response = await nativeStaffFetch(`${API_BASE_URL}/api/staff/session`, { cache: "no-store" });
+  const data = await response.json();
+  if (!response.ok || !data.user || !["cashier", "admin"].includes(data.user.role) || data.user.workstationType !== "cashier") return null;
+  return { username: data.user.username, role: data.user.role, loggedAt: new Date().toISOString() };
+}
 
 function getTodayKey() {
   const now = new Date();
@@ -847,30 +832,19 @@ function LoginScreen({
   onLangChange: (lang: NativeLang) => void;
 }) {
   const t = NATIVE_TEXT[lang];
-  const [username, setUsername] = useState("existinguser");
-  const [password, setPassword] = useState("0603");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  function submit() {
-    const user = NATIVE_DEMO_USERS.find(
-      (candidate) =>
-        candidate.username.toLowerCase() === username.trim().toLowerCase() &&
-        candidate.password === password
-    );
-    if (!user) {
-      setError(t.invalidLogin);
-      return;
-    }
-    if (user.role !== "cashier" && user.role !== "admin") {
-      setError(t.restrictedLogin);
-      return;
-    }
+  async function submit() {
     setError("");
-    onLogin({
-      username: user.username,
-      role: user.role,
-      loggedAt: new Date().toISOString(),
-    });
+    try {
+      const response = await nativeStaffFetch(`${API_BASE_URL}/api/staff/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
+      if (!response.ok) throw new Error(t.invalidLogin);
+      const session = await authenticatedNativeSession();
+      if (!session) throw new Error(t.restrictedLogin);
+      setPassword(""); onLogin(session);
+    } catch { setError(t.invalidLogin); }
   }
 
   return (
@@ -905,13 +879,6 @@ function LoginScreen({
         <Button label={t.openCashier} onPress={submit} />
       </Section>
 
-      <Section title={t.demoAccounts}>
-        {NATIVE_DEMO_USERS.map((user) => (
-          <Text key={user.username} style={styles.orderItem}>
-            {user.username} / {user.password} / {roleLabel(user.role)}
-          </Text>
-        ))}
-      </Section>
       <HelpAndInformation lang={lang} />
     </ScrollView>
   );
@@ -1032,7 +999,7 @@ function TerminalScreen({
         setClientSecret("");
         return;
       }
-      const res = await fetch(`${API_BASE_URL}/api/orders?status=PENDING_PAYMENT`, {
+      const res = await nativeStaffFetch(`${API_BASE_URL}/api/orders?status=PENDING_PAYMENT`, {
         cache: "no-store",
       });
       const data = (await res.json()) as OrderRow[] | { error?: string };
@@ -1073,7 +1040,7 @@ function TerminalScreen({
 
   async function waitForStripeWebhook(orderId: string) {
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const res = await fetch(`${API_BASE_URL}/api/orders?id=${encodeURIComponent(orderId)}`, {
+      const res = await nativeStaffFetch(`${API_BASE_URL}/api/orders?id=${encodeURIComponent(orderId)}`, {
         cache: "no-store",
       });
       const data = (await res.json()) as OrderRow[] | { error?: string };
@@ -1148,7 +1115,7 @@ function TerminalScreen({
 
     try {
       setBusy(true);
-      const res = await fetch(`${API_BASE_URL}/api/stripe/terminal/payment-intent`, {
+      const res = await nativeStaffFetch(`${API_BASE_URL}/api/stripe/terminal/payment-intent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderId: selectedOrder.id }),
@@ -1294,7 +1261,7 @@ function TerminalScreen({
 
       log(`Payment confirmed for ${selectedOrder.id}`);
       setCompletedOrderId(selectedOrder.id);
-      await fetch(`${API_BASE_URL}/api/terminal-active-order`, {
+      await nativeStaffFetch(`${API_BASE_URL}/api/terminal-active-order`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1409,16 +1376,17 @@ export default function App() {
   const [pendingDeepLinkOrderId, setPendingDeepLinkOrderId] = useState<string | null>(null);
   const [lang, setLang] = useState<NativeLang>("fr");
 
-  function handleDeepLink(url: string | null) {
+  async function handleDeepLink(url: string | null) {
     if (!url) return;
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== "afrofoodterminal:") return;
       const action = parsed.hostname || parsed.pathname.replace(/^\/+/, "");
-      const nextSession = getNativeSessionFromLink(
-        parsed.searchParams.get("username"),
-        parsed.searchParams.get("role")
-      );
+      const nextSession = await authenticatedNativeSession();
+      if (!nextSession) {
+        setPendingDeepLinkOrderId(action === "checkout" ? parsed.searchParams.get("orderId") : null);
+        setSession(null); setScreen("login"); return;
+      }
 
       if (action === "setup") {
         setPendingDeepLinkOrderId(null);
@@ -1475,7 +1443,7 @@ export default function App() {
     async function pollActiveOrder() {
       try {
         const params = new URLSearchParams({ username: currentSession.username });
-        const res = await fetch(`${API_BASE_URL}/api/terminal-active-order?${params.toString()}`, {
+        const res = await nativeStaffFetch(`${API_BASE_URL}/api/terminal-active-order?${params.toString()}`, {
           cache: "no-store",
         });
         const data = (await res.json()) as TerminalActiveOrderResponse;
@@ -1508,6 +1476,7 @@ export default function App() {
   }
 
   function handleLogout() {
+    void nativeStaffFetch(`${API_BASE_URL}/api/staff/session`, { method: "DELETE" });
     setSession(null);
     setTapSetupAccepted(false);
     setMerchantEducationSeen(false);
@@ -1517,7 +1486,7 @@ export default function App() {
   return (
     <StripeTerminalProvider
       tokenProvider={async () => {
-        const res = await fetch(`${API_BASE_URL}/api/stripe/terminal/connection-token`, {
+        const res = await nativeStaffFetch(`${API_BASE_URL}/api/stripe/terminal/connection-token`, {
           method: "POST",
         });
         const data = await res.json();

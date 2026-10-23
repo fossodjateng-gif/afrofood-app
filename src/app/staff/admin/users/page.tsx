@@ -1,396 +1,55 @@
 "use client";
-
-import { useEffect, useMemo, useState } from "react";
-import {
-  createUser,
-  deleteUser,
-  getSession,
-  getStaffRoleLabel,
-  getUsers,
-  type StaffRole,
-  type StaffUser,
-  updateUser,
-} from "@/lib/staff-auth";
-import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { goBackOr } from "@/lib/client-nav";
-
-const UI_TEXT: Record<
-  Lang,
-  {
-    title: string;
-    back: string;
-    createUser: string;
-    username: string;
-    password: string;
-    create: string;
-    createError: string;
-    roleAdmin: string;
-    roleCashier: string;
-    roleKitchen: string;
-    activate: string;
-    deactivate: string;
-    resetPassword: string;
-    changePassword: string;
-    newPasswordPlaceholder: string;
-    deleteUser: string;
-    active: string;
-    inactive: string;
-  }
-> = {
-  fr: {
-    title: "Utilisateurs",
-    back: "Retour",
-    createUser: "Creer un utilisateur",
-    username: "Nom d'utilisateur",
-    password: "Mot de passe",
-    create: "Creer",
-    createError: "Erreur creation",
-    roleAdmin: "Admin",
-    roleCashier: "Caisse",
-    roleKitchen: "Cuisine",
-    activate: "Activer",
-    deactivate: "Desactiver",
-    resetPassword: "Reset MDP (0603)",
-    changePassword: "Changer MDP",
-    newPasswordPlaceholder: "Nouveau mot de passe",
-    deleteUser: "Supprimer",
-    active: "Actif",
-    inactive: "Inactif",
-  },
-  de: {
-    title: "Benutzer",
-    back: "Zuruck",
-    createUser: "Benutzer anlegen",
-    username: "Benutzername",
-    password: "Passwort",
-    create: "Anlegen",
-    createError: "Fehler beim Anlegen",
-    roleAdmin: "Admin",
-    roleCashier: "Kasse",
-    roleKitchen: "Kuche",
-    activate: "Aktivieren",
-    deactivate: "Deaktivieren",
-    resetPassword: "Passwort reset (0603)",
-    changePassword: "Passwort andern",
-    newPasswordPlaceholder: "Neues Passwort",
-    deleteUser: "Loschen",
-    active: "Aktiv",
-    inactive: "Inaktiv",
-  },
-  en: {
-    title: "Users",
-    back: "Back",
-    createUser: "Create user",
-    username: "Username",
-    password: "Password",
-    create: "Create",
-    createError: "Create error",
-    roleAdmin: "Admin",
-    roleCashier: "Cashier",
-    roleKitchen: "Kitchen",
-    activate: "Activate",
-    deactivate: "Deactivate",
-    resetPassword: "Reset password (0603)",
-    changePassword: "Change password",
-    newPasswordPlaceholder: "New password",
-    deleteUser: "Delete",
-    active: "Active",
-    inactive: "Inactive",
-  },
-};
-
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { staffFetch } from "@/lib/staff-auth";
+import type { WorkstationConfig, WorkstationType } from "@/lib/workstations";
+type User = { id: string; username: string; role: "admin" | "cashier" | "kitchen"; active: boolean; cashier_event_id: string | null; workstation_id: string | null };
+type Draft = { id?: string; username: string; password: string; role: User["role"]; eventId: string; workstationId: string; active: boolean };
+const empty: Draft = { username: "", password: "", role: "cashier", eventId: "", workstationId: "", active: true };
+const panel = { padding: 18, border: "1px solid #ddd", borderRadius: 12, background: "white", marginTop: 16 };
 export default function StaffAdminUsersPage() {
-  const [users, setUsers] = useState<StaffUser[]>([]);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState<StaffRole>("cashier");
-  const [cashierEventId, setCashierEventId] = useState("");
-  const [eventOptions, setEventOptions] = useState<Array<{ id: string; name: string }>>([]);
-  const [sessionRole, setSessionRole] = useState<StaffRole | null>(null);
-  const [lang, setLang] = useState<Lang>("fr");
-  const [error, setError] = useState<string | null>(null);
-  const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
-
-  function reload() {
-    setUsers(getUsers());
-  }
-
-  useEffect(() => {
-    async function boot() {
-      setLang(getSavedLang());
-      const s = getSession();
-      if (!s) {
-        window.location.href = "/team/login";
-        return;
-      }
-      if (s.role !== "admin") {
-        window.location.href = "/staff";
-        return;
-      }
-      setSessionRole(s.role);
-      void fetch("/api/menu-config", { cache: "no-store" })
-        .then((res) => res.json())
-        .then((data) => {
-          const options = Array.isArray(data?.storeConfig?.events)
-            ? data.storeConfig.events
-                .map((event: { id?: string; name?: string }) => ({
-                  id: String(event?.id || "").trim(),
-                  name: String(event?.name || "").trim(),
-                }))
-                .filter((event: { id: string; name: string }) => event.id && event.name)
-            : [];
-          setEventOptions(options);
-        })
-        .catch(() => {});
-      reload();
-    }
-    void boot();
+  const [users, setUsers] = useState<User[]>([]);
+  const [events, setEvents] = useState<Array<{ id: string; name: string }>>([]);
+  const [workstations, setWorkstations] = useState<Record<string, WorkstationConfig>>({});
+  const [draft, setDraft] = useState<Draft>(empty);
+  const [stationEvent, setStationEvent] = useState("");
+  const [stationType, setStationType] = useState<WorkstationType>("cashier");
+  const [stationName, setStationName] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const load = useCallback(async (signal?: AbortSignal) => {
+    const [accounts, config] = await Promise.all([staffFetch("/api/staff/users", { cache: "no-store", signal }), staffFetch("/api/staff/workstations", { cache: "no-store", signal })]);
+    const [a, c] = await Promise.all([accounts.json(), config.json()]);
+    if (!accounts.ok || !config.ok) throw new Error(a.error || c.error || "Accès administrateur requis");
+    if (signal?.aborted) return;
+    setUsers(a.users); setEvents(c.events); setWorkstations(c.workstations); setLoading(false);
   }, []);
-
-  const t = UI_TEXT[lang];
-  const sorted = useMemo(() => [...users].sort((a, b) => a.username.localeCompare(b.username)), [users]);
-
-  return (
-    <main
-      style={{
-        minHeight: "100vh",
-        padding: 24,
-        fontFamily: "system-ui",
-        backgroundColor: "#FFF3E6",
-        backgroundImage:
-          "linear-gradient(180deg, rgba(255,243,230,0.82) 0%, rgba(255,243,230,0.9) 100%), url('/logo-afrofood.png')",
-        backgroundRepeat: "no-repeat",
-        backgroundPosition: "center, center",
-        backgroundSize: "cover, min(64vw, 420px)",
-      }}
-    >
-      <div style={{ maxWidth: 980, margin: "0 auto" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 10,
-            flexWrap: "wrap",
-            background: "white",
-            border: "1px solid #F1D7C8",
-            borderRadius: 12,
-            padding: 12,
-            boxShadow: "0 12px 30px rgba(242,140,40,0.18)",
-            position: "sticky",
-            top: 12,
-            zIndex: 20,
-          }}
-        >
-          <div>
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, display: "flex", alignItems: "center", gap: 8 }}>
-              <img
-                src="/logo-afrofood.png"
-                alt="AfroFood"
-                style={{ width: 30, height: 30, borderRadius: 8, objectFit: "cover", border: "1px solid #F1D7C8" }}
-              />
-              {t.title}
-            </h1>
-            {sessionRole ? <div style={{ marginTop: 4 }}><span className="af-role-badge">Role: {getStaffRoleLabel(sessionRole, lang)}</span></div> : null}
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            {(["de", "fr", "en"] as Lang[]).map((L) => (
-              <button
-                key={L}
-                type="button"
-                onClick={() => {
-                  setLang(L);
-                  saveLang(L);
-                }}
-                className={`af-lang-btn ${lang === L ? "is-active" : ""}`}
-              >
-                {L.toUpperCase()}
-              </button>
-            ))}
-            <button type="button" onClick={() => goBackOr("/staff/admin")} className="af-link-btn" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, cursor: "pointer" }}>
-              {t.back}
-            </button>
-          </div>
-        </div>
-
-        <div
-          style={{
-            height: 6,
-            borderRadius: 999,
-            marginTop: 12,
-            background:
-              "repeating-linear-gradient(90deg, #111 0 10px, #F28C28 10px 20px, #111 20px 30px, #fff 30px 40px)",
-            opacity: 0.9,
-          }}
-        />
-
-	        <div style={{ marginTop: 12, background: "white", border: "1px solid #F1D7C8", borderRadius: 12, padding: 12 }}>
-	          <div style={{ fontWeight: 900, fontSize: 22 }}>{t.createUser}</div>
-            <p role="note" style={{ marginTop: 8 }}>{lang === "fr" ? "Liste locale historique : ces modifications ne donnent aucun acc?s serveur. Les comptes serveur sont provisionn?s s?par?ment." : lang === "de" ? "Alte lokale Liste: ?nderungen gew?hren keinen Serverzugriff. Serverkonten werden separat eingerichtet." : "Legacy local list: changes do not grant server access. Server accounts are provisioned separately."}</p>
-	          {eventOptions.length > 0 ? (
-	            <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
-	              {lang === "fr"
-	                ? "Plusieurs utilisateurs caisse ou cuisine peuvent etre assignes au meme evenement."
-	                : lang === "de"
-	                ? "Mehrere Kassen- oder Kuchenbenutzer konnen demselben Event zugewiesen werden."
-	                : "Multiple cashier or kitchen users can be assigned to the same event."}
-	            </div>
-	          ) : null}
-	          <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
-            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t.username} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd" }} />
-            <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t.password} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd" }} />
-            <select value={role} onChange={(e) => setRole(e.target.value as StaffRole)} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", maxWidth: 220 }}>
-              <option value="admin">{t.roleAdmin}</option>
-              <option value="cashier">{t.roleCashier}</option>
-              <option value="kitchen">{t.roleKitchen}</option>
-            </select>
-            {(role === "cashier" || role === "kitchen") && eventOptions.length > 0 ? (
-              <select
-                value={cashierEventId}
-                onChange={(e) => setCashierEventId(e.target.value)}
-                style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", width: "100%", minWidth: 0, maxWidth: "min(280px, 100%)" }}
-              >
-                <option value="">Kein Event zugewiesen</option>
-                {eventOptions.map((event) => (
-                  <option key={event.id} value={event.id}>
-                    {event.name}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-	                <button
-	                  className="af-btn"
-	                  type="button"
-              onClick={() => {
-                try {
-                  setError(null);
-                  createUser({ username, password, role, cashierEventId });
-                  setUsername("");
-                  setPassword("");
-                  setRole("cashier");
-                  if (eventOptions.length > 0) setCashierEventId(eventOptions[0].id);
-                  reload();
-                } catch (e: unknown) {
-                  setError(e instanceof Error ? e.message : t.createError);
-                }
-              }}
-              style={{ width: "fit-content", padding: "10px 14px", borderRadius: 10, border: "none", background: "#111", color: "white", fontWeight: 800 }}
-            >
-              {t.create}
-            </button>
-            {error ? <div style={{ color: "#b91c1c", fontWeight: 700 }}>{error}</div> : null}
-          </div>
-        </div>
-
-        <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-          {sorted.map((u) => (
-            <div key={u.id} style={{ background: "white", border: "1px solid #F1D7C8", borderRadius: 12, padding: 12 }}>
-              <div style={{ fontWeight: 900, fontSize: 22 }}>{u.username}</div>
-              <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <select
-                  value={u.role}
-                  onChange={(e) => {
-                    updateUser(u.id, { role: e.target.value as StaffRole });
-                    reload();
-                  }}
-                  style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd" }}
-                >
-                  <option value="admin">{t.roleAdmin}</option>
-                  <option value="cashier">{t.roleCashier}</option>
-                  <option value="kitchen">{t.roleKitchen}</option>
-                </select>
-	                {(u.role === "cashier" || u.role === "kitchen") && eventOptions.length > 0 ? (
-	                  <select
-	                    value={u.cashierEventId || ""}
-                    onChange={(e) => {
-                      updateUser(u.id, { cashierEventId: e.target.value });
-                      reload();
-                    }}
-                    style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", minWidth: 0, maxWidth: "100%" }}
-                  >
-                    <option value="">Kein Event zugewiesen</option>
-                    {eventOptions.map((event) => (
-                      <option key={event.id} value={event.id}>
-                        {event.name}
-                      </option>
-	                    ))}
-	                  </select>
-	                ) : null}
-	                {(u.role === "cashier" || u.role === "kitchen") && u.cashierEventId ? (
-	                  <div style={{ padding: "6px 10px", borderRadius: 999, background: "#fff7ed", color: "#9a3412", fontWeight: 800 }}>
-	                    {(eventOptions.find((event) => event.id === u.cashierEventId)?.name || u.cashierEventId)}
-	                  </div>
-	                ) : null}
-	                <button
-                  className="af-btn"
-                  type="button"
-                  onClick={() => {
-                    updateUser(u.id, { active: !u.active });
-                    reload();
-                  }}
-                  style={{ padding: "10px 14px", borderRadius: 10, border: "none", background: u.active ? "#0f766e" : "#64748b", color: "white", fontWeight: 800 }}
-                >
-                  {u.active ? t.deactivate : t.activate}
-                </button>
-                <button
-                  className="af-btn"
-                  type="button"
-                  onClick={() => {
-                    updateUser(u.id, { password: "0603" });
-                    reload();
-                  }}
-                  style={{ padding: "10px 14px", borderRadius: 10, border: "none", background: "#1d4ed8", color: "white", fontWeight: 800 }}
-	                >
-	                  {t.resetPassword}
-	                </button>
-                  <input
-                    type="password"
-                    value={passwordDrafts[u.id] || ""}
-                    onChange={(e) =>
-                      setPasswordDrafts((prev) => ({
-                        ...prev,
-                        [u.id]: e.target.value,
-                      }))
-                    }
-                    placeholder={t.newPasswordPlaceholder}
-                    style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #ddd", minWidth: 180 }}
-                  />
-	                <button
-	                  className="af-btn"
-	                  type="button"
-                    onClick={() => {
-                      const nextPassword = String(passwordDrafts[u.id] || "").trim();
-                      if (!nextPassword) return;
-                      updateUser(u.id, { password: nextPassword });
-                      setPasswordDrafts((prev) => ({
-                        ...prev,
-                        [u.id]: "",
-                      }));
-                      reload();
-                    }}
-	                  style={{ padding: "10px 14px", borderRadius: 10, border: "none", background: "#7c3aed", color: "white", fontWeight: 800 }}
-	                >
-	                  {t.changePassword}
-	                </button>
-	                <button
-	                  className="af-btn"
-	                  type="button"
-                  onClick={() => {
-                    deleteUser(u.id);
-                    reload();
-                  }}
-                  style={{ padding: "10px 14px", borderRadius: 10, border: "none", background: "#b91c1c", color: "white", fontWeight: 800 }}
-                >
-                  {t.deleteUser}
-                </button>
-                <div style={{ padding: "6px 10px", borderRadius: 999, background: u.active ? "#dcfce7" : "#fee2e2", color: u.active ? "#166534" : "#991b1b", fontWeight: 800 }}>
-                  {u.active ? t.active : t.inactive}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </main>
-  );
+  useEffect(() => { const c = new AbortController(); void load(c.signal).catch(err => { if (!c.signal.aborted) { setError(err.message); setLoading(false); } }); return () => c.abort(); }, [load]);
+  async function mutate(url: string, method: string, body: object) {
+    setBusy(true); setError(""); setMessage("");
+    try { const r = await staffFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const d = await r.json(); if (!r.ok || !d.ok) throw new Error(d.error || "Enregistrement refusé"); await load(); setMessage("Enregistré. Les anciennes sessions concernées doivent se reconnecter."); return true; }
+    catch (err) { setError(err instanceof Error ? err.message : "Enregistrement indisponible"); return false; } finally { setBusy(false); }
+  }
+  const config = workstations[draft.eventId];
+  const choices = !config ? [] : draft.role === "admin" ? [...config.cashier, ...config.kitchen] : config[draft.role];
+  async function saveUser(event: FormEvent) { event.preventDefault(); if (await mutate("/api/staff/users", draft.id ? "PATCH" : "POST", draft)) setDraft(empty); }
+  return <main style={{ maxWidth: 1000, margin: "auto", padding: 24, background: "#fff7ed", minHeight: "100vh" }}>
+    <a href="/staff/admin">Administration</a><h1>Utilisateurs et postes</h1><p>Configuration serveur. Aucun compte local n’est importé.</p>
+    {error ? <p role="alert">{error}</p> : null}{message ? <p role="status">{message}</p> : null}
+    {loading ? <p>Chargement…</p> : <>
+    <form onSubmit={saveUser} style={panel}><h2>{draft.id ? `Modifier ${draft.username}` : "Créer un utilisateur"}</h2><fieldset disabled={busy} style={{ display: "grid", gap: 12 }}>
+      {!draft.id ? <><label>Utilisateur <input required maxLength={80} autoComplete="off" value={draft.username} onChange={e => setDraft({ ...draft, username: e.target.value })} /></label><label>Mot de passe <input required type="password" minLength={12} maxLength={256} autoComplete="new-password" value={draft.password} onChange={e => setDraft({ ...draft, password: e.target.value })} /></label></> : null}
+      <label>Rôle <select value={draft.role} onChange={e => setDraft({ ...draft, role: e.target.value as User["role"], workstationId: "" })}><option value="admin">Admin</option><option value="cashier">Cashier</option><option value="kitchen">Kitchen</option></select></label>
+      <label>événement <select required={draft.role !== "admin"} value={draft.eventId} onChange={e => setDraft({ ...draft, eventId: e.target.value, workstationId: "" })}><option value="">Aucun</option>{events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
+      <label>Poste <select required={draft.role !== "admin" || !!draft.eventId} value={draft.workstationId} onChange={e => setDraft({ ...draft, workstationId: e.target.value })}><option value="">Aucun</option>{choices.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.name} ({s.type})</option>)}</select></label>
+      <label><input type="checkbox" checked={draft.active} onChange={e => setDraft({ ...draft, active: e.target.checked })} /> Compte actif</label><p>Changer le rôle ou l?événement efface la sélection du poste.</p><button>Enregistrer</button>{draft.id ? <button type="button" onClick={() => setDraft(empty)}>Annuler</button> : null}
+    </fieldset></form>
+    <section style={panel}><h2>Comptes serveur</h2><ul>{users.map(u => { const c = u.cashier_event_id ? workstations[u.cashier_event_id] : undefined; const s = c && [...c.cashier, ...c.kitchen].find(s => s.id === u.workstation_id); return <li key={u.id}>{u.username} · {u.role} · {events.find(e => e.id === u.cashier_event_id)?.name || "—"} · {s?.name || "Non affecté"} · {u.active ? "Actif" : "Inactif"} <button type="button" disabled={busy} onClick={() => setDraft({ id: u.id, username: u.username, password: "", role: u.role, active: u.active, eventId: u.cashier_event_id || "", workstationId: s?.active ? s.id : "" })}>Modifier</button></li>; })}</ul></section>
+    <section style={panel}><h2>Postes par événement</h2><form onSubmit={async e => { e.preventDefault(); if (await mutate("/api/staff/workstations", "POST", { eventId: stationEvent, type: stationType, name: stationName, active: true })) setStationName(""); }}><fieldset disabled={busy}><legend>Nouveau poste</legend>
+      <label>événement <select required value={stationEvent} onChange={e => setStationEvent(e.target.value)}><option value="">Choisir</option>{events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
+      <label>Type <select value={stationType} onChange={e => setStationType(e.target.value as WorkstationType)}><option value="cashier">Caisse</option><option value="kitchen">Cuisine</option></select></label><label>Nom <input required maxLength={100} value={stationName} onChange={e => setStationName(e.target.value)} /></label><button>Créer le poste</button>
+    </fieldset></form>{events.map(e => <div key={e.id}><h3>{e.name}</h3>{[...(workstations[e.id]?.cashier || []), ...(workstations[e.id]?.kitchen || [])].map(s => <form key={`${s.id}:${s.name}:${s.active}`} onSubmit={async event => { event.preventDefault(); const f = new FormData(event.currentTarget); await mutate("/api/staff/workstations", "PATCH", { eventId: e.id, id: s.id, type: s.type, name: f.get("name"), active: f.has("active") }); }}><fieldset disabled={busy}><legend>{s.type} · {s.id}</legend><label>Nom <input name="name" required maxLength={100} defaultValue={s.name} /></label><label><input name="active" type="checkbox" defaultChecked={s.active} /> Actif</label><button>Enregistrer le poste</button></fieldset></form>)}</div>)}</section>
+    </>}
+  </main>;
 }

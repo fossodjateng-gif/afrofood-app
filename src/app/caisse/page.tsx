@@ -11,8 +11,9 @@ import { OrderHistory } from "@/components/pos/OrderHistory";
 import { getCashierLogMessage, getPaymentErrorMessage, paymentPresentation } from "@/components/pos/payment-presentation";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { clearSession, getSession, refreshStaffSession, staffFetch, getStaffRoleLabel, resolveCashierEventId, type StaffRole, type StaffSession } from "@/lib/staff-auth";
+import { clearSession, getSession, refreshStaffSession, staffFetch, getStaffRoleLabel, type StaffRole, type StaffSession } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
+import { startCashierLifecycle } from "@/lib/cashier-lifecycle";
 import { openCashierLease } from "@/lib/cashier-lease-client";
 
 import {
@@ -311,10 +312,11 @@ export default function CaissePage() {
       setStaffSession(s);
 	      setStaffUsername(String(s.username || ""));
 
-      if (s.role === "cashier") {
+      if (s.role === "cashier" || s.role === "admin") {
         let assignedEventId = "";
         try {
-          assignedEventId = resolveCashierEventId(s);
+          assignedEventId = s.cashierEventId || "";
+          if (!s.workstationId || s.workstationType !== "cashier") throw new Error("workstation_assignment_required");
         } catch (error: unknown) {
           if (alive) setAccessError(error instanceof Error ? error.message : "Kassenkonto nicht verfügbar.");
           return;
@@ -421,100 +423,10 @@ export default function CaissePage() {
 
   useEffect(() => {
     if (!staffReady || !staffRole || !staffSession || !eventReady || closingRef.current) return;
-    const initialSession = staffSession;
-    let stopped = false;
-    let generation = 0;
-    let lease: Awaited<ReturnType<typeof openCashierLease>> | null = null;
-    let detaching: Promise<void> = Promise.resolve();
-    let interval: number | undefined;
-    const current = (epoch: number) => !stopped && !closingRef.current && generation === epoch;
-    const stopHeartbeat = () => {
-      if (interval !== undefined) window.clearInterval(interval);
-      interval = undefined;
-    };
-    const detachCurrent = () => {
-      const previous = lease;
-      lease = null;
-      if (previous) detaching = Promise.all([detaching, previous.detach()]).then(() => undefined);
-      return detaching;
-    };
-    const suspend = () => {
-      ++generation; // Invalidate every response from the previous activation.
-      suspendedRef.current = true;
-      setIsUnlocked(false);
-      stopHeartbeat();
-      return detachCurrent(); // Keep the server lease and persistent instance ID.
-    };
-    suspendCashierRef.current = suspend;
-
-    async function activate(revalidate: boolean) {
-      if (stopped || closingRef.current) return;
-      const epoch = ++generation;
-      suspendedRef.current = true;
-      setIsUnlocked(false);
-      setAccessError(null);
-      stopHeartbeat();
-      try {
-        await detachCurrent();
-        if (!current(epoch)) return;
-        const session = revalidate ? await refreshStaffSession() : initialSession;
-        if (!current(epoch)) return;
-        if (!session || (session.role !== "admin" && session.role !== "cashier")) {
-          closingRef.current = true;
-          window.location.href = session ? "/staff" : "/team/login";
-          return;
-        }
-        if (session.userId !== initialSession.userId || session.role !== initialSession.role || session.username !== initialSession.username || (session.cashierEventId || "") !== (initialSession.cashierEventId || "")) {
-          // A different staff context must mount a fresh page, not reuse cached orders.
-          closingRef.current = true;
-          window.location.href = "/caisse";
-          return;
-        }
-        const active = await openCashierLease(selectedEventId);
-        if (!current(epoch)) { await active.detach(); return; }
-        lease = active;
-        cashierLeaseRef.current = active;
-        await (!revalidate && active.handedOff ? active.heartbeat() : active.acquire());
-        if (!current(epoch)) return;
-        suspendedRef.current = false;
-        setIsUnlocked(true);
-
-        let busy = false;
-        interval = window.setInterval(() => {
-          if (!current(epoch) || suspendedRef.current || busy) return;
-          busy = true;
-          void active.heartbeat().catch((error: unknown) => {
-            if (current(epoch) && !suspendedRef.current) {
-              stopHeartbeat();
-              setAccessError(`${t.lockError}: ${error instanceof Error ? error.message : t.unknownError}`);
-              setIsUnlocked(false);
-            }
-          }).finally(() => { busy = false; });
-        }, 30000);
-      } catch (e: unknown) {
-        if (current(epoch)) {
-          setAccessError(`${t.lockError}: ${e instanceof Error ? e.message : t.unknownError}`);
-          setIsUnlocked(false);
-        }
-      }
-    }
-
-    const hide = () => {
-      void suspend().catch(() => undefined);
-    };
-    const restored = (event: PageTransitionEvent) => {
-      if (event.persisted && !closingRef.current) void activate(true);
-    };
-    void activate(false);
-    window.addEventListener("pagehide", hide);
-    window.addEventListener("pageshow", restored);
-    return () => {
-      window.removeEventListener("pagehide", hide);
-      window.removeEventListener("pageshow", restored);
-      stopped = true;
-      if (suspendCashierRef.current === suspend) suspendCashierRef.current = null;
-      void suspend().catch(() => undefined);
-    };
+    const lifecycle = startCashierLifecycle({ session: staffSession, eventId: selectedEventId,
+      lockError: t.lockError, unknownError: t.unknownError, closingRef, suspendedRef, suspendCashierRef,
+      cashierLeaseRef, setIsUnlocked, setAccessError });
+    return lifecycle.dispose;
   }, [staffReady, staffRole, staffSession, selectedEventId, eventReady, t.lockError, t.unknownError]);
 
   const sortedOrders = useMemo(() => {
@@ -927,7 +839,7 @@ export default function CaissePage() {
 	              {t.title}
 	            </h1>
 		            <div style={{ opacity: 0.75, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-		              <span>{t.loggedAs}: {staffUsername || "-"}</span>
+		              <span>{t.loggedAs}: {staffUsername || "-"} ? {staffSession?.workstationName || ""}</span>
 		              {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
 		              {selectedEventId ? <span className="af-role-badge">{t.eventAssigned}: {selectedEventId}</span> : null}
 		            </div>

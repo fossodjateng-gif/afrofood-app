@@ -1,11 +1,11 @@
 "use client";
 
-import { staffFetch } from "@/lib/staff-auth";
+import { getSession, staffFetch } from "@/lib/staff-auth";
 
 const HANDOFF_KEY = "af_cashier_lease_handoff_v1";
 const INSTANCE_ID = /^[a-f0-9-]{36}$/;
 
-export function createCashierLease(eventId: string, instanceId = crypto.randomUUID()) {
+export function createCashierLease(eventId: string, instanceId = crypto.randomUUID(), workstationId?: string) {
   let stopped = false;
   let pending: Promise<unknown> = Promise.resolve();
   let releasePromise: Promise<void> | null = null;
@@ -13,7 +13,7 @@ export function createCashierLease(eventId: string, instanceId = crypto.randomUU
   async function send(action: "acquire" | "heartbeat" | "release") {
     const response = await staffFetch("/api/cashier-lock", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, eventId, instanceId }), keepalive: action === "release",
+      body: JSON.stringify({ action, eventId, instanceId, ...(workstationId ? { workstationId } : {}) }), keepalive: action === "release",
     });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) {
@@ -45,26 +45,26 @@ export function createCashierLease(eventId: string, instanceId = crypto.randomUU
       return releasePromise;
     },
     handoff() {
-      sessionStorage.setItem(HANDOFF_KEY, JSON.stringify({ eventId, instanceId }));
+      sessionStorage.setItem(HANDOFF_KEY, JSON.stringify({ eventId, instanceId, ...(workstationId ? { workstationId } : {}) }));
     },
   };
 }
 
-export function takeCashierLeaseHandoff(eventId: string): string | undefined {
+export function takeCashierLeaseHandoff(eventId: string, workstationId?: string): string | undefined {
   try {
     const raw = sessionStorage.getItem(HANDOFF_KEY);
     sessionStorage.removeItem(HANDOFF_KEY); // One navigation only, never a reusable tab identity.
     const saved = raw ? JSON.parse(raw) : null;
-    if (saved?.eventId === eventId && typeof saved.instanceId === "string" && INSTANCE_ID.test(saved.instanceId)) return saved.instanceId;
+    if (saved?.eventId === eventId && (!workstationId || saved.workstationId === workstationId) && typeof saved.instanceId === "string" && INSTANCE_ID.test(saved.instanceId)) return saved.instanceId;
   } catch { /* No handoff when tab storage is unavailable. */ }
 }
 
 // Tab-local persistence is only a lease hint. Web Locks prevent a copied
 // sessionStorage (duplicate tab/window) from joining an already active instance.
-export async function openCashierLease(eventId: string) {
+export async function openCashierLease(eventId: string, workstationId = getSession?.()?.workstationId) {
   if (!navigator.locks) throw new Error("cashier_tab_isolation_unavailable");
-  const key = `af_cashier_instance_v1:${eventId}`;
-  const handoff = takeCashierLeaseHandoff(eventId);
+  const key = workstationId ? `af_cashier_instance_v3:${JSON.stringify([eventId, workstationId])}` : `af_cashier_instance_v1:${eventId}`;
+  const handoff = takeCashierLeaseHandoff(eventId, workstationId);
   const saved = sessionStorage.getItem(key);
   const candidate = handoff || (saved && INSTANCE_ID.test(saved) ? saved : crypto.randomUUID());
 
@@ -89,7 +89,7 @@ export async function openCashierLease(eventId: string) {
   if (!detach) throw new Error("cashier_tab_isolation_unavailable");
   try { sessionStorage.setItem(key, instanceId); }
   catch (error) { await detach(); throw error; }
-  const lease = createCashierLease(eventId, instanceId);
+  const lease = createCashierLease(eventId, instanceId, workstationId);
   const detachDocument = detach;
   return {
     ...lease,

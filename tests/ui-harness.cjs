@@ -38,7 +38,7 @@ function harness(file, seed = {}, mocks = {}) {
     useEffect: fn => { effects.push(fn); }, useCallback: fn => fn, useMemo: fn => fn(),
   };
   const component = load(file, { react: hooks, ...mocks });
-  const render = (fn = component.default, props) => { cursor = 0;refCursor = 0;effects.length = 0;return fn(props); };
+  const render = (fn = component.ManualCaissePage || component.default, props) => { cursor = 0;refCursor = 0;effects.length = 0;return fn(props); };
   return { component, render, state, effects };
 }
 

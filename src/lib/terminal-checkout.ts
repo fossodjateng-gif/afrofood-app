@@ -1,6 +1,7 @@
+import { staffFetch } from "@/lib/staff-auth";
 // Shared by both cash registers. No Stripe secret is returned to or persisted by
 // this helper: the native SDK fetches its own short-lived client secret.
-export async function prepareTerminalCheckout(input: { orderId: string; username: string; userId: string; role: string; eventName: string }, request: typeof fetch = fetch) {
+export async function prepareTerminalCheckout(input: { orderId: string; username: string; userId: string; role: string; eventName: string }, request: typeof fetch = staffFetch) {
   const response = await request("/api/stripe/terminal/payment-intent", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: input.orderId, includeClientSecret: false }),
   });

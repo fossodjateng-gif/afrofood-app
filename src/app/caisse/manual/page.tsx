@@ -1,5 +1,6 @@
 "use client";
 
+import { AssignedCashierGate } from "@/components/AssignedCashierGate";
 import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -12,7 +13,7 @@ import { CashPayment } from "@/components/pos/CashPayment";
 import { cashAttemptKey, confirmPosCash, parseReceivedCents, type CashAttempt, type CashReceipt } from "@/lib/pos-cash";
 import { ProductGrid } from "@/components/pos/ProductGrid";
 import { PosCart } from "@/components/pos/PosCart";
-import { getSession, getStaffRoleLabel, resolveCashierEventId, type StaffSession } from "@/lib/staff-auth";
+import { getSession, getStaffRoleLabel, type StaffSession } from "@/lib/staff-auth";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { addPosProduct, decreasePosProduct, getPosBreakdown, getProductLimit, posCartKey, readPosCart, reconcilePosCart, writePosCart, type PosCartItem, type PosProduct, type PosSection } from "@/lib/pos-cart";
 import styles from "@/components/pos/pos.module.css";
@@ -33,7 +34,7 @@ type PosContext = {
   sections: PosSection[];
 };
 
-export default function ManualCaissePage() {
+export function ManualCaissePage() {
   const [cardAttempt, setCardAttempt] = useState<CardAttempt | null>(null);
   const [cardOrder, setCardOrder] = useState<OrderRow | null>(null);
   const [cardReceipt, setCardReceipt] = useState<OrderRow | null>(null);
@@ -76,9 +77,8 @@ export default function ManualCaissePage() {
       const session = getSession();
       if (!session) { window.location.href = "/team/login"; return; }
       if (session.role !== "admin" && session.role !== "cashier") { window.location.href = "/staff"; return; }
-      const eventId = session.role === "cashier"
-        ? resolveCashierEventId(session)
-        : String(localStorage.getItem(CAISSE_EVENT_ID_KEY) || "").trim();
+      const eventId = session.cashierEventId || "";
+      if (!session.workstationId || session.workstationType !== "cashier") throw new Error("workstation_assignment_required");
       if (!eventId || !session.userId) throw new Error("Kein Event zugewiesen. Bitte die Event-Zuweisung des Kassenkontos oder die Event-Auswahl der Kasse prüfen.");
       const response = await fetch(`/api/admin/menu-config?eventId=${encodeURIComponent(eventId)}`, {
         headers: { "x-staff-role": session.role }, cache: "no-store", signal: controller.signal,
@@ -89,21 +89,19 @@ export default function ManualCaissePage() {
       if (!event?.name || !Array.isArray(data.sections)) throw new Error("Das zugewiesene Event ist nicht verfügbar. Es wurde kein anderes Event ausgewählt.");
       if (controller.signal.aborted) return;
       const latestSession = getSession();
-      const latestEventId = latestSession?.role === "cashier"
-        ? resolveCashierEventId(latestSession)
-        : String(localStorage.getItem(CAISSE_EVENT_ID_KEY) || "").trim();
-      if (latestSession?.userId !== session.userId || latestSession.role !== session.role || latestEventId !== eventId) {
+      const latestEventId = latestSession?.cashierEventId || "";
+      if (latestSession?.userId !== session.userId || latestSession.role !== session.role || latestEventId !== eventId || latestSession.workstationId !== session.workstationId) {
         throw new Error("Der Kassenkontext wurde geändert. Bitte das Menü aktualisieren.");
       }
       const sections = (data.sections as PosSection[]).map((section) => ({ ...section, items: section.items.filter((product) => product.visible) })).filter((section) => section.items.length > 0);
-      const cartKey = posCartKey(session.userId, eventId);
+      const cartKey = posCartKey(session.userId, eventId, session.workstationId);
       const products = new Map(sections.flatMap((section) => section.items.map((product) => [product.id, product] as const)));
       const storedCard = localStorage.getItem(cardAttemptKey(cartKey));
       const storedAttempt = localStorage.getItem(cashAttemptKey(cartKey));
       if (storedCard && storedAttempt) throw new Error("Zwei gespeicherte Zahlungen: bitte zuerst den Zahlungsstatus prüfen.");
       if (storedCard) {
         const saved = JSON.parse(storedCard) as CardAttempt;
-        if (saved.eventId !== eventId || saved.userId !== session.userId || saved.username !== session.username?.trim().toLowerCase() || !saved.key || !saved.fingerprint || !Array.isArray(saved.items)) throw new Error("Die gespeicherte Kartenzahlung muss geprüft werden.");
+        if (saved.eventId !== eventId || saved.userId !== session.userId || saved.workstationId !== session.workstationId || saved.username !== session.username?.trim().toLowerCase() || !saved.key || !saved.fingerprint || !Array.isArray(saved.items)) throw new Error("Die gespeicherte Kartenzahlung muss geprüft werden.");
         if (cardRef.current?.key !== saved.key) {
           setCardOrder(null);
           setCardReceipt(null);
@@ -119,7 +117,7 @@ export default function ManualCaissePage() {
       }
       if (storedAttempt) {
         const saved = JSON.parse(storedAttempt) as CashAttempt;
-        if (saved.eventId !== eventId || saved.userId !== session.userId || !saved.key || !Array.isArray(saved.items)) throw new Error("Die gespeicherte Zahlung muss geprüft werden.");
+        if (saved.eventId !== eventId || saved.userId !== session.userId || saved.workstationId !== session.workstationId || !saved.key || !Array.isArray(saved.items)) throw new Error("Die gespeicherte Zahlung muss geprüft werden.");
         attemptRef.current = saved;
         setCashAttempt(saved);
         setCashOpen(true);
@@ -167,7 +165,7 @@ export default function ManualCaissePage() {
     const session = getSession();
     let eventId: string;
     try {
-      eventId = session?.role === "cashier" ? resolveCashierEventId(session) : String(localStorage.getItem(CAISSE_EVENT_ID_KEY) || "").trim();
+      eventId = session?.cashierEventId || "";
     } catch {
       void loadContext();
       return;
@@ -189,7 +187,7 @@ export default function ManualCaissePage() {
 
 
   function persistAttempt(attempt: CashAttempt) {
-    localStorage.setItem(cashAttemptKey(posCartKey(attempt.userId, attempt.eventId)), JSON.stringify(attempt));
+    localStorage.setItem(cashAttemptKey(posCartKey(attempt.userId, attempt.eventId, attempt.workstationId)), JSON.stringify(attempt));
     attemptRef.current = attempt;
     setCashAttempt({ ...attempt });
   }
@@ -204,12 +202,12 @@ export default function ManualCaissePage() {
     setCashError(null);
     try {
       const session = getSession();
-      const eventId = session?.role === "cashier" ? resolveCashierEventId(session) : localStorage.getItem(CAISSE_EVENT_ID_KEY);
-      if (session?.userId !== current.session.userId || session.role !== current.session.role || eventId !== current.eventId || (attemptRef.current && (attemptRef.current.userId !== session.userId || attemptRef.current.role !== session.role || attemptRef.current.eventId !== eventId))) throw new Error("Der Kassenkontext wurde geändert. Bitte die ursprüngliche Zahlung in der richtigen Kasse fortsetzen.");
+      const eventId = session?.cashierEventId;
+      if (session?.userId !== current.session.userId || session.role !== current.session.role || eventId !== current.eventId || session?.workstationId !== current.session.workstationId || (attemptRef.current && (attemptRef.current.userId !== session.userId || attemptRef.current.role !== session.role || attemptRef.current.eventId !== eventId))) throw new Error("Der Kassenkontext wurde geändert. Bitte die ursprüngliche Zahlung in der richtigen Kasse fortsetzen.");
       let attempt = attemptRef.current;
       if (!attempt) {
         if (!itemsRef.current.length || itemsRef.current.some((item) => !products.get(item.id) || item.qty > getProductLimit(products.get(item.id)!))) throw new Error("Bitte die verfügbaren Artikel prüfen.");
-        attempt = { key: crypto.randomUUID(), userId: session.userId, role: session.role, eventId: current.eventId, eventName: current.eventName, items: itemsRef.current.map((item) => ({ ...item })), amountCents: getPosBreakdown(itemsRef.current).totalCents };
+        attempt = { key: crypto.randomUUID(), userId: session.userId, workstationId: session.workstationId, role: session.role, eventId: current.eventId, eventName: current.eventName, items: itemsRef.current.map((item) => ({ ...item })), amountCents: getPosBreakdown(itemsRef.current).totalCents };
         if (cents < attempt.amountCents) throw new Error("Der erhaltene Betrag ist zu niedrig.");
         persistAttempt(attempt);
       }
@@ -227,7 +225,7 @@ export default function ManualCaissePage() {
       setCashError(reason instanceof Error ? reason.message : "Die Barzahlung konnte nicht bestätigt werden.");
       if (reason && typeof reason === "object" && "retryable" in reason && reason.retryable === true) {
         const attempt = attemptRef.current;
-        if (attempt) localStorage.removeItem(cashAttemptKey(posCartKey(attempt.userId, attempt.eventId)));
+        if (attempt) localStorage.removeItem(cashAttemptKey(posCartKey(attempt.userId, attempt.eventId, attempt.workstationId)));
         attemptRef.current = null;
         setCashAttempt(null);
       }
@@ -240,16 +238,16 @@ export default function ManualCaissePage() {
   function requireCardContext() {
     const current = contextRef.current;
     const session = getSession();
-    const eventId = session?.role === "cashier" ? resolveCashierEventId(session) : localStorage.getItem(CAISSE_EVENT_ID_KEY);
+    const eventId = session?.cashierEventId;
     const attempt = cardRef.current;
-    if (!current || !session || session.userId !== current.session.userId || session.role !== current.session.role || eventId !== current.eventId || (attempt && (attempt.userId !== session.userId || attempt.eventId !== eventId || attempt.username !== session.username?.trim().toLowerCase()))) throw new Error("Der Kassenkontext wurde geändert. Dieselbe Zahlung im ursprünglichen Kontext prüfen.");
+    if (!current || !session || session.userId !== current.session.userId || session.role !== current.session.role || eventId !== current.eventId || session?.workstationId !== current.session.workstationId || (attempt && (attempt.userId !== session.userId || attempt.eventId !== eventId || attempt.username !== session.username?.trim().toLowerCase()))) throw new Error("Der Kassenkontext wurde geändert. Dieselbe Zahlung im ursprünglichen Kontext prüfen.");
     return current;
   }
 
   function persistCard(attempt: CardAttempt) {
-    localStorage.setItem(cardAttemptKey(posCartKey(attempt.userId, attempt.eventId)), JSON.stringify(attempt));
+    localStorage.setItem(cardAttemptKey(posCartKey(attempt.userId, attempt.eventId, attempt.workstationId)), JSON.stringify(attempt));
     const current = contextRef.current;
-    if (!current || current.eventId !== attempt.eventId || current.session.userId !== attempt.userId) return;
+    if (!current || current.eventId !== attempt.eventId || current.session.userId !== attempt.userId || current.session.workstationId !== attempt.workstationId) return;
     cardRef.current = attempt;
     setCardAttempt({ ...attempt });
   }
@@ -319,9 +317,9 @@ export default function ManualCaissePage() {
         let attempt: CardAttempt;
         if (stored) {
           attempt = JSON.parse(stored) as CardAttempt;
-          if (attempt.userId !== current.session.userId || attempt.eventId !== current.eventId || attempt.username !== current.session.username?.trim().toLowerCase()) throw new Error("Gespeicherte Zahlung gehört zu einem anderen Kassenkontext.");
+          if (attempt.userId !== current.session.userId || attempt.eventId !== current.eventId || attempt.workstationId !== current.session.workstationId || attempt.username !== current.session.username?.trim().toLowerCase()) throw new Error("Gespeicherte Zahlung gehört zu einem anderen Kassenkontext.");
         } else {
-          attempt = { key: crypto.randomUUID(), fingerprint: "", userId: current.session.userId, username: current.session.username!.trim().toLowerCase(), role: current.session.role, eventId: current.eventId, eventName: current.eventName, items: itemsRef.current.map((item) => ({ ...item })), amountCents: getPosBreakdown(itemsRef.current).totalCents, createdAt: Date.now() };
+          attempt = { key: crypto.randomUUID(), fingerprint: "", userId: current.session.userId, workstationId: current.session.workstationId, username: current.session.username!.trim().toLowerCase(), role: current.session.role, eventId: current.eventId, eventName: current.eventName, items: itemsRef.current.map((item) => ({ ...item })), amountCents: getPosBreakdown(itemsRef.current).totalCents, createdAt: Date.now() };
           attempt.fingerprint = await makeCardFingerprint(attempt);
         }
         persistCard(attempt);
@@ -411,7 +409,7 @@ export default function ManualCaissePage() {
         <div className={styles.separator} aria-hidden="true" />
         <div className={styles.contextBar}>
           <div><span className={styles.contextLabel}>{labels.event}</span><strong>{context?.eventName || (loading ? labels.loading : labels.noEvent)}</strong></div>
-          {context ? <div><span className={styles.contextLabel}>{labels.user}</span><strong>{context.session.username || "Kasse"} <span className="af-role-badge">{getStaffRoleLabel(context.session.role, lang)}</span></strong></div> : null}
+          {context ? <div><span className={styles.contextLabel}>{labels.user}</span><strong>{context.session.username || "Kasse"} ? {context.session.workstationName} <span className="af-role-badge">{getStaffRoleLabel(context.session.role, lang)}</span></strong></div> : null}
           <span className="af-role-badge">{labels.preview}</span>
         </div>
         {error ? <div className={styles.error} role="alert"><strong>Manuelle Kasse nicht verfügbar</strong><p>{error}</p><Link href="/caisse">Zur Kasse zurückkehren</Link></div> : null}
@@ -431,3 +429,5 @@ export default function ManualCaissePage() {
     </main>
   );
 }
+
+export default function AssignedManualCaissePage() { return <AssignedCashierGate><ManualCaissePage /></AssignedCashierGate>; }

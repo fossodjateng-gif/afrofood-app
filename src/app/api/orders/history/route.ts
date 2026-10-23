@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   try {
     await requireCashRegisterPermission(req, eventId);
     const rows = await sql`
-      SELECT id, created_at, customer_name, event_id, event_name,
+      SELECT id, created_at, customer_name, event_id, event_name, created_by, created_by_username, register_id, register_name, paid_by, paid_by_username, paid_register_id, paid_register_name,
         reservation_requested, reservation_time, payment, amount_cents,
         cash_received_cents, change_given_cents, currency, paid_at,
         UPPER(status) AS status, items,

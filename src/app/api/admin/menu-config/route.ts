@@ -1,3 +1,5 @@
+import { requireStaffWorkstation, requireStaffOrigin, StaffAuthError } from "@/lib/staff-session-server";
+import { canAccessStaffEvent } from "@/lib/staff-permissions";
 import { NextResponse } from "next/server";
 import { getCatalogItemIds } from "@/lib/menu-catalog";
 import {
@@ -16,28 +18,12 @@ import {
   upsertTapToPayConfig,
 } from "@/lib/menu-settings";
 
-function getAdminPin() {
-  return process.env.ADMIN_MENU_PIN || process.env.NEXT_PUBLIC_CAISSE_PIN || "1955";
-}
-
-function getStaffRole(req: Request) {
-  return String(req.headers.get("x-staff-role") || "").trim().toLowerCase();
-}
-
-function isAuthorized(req: Request) {
-  const provided = String(req.headers.get("x-admin-pin") || "").trim();
-  if (Boolean(provided) && provided === getAdminPin()) return true;
-  const staffRole = getStaffRole(req);
-  return staffRole === "admin" || staffRole === "kitchen" || staffRole === "cashier";
-}
-
 export async function GET(req: Request) {
   try {
-    if (!isAuthorized(req)) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireStaffWorkstation(req);
     const { searchParams } = new URL(req.url);
-    const eventId = String(searchParams.get("eventId") || "").trim();
+    const eventId = String(searchParams.get("eventId") || actor.cashierEventId || "").trim();
+    if (actor.role !== "admin" && !canAccessStaffEvent(actor, eventId)) throw new StaffAuthError("staff_event_forbidden", 403);
     const sections = await getResolvedMenuSections(eventId || undefined);
     const availability = await getItemAvailabilityMap(eventId || undefined);
     const paymentConfig = await getPaymentConfig(eventId || undefined);
@@ -45,6 +31,7 @@ export async function GET(req: Request) {
     const tapToPayConfig = await getTapToPayConfig();
     return NextResponse.json({ ok: true, sections, availability, paymentConfig, storeConfig, tapToPayConfig });
   } catch (e: unknown) {
+    if (e instanceof StaffAuthError) return NextResponse.json({ ok: false, error: e.code }, { status: e.status });
     const error = e instanceof Error ? e.message : "Server error";
     return NextResponse.json({ ok: false, error }, { status: 500 });
   }
@@ -52,14 +39,19 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    if (!isAuthorized(req)) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = await requireStaffWorkstation(req);
 
-    const staffRole = getStaffRole(req);
-    const isPinAuth = Boolean(String(req.headers.get("x-admin-pin") || "").trim());
+    requireStaffOrigin(req);
+    const staffRole = actor.role;
+    const isPinAuth = false;
     const body = await req.json().catch(() => ({}));
     const setting = String(body?.setting || "").trim();
+    if (actor.role !== "admin") {
+      const eventId = body.eventId === undefined ? actor.cashierEventId : String(body.eventId);
+      if (!canAccessStaffEvent(actor, eventId || "")) throw new StaffAuthError("staff_event_forbidden", 403);
+      body.eventId = eventId;
+    }
+    if (setting === "store_config" && actor.role !== "admin") throw new StaffAuthError("admin_required", 403);
 
     const canManageCatalog = isPinAuth || staffRole === "admin" || staffRole === "kitchen" || staffRole === "cashier";
     const canManageOps = isPinAuth || staffRole === "admin" || staffRole === "cashier";
@@ -189,6 +181,7 @@ export async function PATCH(req: Request) {
     await upsertMenuItemSetting({ itemId, price, visible, eventId: eventId || undefined });
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
+    if (e instanceof StaffAuthError) return NextResponse.json({ ok: false, error: e.code }, { status: e.status });
     const error = e instanceof Error ? e.message : "Server error";
     return NextResponse.json({ ok: false, error }, { status: 500 });
   }

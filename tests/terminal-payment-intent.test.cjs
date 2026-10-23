@@ -4,7 +4,7 @@ const {backend}=require('./card-backend-harness.cjs');
 const {load}=require('./ui-harness.cjs');
 const {randomUUID}=require('node:crypto');
 const card=load('src/lib/pos-card.ts');
-async function create(db){const sale={key:randomUUID(),userId:'user-a',username:'kasse',role:'cashier',eventId:'event-a',items:[{id:'meal',qty:1}]};sale.fingerprint=await card.makeCardFingerprint(sale);const result=await(await db.request('/api/orders',{method:'POST',headers:{'x-staff-role':'cashier'},body:JSON.stringify({...sale,posCardKey:sale.key,payment:'card'})})).json();return result.order.id;}
+async function create(db){const sale={key:randomUUID(),workstationId:'11111111-1111-4111-8111-111111111111',userId:'user-a',username:'kasse',role:'cashier',eventId:'event-a',items:[{id:'meal',qty:1}]};sale.fingerprint=await card.makeCardFingerprint(sale);const result=await(await db.request('/api/orders',{method:'POST',headers:{'x-staff-role':'cashier'},body:JSON.stringify({...sale,posCardKey:sale.key,payment:'card'})})).json();return result.order.id;}
 const prepare=(db,id)=>db.request('/api/stripe/terminal/payment-intent',{method:'POST',body:JSON.stringify({orderId:id})});
 test('G/H: concurrent and repeated preparation uses one Stripe PaymentIntent',async()=>{
  const db=backend(),id=await create(db);const results=await Promise.all([prepare(db,id),prepare(db,id)]);const data=await Promise.all(results.map(r=>r.json()));

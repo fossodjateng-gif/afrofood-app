@@ -1,3 +1,4 @@
+import { requireAssignedCashRegister, requireStaffOrigin, StaffAuthError } from "@/lib/staff-session-server";
 import { NextResponse } from "next/server";
 import { stripePost } from "@/lib/stripe-server";
 
@@ -11,8 +12,10 @@ type PaymentIntentResponse = {
 
 const PREP_AMOUNT_CENTS = 50;
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
+    requireStaffOrigin(req);
+    await requireAssignedCashRegister(req);
     const pi = await stripePost<PaymentIntentResponse>("/payment_intents", {
       amount: PREP_AMOUNT_CENTS,
       currency: "eur",
@@ -31,6 +34,7 @@ export async function POST() {
       status: pi.status,
     });
   } catch (e: unknown) {
+    if (e instanceof StaffAuthError) return NextResponse.json({ ok: false, error: e.code }, { status: e.status });
     const error = e instanceof Error ? e.message : "Server error";
     return NextResponse.json({ ok: false, error }, { status: 500 });
   }

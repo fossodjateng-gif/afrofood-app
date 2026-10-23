@@ -25,8 +25,8 @@ export type PosCartItem = {
 
 export const POS_CART_PREFIX = "af_pos_cart_v1:";
 
-export function posCartKey(userId: string, eventId: string) {
-  return `${POS_CART_PREFIX}${encodeURIComponent(userId)}:${encodeURIComponent(eventId)}`;
+export function posCartKey(userId: string, eventId: string, workstationId?: string) {
+  return `${POS_CART_PREFIX}${encodeURIComponent(userId)}:${encodeURIComponent(eventId)}${workstationId ? ":" + encodeURIComponent(workstationId) : ""}`;
 }
 
 export function readPosCart(key: string): PosCartItem[] {

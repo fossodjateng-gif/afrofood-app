@@ -1,3 +1,5 @@
+import { cashierLeaseGuard } from "@/lib/cashier-locks";
+import type { CashierWriteContext } from "@/lib/cashier-write-context";
 import { makeNextOrderId } from "@/lib/order-number";
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
@@ -15,7 +17,7 @@ function result(row: CashRow, fingerprint: string, actorId?: string) {
   return NextResponse.json({ ok: true, order: { id: row.id, eventId: row.event_id, eventName: row.event_name, amountCents: row.amount_cents, items: row.items, payment: "cash", status: row.status } });
 }
 
-export async function createPosCashOrder(input: { key: string; eventId: string; eventName: string | null; items: PricedItem[]; actor?: { id: string; username: string } }) {
+export async function createPosCashOrder(input: { key: string; eventId: string; eventName: string | null; items: PricedItem[]; context: CashierWriteContext; actor?: { id: string; username: string } }) {
   const fingerprint = createHash("sha256").update(JSON.stringify({ eventId: input.eventId, items: input.items.map((item) => ({ id: item.id, qty: item.qty })) })).digest("hex");
   const existing = await sql`SELECT * FROM orders WHERE pos_cash_key = ${input.key} LIMIT 1`;
   if (existing.length) return result(existing[0] as CashRow, fingerprint, input.actor?.id);
@@ -34,11 +36,12 @@ export async function createPosCashOrder(input: { key: string; eventId: string; 
   let claimed = false;
   for (let attempt = 0; attempt < 5; attempt++) {
     id = await makeNextOrderId();
-    const rows = await sql`
-      INSERT INTO orders (id, event_id, event_name, payment, amount_cents, currency, status, items, pos_cash_key, pos_cash_fingerprint, pos_cash_state, quantity_applied, created_by, created_by_username)
-      VALUES (${id}, ${input.eventId}, ${input.eventName}, 'cash', ${amount}, 'eur', 'PENDING_PAYMENT', ${JSON.stringify(items)}::jsonb, ${input.key}, ${fingerprint}, 'creating', FALSE, ${input.actor?.id || null}, ${input.actor?.username || null})
+    const claim = await sql.transaction([cashierLeaseGuard(input.context), sql`
+      INSERT INTO orders (id, event_id, event_name, payment, amount_cents, currency, status, items, pos_cash_key, pos_cash_fingerprint, pos_cash_state, quantity_applied, created_by, created_by_username, register_id, register_name)
+      VALUES (${id}, ${input.eventId}, ${input.eventName}, 'cash', ${amount}, 'eur', 'PENDING_PAYMENT', ${JSON.stringify(items)}::jsonb, ${input.key}, ${fingerprint}, 'creating', FALSE, ${input.actor?.id || null}, ${input.actor?.username || null}, ${input.context.workstationId}, ${input.context.workstationName})
       ON CONFLICT DO NOTHING RETURNING *
-    `;
+    `], { isolationLevel: "ReadCommitted" });
+    const rows = claim[1];
     if (rows.length) { claimed = true; break; }
     const existing = await sql`SELECT * FROM orders WHERE pos_cash_key = ${input.key} LIMIT 1`;
     if (existing.length) return result(existing[0] as CashRow, fingerprint, input.actor?.id);

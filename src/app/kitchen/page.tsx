@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import type { OrderRow } from "@/lib/schema";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { getSession, staffFetch, getStaffRoleLabel, type StaffRole, updateSessionCashierEventId } from "@/lib/staff-auth";
+import { getSession, staffFetch, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 
 const UI_TEXT: Record<
@@ -123,12 +123,13 @@ function KitchenPageContent() {
       const eventFilter = assignedEventId ? `&eventId=${encodeURIComponent(assignedEventId)}` : "";
 
       const [newRes, readyRes] = await Promise.all([
-        staffFetch(`/api/orders?status=NEW${eventFilter}`, { cache: "no-store", signal: controller.signal }),
-        staffFetch(`/api/orders?status=READY${eventFilter}`, { cache: "no-store", signal: controller.signal }),
+        staffFetch(`/api/staff/orders?status=NEW${eventFilter}`, { cache: "no-store", signal: controller.signal }),
+        staffFetch(`/api/staff/orders?status=READY${eventFilter}`, { cache: "no-store", signal: controller.signal }),
       ]);
 
       const newData = await newRes.json();
       const readyData = await readyRes.json();
+      if (!newRes.ok || !readyRes.ok) throw new Error(newData?.error || readyData?.error || "staff_orders_unavailable");
 
       if (controller.signal.aborted) return;
       setOrderResult({
@@ -142,7 +143,7 @@ function KitchenPageContent() {
       setJustRefreshed(true);
       window.setTimeout(() => setJustRefreshed(false), 1200);
     } catch (error) {
-      if (!controller.signal.aborted) throw error;
+      if (!controller.signal.aborted) { setOrderResult(null); setAccessError(error instanceof Error ? error.message : "staff_orders_unavailable"); }
     } finally {
       if (!controller.signal.aborted) {
         setIsRefreshing(false);
@@ -198,10 +199,7 @@ function KitchenPageContent() {
         const events = Array.isArray(data?.storeConfig?.events)
           ? data.storeConfig.events
           : [];
-        if (!nextEventId) {
-          nextEventId = String(data?.storeConfig?.activeEventId || "").trim() || String(events[0]?.id || "").trim();
-          if (nextEventId) updateSessionCashierEventId(nextEventId);
-        }
+        if (!nextEventId) throw new Error("workstation_assignment_required");
         nextEventName =
           String(events.find((event: { id?: string }) => String(event?.id || "").trim() === nextEventId)?.name || "").trim();
       } catch {
@@ -224,7 +222,7 @@ function KitchenPageContent() {
 
     void boot().then(() => {
       if (alive) setEventContextReady(true);
-    });
+    }).catch((error: unknown) => { if (alive) { setAccessError(error instanceof Error ? error.message : "workstation_assignment_invalid"); setLoading(false); } });
     return () => {
       alive = false;
     };
@@ -244,7 +242,7 @@ function KitchenPageContent() {
       ) {
         refresh();
       }
-    });
+    }, true);
   }, [refresh]);
 
   async function updateStatus(id: string, status: "READY" | "DONE") {
@@ -304,7 +302,7 @@ function KitchenPageContent() {
 	        <span>{t.name}: {staffUsername || "-"}</span>
 	        {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
       </div>
-      <h1 style={{ margin: "10px 0 0 0", fontSize: 28, fontWeight: 900 }}>{t.title}</h1>
+      <h1 style={{ margin: "10px 0 0 0", fontSize: 28, fontWeight: 900 }}>{t.title} · {getSession()?.workstationName || ""}</h1>
       <p style={{ opacity: 0.75 }}>{t.subtitle}</p>
       {assignedEventName ? (
         <div

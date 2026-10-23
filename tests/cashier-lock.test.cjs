@@ -6,16 +6,18 @@ const { load } = require('./ui-harness.cjs');
 
 const instanceA = '11111111-1111-4111-8111-111111111111';
 const instanceB = '22222222-2222-4222-8222-222222222222';
+const station = '33333333-3333-4333-8333-333333333333';
+const lockKey = event => `v3:${JSON.stringify([event,station])}`;
 const digest = value => createHash('sha256').update(value).digest('hex');
 
 function fixture() {
   let now = Date.now();
   let afterAuthorization;
   const users = new Map([
-    ['a', { id: 'louka-fixture', username: 'louka', role: 'cashier', active: true, cashier_event_id: 'event-a' }],
-    ['b', { id: 'cem-fixture', username: 'cem', role: 'cashier', active: true, cashier_event_id: 'event-a' }],
-    ['c', { id: 'admin-fixture', username: 'admin', role: 'admin', active: true, cashier_event_id: null }],
-    ['d', { id: 'kitchen-fixture', username: 'kitchen', role: 'kitchen', active: true, cashier_event_id: 'event-a' }],
+    ['a', { id: 'louka-fixture', username: 'louka', role: 'cashier', active: true, cashier_event_id: 'event-a', workstation_id: station }],
+    ['b', { id: 'cem-fixture', username: 'cem', role: 'cashier', active: true, cashier_event_id: 'event-a', workstation_id: station }],
+    ['c', { id: 'admin-fixture', username: 'admin', role: 'admin', active: true, cashier_event_id: 'event-a', workstation_id: station }],
+    ['d', { id: 'kitchen-fixture', username: 'kitchen', role: 'kitchen', active: true, cashier_event_id: 'event-a', workstation_id: station }],
   ]);
   const sessions = new Map([...users].map(([token, user]) => [digest(token.repeat(64)), { user, revoked: false, expires: now + 7200000 }]));
   const locks = new Map(), queries = [];
@@ -29,22 +31,23 @@ function fixture() {
   };
   const sql = async (strings, ...v) => {
     const q = strings.join(''); queries.push(q);
+    if (q.includes('SELECT setting_value FROM app_settings')) return [{setting_value:{events:[{id:'event-x'},{id:'event-a'},{id:'event-b'}],cashier:[{id:station,name:'Caisse 1',type:'cashier',active:true}],kitchen:[{id:station,name:'Cuisine 1',type:'kitchen',active:true}]}}];
     assert.doesNotMatch(q, /CREATE TABLE|ALTER TABLE/, 'No runtime schema changes');
     if (q.includes('INSERT INTO cashier_event_locks')) {
       // Model the single PostgreSQL statement, with no async SELECT/write gap.
       assert.match(q, /ON CONFLICT \(event_name\) DO UPDATE/);
       assert.match(q, /WHERE cashier_event_locks.expires_at <= NOW\(\) OR cashier_event_locks.user_id = EXCLUDED.user_id/);
       assert.match(q, /FOR SHARE OF s, u/);
-      const [hash, userId, eventId, key, owner, username] = v, old = locks.get(key);
-      if (!valid(hash, userId, eventId) || (old && Date.parse(old.expires_at) > now && old.user_id !== owner)) return [];
+      const [hash, userId, eventId, workstationId, , , legacyKey, key, owner, username] = v, old = locks.get(key);
+      if (!valid(hash, userId, eventId) || sessions.get(hash).user.workstation_id !== workstationId || (locks.get(legacyKey) && Date.parse(locks.get(legacyKey).expires_at)>now) || (old && Date.parse(old.expires_at) > now && old.user_id !== owner)) return [];
       return renewed(key, owner, username);
     }
     if (q.includes('UPDATE cashier_event_locks')) {
       assert.doesNotMatch(q, /INSERT|ON CONFLICT/);
       assert.match(q, /EXISTS \(SELECT 1 FROM authorized_session\)/);
       assert.match(q, /FOR SHARE OF s, u/);
-      const [hash, userId, eventId, , key, owner] = v, old = locks.get(key);
-      if (!valid(hash, userId, eventId) || !old || old.user_id !== owner || Date.parse(old.expires_at) <= now) return [];
+      const [hash, userId, eventId, workstationId, , , , key, owner] = v, old = locks.get(key);
+      if (!valid(hash, userId, eventId) || sessions.get(hash).user.workstation_id !== workstationId || !old || old.user_id !== owner || Date.parse(old.expires_at) <= now) return [];
       return renewed(key, owner, old.username);
     }
     if (q.includes('SELECT username, heartbeat_at')) {
@@ -110,20 +113,22 @@ test('forged client identity is ignored; server owner is bound to session and in
   const body = await response.json();
   assert.equal(body.lock.username, 'louka');
   assert.doesNotMatch(JSON.stringify(body), /sessionHash|userId|fake|v2:/);
-  assert.ok(h.locks.get('v2:event-a').user_id.includes(digest('a'.repeat(64))));
+  assert.ok(h.locks.get(lockKey('event-a')).user_id.includes(digest('a'.repeat(64))));
   assert.equal((await h.api.POST(h.request('heartbeat', { token: 'b' }))).status, 409);
   await h.api.POST(h.request('release', { token: 'b', userId: 'louka-fixture' }));
   assert.equal(h.locks.size, 1);
 });
 
-test('cashier is restricted to assigned stable event; admin must select an existing event', async () => {
+test('cashier and operational admin use only their server-assigned stable event', async () => {
   const h = fixture();
   assert.equal((await h.api.POST(h.request('acquire', { eventId: 'event-b' }))).status, 403);
   assert.equal((await h.api.POST(h.request('acquire', { token: 'c', eventId: 'missing' }))).status, 403);
   assert.equal((await h.api.POST(h.request('acquire', { token: 'c', eventId: '' }))).status, 403);
+  h.users.get('c').cashier_event_id = 'event-b';
   assert.equal((await h.api.POST(h.request('acquire', { token: 'c', eventId: 'event-b' }))).status, 200);
   assert.equal((await h.api.POST(h.request('acquire'))).status, 200);
   assert.equal(h.locks.size, 2, 'Identically named events have distinct ID keys');
+  h.users.get('c').cashier_event_id = 'event-a';
   assert.equal((await h.api.POST(h.request('acquire', { token: 'c' }))).status, 423, 'No admin takeover');
   h.users.get('a').cashier_event_id = null;
   assert.equal((await h.api.POST(h.request('acquire'))).status, 403);
@@ -159,7 +164,7 @@ for (const newHolder of [false, true]) {
     if (newHolder) {
       assert.equal(body.error, 'cashier_locked');
       assert.equal(body.lock.username, 'cem');
-      assert.equal(h.locks.get('v2:event-a').username, 'cem');
+      assert.equal(h.locks.get(lockKey('event-a')).username, 'cem');
     } else {
       assert.equal(body.ok, true);
       assert.equal(body.lock.username, 'louka');
@@ -183,22 +188,23 @@ test('release permits immediate handover; a late release or heartbeat cannot del
   const h = fixture(); await h.api.POST(h.request());
   await h.api.POST(h.request('release'));
   assert.equal((await h.api.POST(h.request('acquire', { token: 'b', instanceId: instanceB }))).status, 200);
-  const owner = h.locks.get('v2:event-a').user_id;
+  const owner = h.locks.get(lockKey('event-a')).user_id;
   await h.api.POST(h.request('release'));
   assert.equal((await h.api.POST(h.request('heartbeat'))).status, 409);
   assert.equal((await h.api.POST(h.request())).status, 423);
-  assert.equal(h.locks.get('v2:event-a').user_id, owner);
+  assert.equal(h.locks.get(lockKey('event-a')).user_id, owner);
 });
 
 test('logout revokes before lease cleanup, preserves other sessions and prevents late recreation', async () => {
   const h = fixture();
   await h.api.POST(h.request());
+  h.users.get('c').cashier_event_id = 'event-b';
   await h.api.POST(h.request('acquire', { token: 'c', eventId: 'event-b' }));
   const response = await h.staff.DELETE(new Request('https://afro.test/api/staff/session', { method: 'DELETE', headers: { origin: 'https://afro.test', cookie: `af_staff_session=${'a'.repeat(64)}` } }));
   assert.equal(response.status, 200);
   assert.equal(h.session('a').revoked, true);
-  assert.equal(h.locks.has('v2:event-a'), false);
-  assert.equal(h.locks.has('v2:event-b'), true);
+  assert.equal(h.locks.has(lockKey('event-a')), false);
+  assert.equal(h.locks.has(lockKey('event-b')), true);
   assert.ok(h.queries.findIndex(q => q.includes('UPDATE staff_sessions')) < h.queries.findIndex(q => q.includes('split_part')));
   for (const action of ['acquire', 'heartbeat']) assert.equal((await h.api.POST(h.request(action))).status, 401);
   assert.equal((await h.api.POST(h.request('acquire', { token: 'b' }))).status, 200);
@@ -211,9 +217,9 @@ test('a session revoked between HTTP authorization and the write cannot acquire 
   assert.equal(h.locks.size, 0);
   const other = fixture();
   await other.api.POST(other.request());
-  const expiry = other.locks.get('v2:event-a').expires_at;
+  const expiry = other.locks.get(lockKey('event-a')).expires_at;
   other.advance(30000);
   other.afterAuth(() => { other.session('a').revoked = true; });
   assert.notEqual((await other.api.POST(other.request('heartbeat'))).status, 200);
-  assert.equal(other.locks.get('v2:event-a').expires_at, expiry);
+  assert.equal(other.locks.get(lockKey('event-a')).expires_at, expiry);
 });

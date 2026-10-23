@@ -247,11 +247,11 @@ test('CardPayment exposes explicit cancel, then only retry cancellation, then ne
 
 test('manual page reload resumes cancellation only, then allows a new sale after canceled',async()=>{
   const h=setup();h.row.pos_card_state='cancel_requested';
-  const session={userId:context.userId,username:context.username,role:'cashier',cashierEventId:context.eventId};
+  const session={userId:context.userId,username:context.username,role:'cashier',cashierEventId:context.eventId,workstationId:'11111111-1111-4111-8111-111111111111',workstationType:'cashier'};
   const card=load('src/lib/pos-card.ts');
-  const attempt={key:'local-key',orderId:h.row.id,eventId:context.eventId,eventName:h.row.event_name,userId:context.userId,username:context.username,role:'cashier',items:h.row.items,amountCents:5000,createdAt:Date.now(),cancelRequested:true};
+  const attempt={workstationId:'11111111-1111-4111-8111-111111111111',key:'local-key',orderId:h.row.id,eventId:context.eventId,eventName:h.row.event_name,userId:context.userId,username:context.username,role:'cashier',items:h.row.items,amountCents:5000,createdAt:Date.now(),cancelRequested:true};
   attempt.fingerprint=await card.makeCardFingerprint(attempt);
-  const key=card.cardAttemptKey('af_pos_cart_v1:local-user:local-event');
+  const key=card.cardAttemptKey('af_pos_cart_v1:local-user:local-event:11111111-1111-4111-8111-111111111111');
   const storage=new Map([[key,JSON.stringify(attempt)]]),calls=[];
   const previous=Object.fromEntries(['window','localStorage','fetch'].map(k=>[k,Object.getOwnPropertyDescriptor(globalThis,k)]));
   const settle=async()=>{for(let n=0;n<10;n++)await new Promise(resolve=>setImmediate(resolve));};

@@ -1,3 +1,5 @@
+import { cashierLeaseGuard } from "@/lib/cashier-locks";
+import type { CashierWriteContext } from "@/lib/cashier-write-context";
 import { AVAILABILITY_LOCK } from "@/lib/quantity-policy";
 import { sql } from "@/lib/db";
 import { ensureMenuSettingsSchema } from "@/lib/menu-settings";
@@ -11,7 +13,7 @@ type SalePayment =
 // Shared with administrative availability writes. The first statement takes
 // the transaction lock; subsequent statements get a fresh READ COMMITTED
 // snapshot after any preceding sale/admin transaction has committed.
-export async function finalizeSale(orderId: string, payment: SalePayment) {
+export async function finalizeSale(orderId: string, payment: SalePayment, context?: CashierWriteContext) {
   await ensureMenuSettingsSchema();
   const isCard = payment.payment === "card";
   const received = payment.payment === "cash" ? payment.received ?? null : null;
@@ -19,12 +21,17 @@ export async function finalizeSale(orderId: string, payment: SalePayment) {
   const amount = isCard ? payment.amountReceived : null;
   const currency = isCard ? payment.currency : null;
   const results = await sql.transaction([
+    ...(context ? [cashierLeaseGuard(context)] : []),
     sql`SELECT pg_advisory_xact_lock(hashtextextended(${AVAILABILITY_LOCK}, 0))`,
     sql`
       WITH candidate AS MATERIALIZED (
         SELECT * FROM orders WHERE id = ${orderId} FOR UPDATE
       ), changed AS (
         UPDATE orders o SET
+          paid_by = CASE WHEN ${isCard} THEN o.paid_by ELSE ${context?.userId || null} END,
+          paid_by_username = CASE WHEN ${isCard} THEN o.paid_by_username ELSE ${context?.username || null} END,
+          paid_register_id = CASE WHEN ${isCard} THEN o.paid_register_id ELSE ${context?.workstationId || null} END,
+          paid_register_name = CASE WHEN ${isCard} THEN o.paid_register_name ELSE ${context?.workstationName || null} END,
           status = 'NEW', paid_at = COALESCE(o.paid_at, NOW()),
           payment_provider = CASE WHEN ${isCard} THEN 'stripe' ELSE o.payment_provider END,
           payment_error = NULL,
@@ -68,5 +75,5 @@ export async function finalizeSale(orderId: string, payment: SalePayment) {
     `,
     sql`SELECT * FROM orders WHERE id = ${orderId} LIMIT 1`,
   ], { isolationLevel: "ReadCommitted" });
-  return { changed: results[1].length > 0, order: results[2][0] as OrderRow | undefined };
+  return { changed: results[context ? 2 : 1].length > 0, order: results[context ? 3 : 2][0] as OrderRow | undefined };
 }

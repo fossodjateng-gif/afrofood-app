@@ -6,7 +6,7 @@ const {load}=require('./ui-harness.cjs');
 const {backend}=require('./card-backend-harness.cjs');
 const card=load('src/lib/pos-card.ts');
 async function attempt(items=[{id:'meal',name:'Forged',price:0.01,qty:1}]){
-  const value={key:randomUUID(),userId:'user-a',username:'kasse',role:'cashier',eventId:'event-a',eventName:'Forged event',items,amountCents:1,createdAt:Date.now()};
+  const value={key:randomUUID(),workstationId:'11111111-1111-4111-8111-111111111111',userId:'user-a',username:'kasse',role:'cashier',eventId:'event-a',eventName:'Forged event',items,amountCents:1,createdAt:Date.now()};
   value.fingerprint=await card.makeCardFingerprint(value);return value;
 }
 const payload=sale=>({method:'POST',headers:{'x-staff-role':'cashier'},body:JSON.stringify({...sale,posCardKey:sale.key,payment:'card'})});

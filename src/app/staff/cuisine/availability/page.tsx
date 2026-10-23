@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { clearSession, getSession, getStaffRoleLabel, type StaffRole, updateSessionCashierEventId } from "@/lib/staff-auth";
+import { clearSession, getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { goBackOr } from "@/lib/client-nav";
 
@@ -112,10 +112,7 @@ function AvailabilityPageContent() {
         const res = await fetch("/api/menu-config", { cache: "no-store" });
         const data = await res.json().catch(() => null);
         const events = Array.isArray(data?.storeConfig?.events) ? (data.storeConfig.events as EventOption[]) : [];
-        if (!nextEventId) {
-          nextEventId = String(data?.storeConfig?.activeEventId || "").trim() || String(events[0]?.id || "").trim();
-          if (nextEventId) updateSessionCashierEventId(nextEventId);
-        }
+        if (!nextEventId && session.role !== "admin") throw new Error("workstation_assignment_required");
         const match = events.find((event) => String(event.id || "").trim() === nextEventId);
         if (!alive) return;
         setEventId(nextEventId);

@@ -1,3 +1,5 @@
+import { canAccessStaffEvent } from "@/lib/staff-permissions";
+import { requireCashierWrite } from "@/lib/cashier-write-context";
 import { makeNextOrderId } from "@/lib/order-number";
 import { createPosCashOrder } from "@/lib/pos-cash-server";
 import { createPosCardOrder } from "@/lib/pos-card-server";
@@ -7,8 +9,8 @@ import { publishOrderEvent } from "@/lib/order-events";
 import { getPaymentConfig, getResolvedMenuSections, getStoreConfig } from "@/lib/menu-settings";
 import { calculateOrderTotalCents } from "@/lib/pricing";
 import { ensureOrdersSchema } from "@/lib/orders-schema";
-import { cashRegisterActor, recordCashRegisterRequest } from "@/lib/staff-action-server";
-import { StaffAuthError } from "@/lib/staff-session-server";
+import { recordCashRegisterRequest } from "@/lib/staff-action-server";
+import { requireStaffSession, StaffAuthError } from "@/lib/staff-session-server";
 
 type PaymentMethod = "cash" | "card" | "cashless";
 type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE" | "CANCELED";
@@ -34,6 +36,9 @@ export async function GET(req: Request) {
     const statusParam = (searchParams.get("status") || "").toUpperCase();
     const idParam = String(searchParams.get("id") || "").trim();
 
+    const staff = !idParam || req.headers.get("cookie")?.includes("af_staff_session=") ? await requireStaffSession(req) : null;
+    const requestedEvent = searchParams.get("eventId");
+    if (staff && requestedEvent && !canAccessStaffEvent(staff, requestedEvent)) throw new StaffAuthError("staff_event_forbidden", 403);
     let rows;
     if (idParam && statusParam) {
       if (!VALID_STATUSES.has(statusParam as OrderStatus)) {
@@ -58,7 +63,7 @@ export async function GET(req: Request) {
         return NextResponse.json({ ok: false, error: "Invalid status" }, { status: 400 });
       }
 
-      const eventIdParam = String(searchParams.get("eventId") || "").trim();
+      const eventIdParam = String(searchParams.get("eventId") || (staff?.role !== "admin" ? staff?.cashierEventId : "") || "").trim();
       rows = eventIdParam
         ? await sql`
             SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, pos_card_state, UPPER(status) AS status, items
@@ -74,7 +79,7 @@ export async function GET(req: Request) {
             ORDER BY created_at DESC
           `;
     } else {
-      const eventIdParam = String(searchParams.get("eventId") || "").trim();
+      const eventIdParam = String(searchParams.get("eventId") || (staff?.role !== "admin" ? staff?.cashierEventId : "") || "").trim();
       rows = eventIdParam
         ? await sql`
             SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, pos_card_state, UPPER(status) AS status, items
@@ -89,8 +94,10 @@ export async function GET(req: Request) {
           `;
     }
 
+    if (staff && rows.some(row => !canAccessStaffEvent(staff, String(row.event_id || "")))) throw new StaffAuthError("staff_event_forbidden", 403);
     return NextResponse.json(rows);
   } catch (e: unknown) {
+    if (e instanceof StaffAuthError) return NextResponse.json({ ok: false, error: e.code }, { status: e.status });
     return NextResponse.json(
       { ok: false, error: getErrorMessage(e) },
       { status: 500 }
@@ -139,25 +146,27 @@ export async function POST(req: Request) {
     }
 
     if (body.posCardKey !== undefined) {
-      const actor = await cashRegisterActor(req, eventId || "");
+      const context = await requireCashierWrite(req, eventId || "", body.workstationId);
+      const actor = { id: context.userId, username: context.username };
       const userId = actor.id;
       const username = actor.username;
       if (body.posCashKey !== undefined || payment !== "card" || !eventId || !userId || !username || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(String(body.posCardKey)) || !/^[a-f0-9]{64}$/.test(String(body.fingerprint)) || items.some((item) => !item || typeof item.id !== "string" || !item.id || !Number.isSafeInteger(item.qty) || item.qty <= 0)) {
         return NextResponse.json({ ok: false, error: "Invalid POS card request" }, { status: 400 });
       }
       await recordCashRegisterRequest(actor.id, "pos_card_order_requested", eventId, null);
-      return await createPosCardOrder({ key: String(body.posCardKey), fingerprint: String(body.fingerprint), userId, username, eventId, items });
+      return await createPosCardOrder({ key: String(body.posCardKey), fingerprint: String(body.fingerprint), userId, username, eventId, items, workstationId: context.workstationId, context });
     }
 
     if (body.posCashKey !== undefined) {
-      const actor = await cashRegisterActor(req, eventId || "");
+      const context = await requireCashierWrite(req, eventId || "", body.workstationId);
+      const actor = { id: context.userId, username: context.username };
       if (payment !== "cash" || !eventId || !/^[a-f0-9-]{36}$/i.test(String(body.posCashKey))) {
         return NextResponse.json({ ok: false, error: "Invalid POS cash request" }, { status: 400 });
       }
       const event = (await getStoreConfig()).events.find((entry) => entry.id === eventId);
       if (!event) return NextResponse.json({ ok: false, error: "Unknown POS event" }, { status: 400 });
       await recordCashRegisterRequest(actor.id, "pos_cash_order_requested", eventId, null);
-      return await createPosCashOrder({ key: String(body.posCashKey), eventId, eventName: event.name, items, actor });
+      return await createPosCashOrder({ key: String(body.posCashKey), eventId, eventName: event.name, items, actor, context });
     }
 
     const paymentConfig = await getPaymentConfig(eventId || undefined);

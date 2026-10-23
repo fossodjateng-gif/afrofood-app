@@ -20,6 +20,9 @@ export type StaffSession = {
   username: string;
   role: StaffRole;
   cashierEventId?: string;
+  workstationId?: string;
+  workstationName?: string;
+  workstationType?: "cashier" | "kitchen";
   loggedAt: string;
 };
 
@@ -101,8 +104,8 @@ function resetTapSetupProgress(userId: string) {
 
 // Display cache only. Every sensitive API authenticates the HttpOnly cookie.
 let verifiedSession: StaffSession | null = null;
-function sessionFromUser(user: { id: string; username: string; role: StaffRole; cashierEventId?: string | null }): StaffSession {
-  return { userId: user.id, username: user.username, role: user.role, cashierEventId: user.cashierEventId || undefined, loggedAt: nowIso() };
+function sessionFromUser(user: { id: string; username: string; role: StaffRole; cashierEventId?: string | null; workstationId?: string | null; workstationName?: string | null; workstationType?: "cashier" | "kitchen" | null }): StaffSession {
+  return { userId: user.id, username: user.username, role: user.role, cashierEventId: user.cashierEventId || undefined, workstationId: user.workstationId || undefined, workstationName: user.workstationName || undefined, workstationType: user.workstationType || undefined, loggedAt: nowIso() };
 }
 export async function refreshStaffSession(): Promise<StaffSession | null> {
   const response = await fetch("/api/staff/session", { cache: "no-store" });
@@ -116,6 +119,13 @@ export function getSession(): StaffSession | null { return verifiedSession; }
 export function staffFetch(input: RequestInfo | URL, init?: RequestInit) {
   const headers = new Headers(init?.headers);
   if (verifiedSession) headers.set("x-staff-user-id", verifiedSession.userId);
+  if (verifiedSession?.workstationId) {
+    headers.set("x-workstation-id", verifiedSession.workstationId);
+    try {
+      const instance = sessionStorage.getItem(`af_cashier_instance_v3:${JSON.stringify([verifiedSession.cashierEventId, verifiedSession.workstationId])}`);
+      if (instance) headers.set("x-cashier-instance-id", instance);
+    } catch { /* Missing tab storage fails closed at the server. */ }
+  }
   return fetch(input, { ...init, headers });
 }
 export async function clearSession() {

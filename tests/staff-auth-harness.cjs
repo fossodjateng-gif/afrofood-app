@@ -5,12 +5,14 @@ let prepared;
 async function staffHarness() {
   prepared ||= Promise.all(['paul', 'marie', 'admin', 'kitchen'].map(async username => ({
     id: username, username, password_hash: await password.hashStaffPassword(`fixture-only-${username}-password`),
-    role: username === 'admin' ? 'admin' : username === 'kitchen' ? 'kitchen' : 'cashier', active: true, cashier_event_id: 'event-x',
+    role: username === 'admin' ? 'admin' : username === 'kitchen' ? 'kitchen' : 'cashier', active: true, cashier_event_id: 'event-x', workstation_id: username === 'kitchen' ? '22222222-2222-4222-8222-222222222222' : '11111111-1111-4111-8111-111111111111',
   })));
   const users = new Map((await prepared).map(user => [user.id, { ...user }]));
   const sessions = new Map(), limits = new Map(), audits = [];
   const sql = async (strings, ...v) => {
     const q = strings.join('');
+    if (q.includes('SELECT setting_value FROM app_settings')) return [{setting_value:{events:[{id:'event-x'},{id:'event-a'},{id:'event-b'},{id:'event-other'}],cashier:[{id:'11111111-1111-4111-8111-111111111111',name:'Caisse 1',type:'cashier',active:true}],kitchen:[{id:'22222222-2222-4222-8222-222222222222',name:'Cuisine 1',type:'kitchen',active:true}]}}];
+    if (q.includes('af_assert_cashier_lease')) return [{authorized:true}];
     if (q.includes('INSERT INTO staff_login_limits')) { const count = (limits.get(v[0]) || 0) + 1;limits.set(v[0], count);return [{ attempts: count }]; }
     if (q.includes('WHERE username =')) return [...users.values()].filter(user => user.username === v[0]);
     if (q.includes('INSERT INTO staff_sessions')) { sessions.set(v[0], { user_id: v[1], expires_at: Date.now() + 7200000, revoked_at: null });return []; }

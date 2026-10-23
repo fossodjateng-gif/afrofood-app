@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import type { OrderRow } from "@/lib/schema";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { getSession, getStaffRoleLabel, type StaffRole, updateSessionCashierEventId } from "@/lib/staff-auth";
+import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 
 const CAISSE_EVENT_ID_KEY = "af_caisse_event_id";
@@ -72,6 +72,7 @@ function ScreenPageContent() {
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
   const [assignedEventId, setAssignedEventId] = useState("");
   const [eventContextReady, setEventContextReady] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
   const refreshRequestRef = useRef<AbortController | null>(null);
   const t = UI_TEXT[lang];
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
@@ -91,12 +92,13 @@ function ScreenPageContent() {
       setIsRefreshing(true);
       const eventFilter = assignedEventId ? `&eventId=${encodeURIComponent(assignedEventId)}` : "";
       const [preparingRes, readyRes] = await Promise.all([
-        fetch(`/api/orders?status=NEW${eventFilter}`, { cache: "no-store", signal: controller.signal }),
-        fetch(`/api/orders?status=READY${eventFilter}`, { cache: "no-store", signal: controller.signal }),
+        fetch(`/api/staff/orders?status=NEW${eventFilter}`, { cache: "no-store", signal: controller.signal }),
+        fetch(`/api/staff/orders?status=READY${eventFilter}`, { cache: "no-store", signal: controller.signal }),
       ]);
 
       const preparingData = await preparingRes.json();
       const readyData = await readyRes.json();
+      if (!preparingRes.ok || !readyRes.ok) throw new Error(preparingData?.error || readyData?.error || "staff_orders_unavailable");
 
       if (controller.signal.aborted) return;
       setOrderResult({
@@ -107,7 +109,7 @@ function ScreenPageContent() {
       setJustRefreshed(true);
       window.setTimeout(() => setJustRefreshed(false), 1200);
     } catch (error) {
-      if (!controller.signal.aborted) throw error;
+      if (!controller.signal.aborted) { setOrderResult(null); setAccessError(error instanceof Error ? error.message : "staff_orders_unavailable"); }
     } finally {
       if (!controller.signal.aborted) {
         setIsRefreshing(false);
@@ -145,16 +147,8 @@ function ScreenPageContent() {
         return;
       }
 
-      let nextEventId = String(s.cashierEventId || "").trim();
-      if (!nextEventId) {
-        try {
-          const res = await fetch("/api/menu-config", { cache: "no-store" });
-          const data = await res.json().catch(() => null);
-          const events = Array.isArray(data?.storeConfig?.events) ? data.storeConfig.events : [];
-          nextEventId = String(data?.storeConfig?.activeEventId || "").trim() || String(events[0]?.id || "").trim();
-          if (nextEventId) updateSessionCashierEventId(nextEventId);
-        } catch {}
-      }
+      const nextEventId = String(s.cashierEventId || "").trim();
+      if (!nextEventId || !s.workstationId) throw new Error("workstation_assignment_required");
 
       if (!alive) return;
       setAssignedEventId(nextEventId);
@@ -162,7 +156,7 @@ function ScreenPageContent() {
 
     void boot().then(() => {
       if (alive) setEventContextReady(true);
-    });
+    }).catch((error: unknown) => { if (alive) setAccessError(error instanceof Error ? error.message : "workstation_assignment_invalid"); });
     return () => {
       alive = false;
     };
@@ -182,7 +176,7 @@ function ScreenPageContent() {
       ) {
         refresh();
       }
-    });
+    }, true);
   }, [refresh]);
 
   return (
@@ -232,8 +226,9 @@ function ScreenPageContent() {
         ))}
         {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
       </div>
-      <h1 style={{ margin: "10px 0 0 0", fontSize: 32, fontWeight: 900 }}>{t.title}</h1>
+      <h1 style={{ margin: "10px 0 0 0", fontSize: 32, fontWeight: 900 }}>{t.title} · {getSession()?.workstationName || ""}</h1>
       <p style={{ marginTop: 6, opacity: 0.8 }}>{t.subtitle}</p>
+      {accessError ? <p role="alert">{accessError}</p> : null}
 
       <button
         className="af-btn"

@@ -1,4 +1,5 @@
 export type CardIdentity = {
+  workstationId?: string;
   userId: string;
   username: string;
   eventId: string;
@@ -9,6 +10,7 @@ export type CardIdentity = {
 export function cardIdentityPayload(input: CardIdentity) {
   return JSON.stringify({
     userId: input.userId, username: input.username.trim().toLowerCase(), eventId: input.eventId,
+    ...(input.workstationId ? { workstationId: input.workstationId } : {}),
     items: input.items.map(({ id, qty }) => ({ id, qty })),
   });
 }

@@ -12,7 +12,7 @@ function backend() {
   const paid = row => row?.payment_provider === 'stripe' && row.paid_at && ['NEW', 'IN_PROGRESS', 'READY', 'DONE'].includes(row.status);
   const baseSql = async (strings, ...v) => {
     const q = strings.join('');
-    if (/CREATE |ALTER /.test(q)) return [];
+    if (/CREATE |ALTER /.test(q) || q.includes('af_assert_cashier_lease')) return [];
     if (q.includes('WHERE id LIKE')) return [...orders.values()].filter(row => row.id.startsWith(v[0].slice(0, -1))).sort((a,b) => b.id.localeCompare(a.id)).slice(0,1).map(row => ({ id: row.id }));
     if (q.includes('WHERE pos_card_key')) return copy([...orders.values()].find(row => row.pos_card_key === v[0]));
     if (q.includes('INSERT INTO orders')) {
@@ -81,7 +81,9 @@ function backend() {
   const sql = require('./sale-transaction-harness.cjs').transactionalSql(baseSql, {
     orders, settings, mailboxes, beforeCommit:()=>hooks.beforeCommit?.(), onApplied: () => { consumed++;consumeCalls++; },
   });
-  const mocks={ ...require('./staff-test-mocks.cjs').legacyStaffMocks,
+  const legacy = require('./staff-test-mocks.cjs').legacyStaffMocks;
+  const mocks={ ...legacy,
+    '@/lib/cashier-write-context': { ...legacy['@/lib/cashier-write-context'], reserveCardCashier: async (id,c) => { const row=orders.get(id); if(row) Object.assign(row,{paid_by:row.paid_by||c.userId,paid_register_id:row.paid_register_id||c.workstationId}); } },
     'next/server':{NextResponse:{json:(body,init)=>Response.json(body,init)}},
     '@/lib/db':{sql},'@/lib/orders-schema':{ensureOrdersSchema:async()=>{}},
     '@/lib/order-events':{publishOrderEvent:event=>events.push(event)},
@@ -117,12 +119,12 @@ function backend() {
   const post=load('src/app/api/orders/route.ts',mocks,cache), pi=load('src/app/api/stripe/terminal/payment-intent/route.ts',mocks,cache), terminal=load('src/app/api/terminal-active-order/route.ts',mocks,cache), webhook=load('src/app/api/stripe/webhook/route.ts',mocks,cache), status=load('src/app/api/orders/[id]/status/route.ts',mocks,cache);
   const cancel=load('src/app/api/orders/[id]/cancel-card-payment/route.ts',mocks,cache),fallback=load('src/app/api/orders/[id]/stripe-confirm/route.ts',mocks,cache);
   const request=async(url,options={})=>{
-    const req=new Request('http://localhost'+url,options); req.testActor=JSON.parse(options.body || '{}');
+    const req=new Request('http://localhost'+url,options); const body=JSON.parse(options.body || '{}'), target=orders.get(body.orderId); req.testActor={...(target?{userId:target.pos_card_user_id,username:target.pos_card_username,eventId:target.event_id}:{}),...body};
     if(url.startsWith('/api/orders?'))return post.GET(req);
     if(url==='/api/orders')return post.POST(req);
     if(url==='/api/stripe/terminal/payment-intent')return pi.POST(req);
     if(url==='/api/terminal-active-order')return terminal.POST(req);
-    if(url.startsWith('/api/terminal-active-order?'))return terminal.GET(req);
+    if(url.startsWith('/api/terminal-active-order?')) { const name=new URL('http://localhost'+url).searchParams.get('username'); req.testActor={userId:[...orders.values()].find(o=>o.pos_card_username===name)?.pos_card_user_id,username:name,eventId:'event-a'}; return terminal.GET(req); }
     if(url.endsWith('/cancel-card-payment'))return cancel.POST(req,{params:Promise.resolve({id:url.split('/')[3]})});
     if(url.endsWith('/stripe-confirm'))return fallback.PATCH(req,{params:Promise.resolve({id:url.split('/')[3]})});
     if(url.endsWith('/status'))return status.PATCH(req,{params:Promise.resolve({id:url.split('/')[3]})});

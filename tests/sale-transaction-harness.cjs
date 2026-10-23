@@ -26,7 +26,7 @@ function transactionalSql(base, state) {
             assert.match(q, /previous_quantity_applied IS FALSE/);
             assert.match(q, /GREATEST\(0::numeric/);
             const row = [...state.orders.values()].find(row => row.id === v[0]);
-            const method = v[6], received = v[2], pi = v[8], amount = v[9], currency = v[10];
+            const method = v[14], received = v[10], pi = v[16], amount = v[17], currency = v[18];
             const valid = row && row.status === 'PENDING_PAYMENT' && !row.paid_at && row.payment === method
               && (!row.pos_card_key || row.pos_card_state === 'ready' || (method === 'card' && row.pos_card_state === 'cancel_requested')) && (!row.pos_cash_key || row.pos_cash_state === 'ready')
               && (method !== 'card' || (row.stripe_payment_intent_id === pi && row.amount_cents === amount && row.currency === currency))
@@ -46,6 +46,7 @@ function transactionalSql(base, state) {
               row.quantity_applied = true;applied = true;
             }
             if(row.pos_card_state === 'cancel_requested')row.pos_card_state='ready';
+            if (method !== 'card') Object.assign(row, {paid_by:v[2],paid_by_username:v[4],paid_register_id:v[6],paid_register_name:v[8]});
             row.status = 'NEW';row.paid_at = new Date().toISOString();row.payment_error = null;
             if (method === 'card') row.payment_provider = 'stripe';
             if (received !== null) { row.cash_received_cents = received;row.change_given_cents = received - row.amount_cents; }
@@ -59,7 +60,7 @@ function transactionalSql(base, state) {
             const row = [...state.orders.values()].find(row => row.id === v[0]);results.push(row ? [structuredClone(row)] : []);
           } else results.push(await base(strings, ...v));
         }
-        state.beforeCommit?.();
+        if (!queries.some(q => q.query.includes('INSERT INTO orders'))) state.beforeCommit?.();
         if (applied) state.onApplied?.();
         return results;
       } catch (error) {

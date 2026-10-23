@@ -1,3 +1,5 @@
+import { cashierLeaseGuard } from "@/lib/cashier-locks";
+import type { CashierWriteContext } from "@/lib/cashier-write-context";
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
@@ -15,7 +17,7 @@ function result(row: CardRow, fingerprint: string) {
   return NextResponse.json({ ok: true, order: { id: row.id, eventId: row.event_id, eventName: row.event_name, items: row.items, amountCents: row.amount_cents, payment: "card", status: row.status }, fingerprint });
 }
 
-export async function createPosCardOrder(input: CardIdentity & { key: string; fingerprint: string }) {
+export async function createPosCardOrder(input: CardIdentity & { key: string; fingerprint: string; context: CashierWriteContext }) {
   const fingerprint = createHash("sha256").update(cardIdentityPayload(input)).digest("hex");
   if (input.fingerprint !== fingerprint) return NextResponse.json({ ok: false, error: "Invalid card fingerprint" }, { status: 400 });
   const existing = await sql`SELECT * FROM orders WHERE pos_card_key = ${input.key} LIMIT 1`;
@@ -39,11 +41,12 @@ export async function createPosCardOrder(input: CardIdentity & { key: string; fi
   let claimed = false;
   for (let attempt = 0; attempt < 5; attempt++) {
     id = await makeNextOrderId();
-    const rows = await sql`
-      INSERT INTO orders (id, event_id, event_name, payment, amount_cents, currency, status, items, pos_card_key, pos_card_fingerprint, pos_card_state, pos_card_user_id, pos_card_username, quantity_applied)
-      VALUES (${id}, ${event.id}, ${event.name}, 'card', ${amount}, 'eur', 'PENDING_PAYMENT', ${JSON.stringify(items)}::jsonb, ${input.key}, ${fingerprint}, 'creating', ${input.userId}, ${input.username.trim().toLowerCase()}, FALSE)
+    const claim = await sql.transaction([cashierLeaseGuard(input.context), sql`
+      INSERT INTO orders (id, event_id, event_name, payment, amount_cents, currency, status, items, pos_card_key, pos_card_fingerprint, pos_card_state, pos_card_user_id, pos_card_username, quantity_applied, created_by, created_by_username, register_id, register_name)
+      VALUES (${id}, ${event.id}, ${event.name}, 'card', ${amount}, 'eur', 'PENDING_PAYMENT', ${JSON.stringify(items)}::jsonb, ${input.key}, ${fingerprint}, 'creating', ${input.userId}, ${input.username.trim().toLowerCase()}, FALSE, ${input.userId}, ${input.username}, ${input.context.workstationId}, ${input.context.workstationName})
       ON CONFLICT DO NOTHING RETURNING *
-    `;
+    `], { isolationLevel: "ReadCommitted" });
+    const rows = claim[1];
     if (rows.length) { claimed = true; break; }
     const existing = await sql`SELECT * FROM orders WHERE pos_card_key = ${input.key} LIMIT 1`;
     if (existing.length) return result(existing[0] as CardRow, fingerprint);

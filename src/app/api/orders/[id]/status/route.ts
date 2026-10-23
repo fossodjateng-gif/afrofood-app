@@ -1,6 +1,7 @@
+import { requireCashierWrite } from "@/lib/cashier-write-context";
 import { ensureOrdersSchema } from "@/lib/orders-schema";
 import { NextResponse } from "next/server";
-import { requireStaffSession, requireStaffOrigin, StaffAuthError } from "@/lib/staff-session-server";
+import { requireStaffWorkstation, requireStaffOrigin, staffSessionHash, StaffAuthError } from "@/lib/staff-session-server";
 import { canAccessStaffEvent, canUseCashRegister } from "@/lib/staff-permissions";
 import { recordCashRegisterRequest } from "@/lib/staff-action-server";
 import { sql } from "@/lib/db";
@@ -36,7 +37,7 @@ export async function PATCH(
     }
 
     requireStaffOrigin(req);
-    const actor = await requireStaffSession(req);
+    const actor = await requireStaffWorkstation(req);
     const displayedActor = req.headers.get("x-staff-user-id");
     if (displayedActor && displayedActor !== actor.id) throw new StaffAuthError("cashier_changed", 409);
     await ensureOrdersSchema();
@@ -63,6 +64,7 @@ export async function PATCH(
       event_id?: string | null;
       items?: Array<{ id?: string; qty?: number }>;
     };
+    const paymentContext = status === "NEW" ? await requireCashierWrite(req, previousRow.event_id || "", body.workstationId) : undefined;
     const previousStatus = String(previousRow.status || "");
     const payment = String(previousRow.payment || "").toLowerCase();
     if (!canAccessStaffEvent(actor, previousRow.event_id || "") || ((status === "NEW" || status === "CANCELED") && !canUseCashRegister(actor))) throw new StaffAuthError("cash_register_forbidden", 403);
@@ -86,7 +88,7 @@ export async function PATCH(
         return NextResponse.json({ ok: true, order: paid[0] });
       }
       if (previousStatus !== "PENDING_PAYMENT") return NextResponse.json({ ok: false, error: "Order is not awaiting cash payment" }, { status: 409 });
-      const finalized = await finalizeSale(id, { payment: "cash", received });
+      const finalized = await finalizeSale(id, { payment: "cash", received }, paymentContext);
       if (!finalized.changed) {
         if (finalized.order?.cash_received_cents != null) return NextResponse.json({ ok: true, order: finalized.order });
         return NextResponse.json({ ok: false, error: "Order changed during confirmation" }, { status: 409 });
@@ -107,7 +109,7 @@ export async function PATCH(
     }
 
     if (status === "NEW" && (payment === "cash" || payment === "cashless")) {
-      const finalized = await finalizeSale(id, { payment });
+      const finalized = await finalizeSale(id, { payment }, paymentContext);
       if (finalized.changed) {
         publishOrderEvent({ type: "ORDER_STATUS_CHANGED", orderId: id, at: Date.now(), status: "NEW", previousStatus });
         publishOrderEvent({ type: "PAYMENT_VALIDATED", orderId: id, at: Date.now(), status: "NEW", previousStatus });
@@ -122,12 +124,15 @@ export async function PATCH(
       return NextResponse.json({ ok: false, error: "Invalid order transition" }, { status: 409 });
     }
 
-    const rows = await sql`
+    const transition = await sql.transaction([
+      sql`SELECT af_assert_staff_assignment(${staffSessionHash(req)}, ${actor.id}, ${previousRow.event_id || ""}, ${actor.workstationId || null})`,
+      sql`
       UPDATE orders
       SET status = ${status}
       WHERE id = ${id} AND UPPER(status) = ${previousStatus}
       RETURNING id, created_at, customer_name, payment, UPPER(status) AS status, items
-    `;
+    `], { isolationLevel: "ReadCommitted" });
+    const rows = transition[1];
 
     if (!rows || rows.length === 0) {
       return NextResponse.json({ ok: false, error: "Order not found" }, { status: 404 });

@@ -84,7 +84,7 @@ test('prefixed POS card ID survives preparation, native API lookup and signed we
   await withNamespace('POSCARDTEST', async () => {
     const db = backend();
     const card = load('src/lib/pos-card.ts');
-    const sale = { key: crypto.randomUUID(), userId: 'test-user', username: 'test-terminal', role: 'cashier', eventId: 'event-a', eventName: '', items: [{ id: 'dip-green', qty: 1 }, { id: 'dip-chili', qty: 1 }], amountCents: 100, createdAt: Date.now() };
+    const sale = { key: crypto.randomUUID(), workstationId: '11111111-1111-4111-8111-111111111111', userId: 'test-user', username: 'test-terminal', role: 'cashier', eventId: 'event-a', eventName: '', items: [{ id: 'dip-green', qty: 1 }, { id: 'dip-chili', qty: 1 }], amountCents: 100, createdAt: Date.now() };
     sale.fingerprint = await card.makeCardFingerprint(sale);
     await card.preparePosCard(sale, () => {}, db.request);
     const id = 'POSCARDTEST-20261008-001';

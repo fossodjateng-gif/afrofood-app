@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { sql } from "@/lib/db";
 import { releaseCashierSessionLocks } from "@/lib/cashier-locks";
 import { canAccessStaffEvent, canUseCashRegister, type AuthenticatedStaff } from "@/lib/staff-permissions";
+import { assignedWorkstation } from "@/lib/workstations-server";
 
 export const STAFF_COOKIE = "af_staff_session";
 export const SESSION_SECONDS = 2 * 60 * 60;
@@ -33,7 +34,7 @@ export async function requireStaffSession(req: Request): Promise<AuthenticatedSt
   const token = cookieToken(req);
   if (!token) throw new StaffAuthError("session_required");
   const rows = await sql`
-    SELECT u.id, u.username, u.role, u.active, u.cashier_event_id
+    SELECT u.id, u.username, u.role, u.active, u.cashier_event_id, u.workstation_id
     FROM staff_sessions s JOIN staff_users u ON u.id = s.user_id
     WHERE s.token_hash = ${tokenHash(token)} AND s.revoked_at IS NULL
       AND s.expires_at > NOW() AND u.active = TRUE
@@ -41,7 +42,24 @@ export async function requireStaffSession(req: Request): Promise<AuthenticatedSt
   `;
   const row = rows[0];
   if (!row || !["admin", "cashier", "kitchen"].includes(String(row.role))) throw new StaffAuthError("session_required");
-  return { id: String(row.id), username: String(row.username), role: row.role as AuthenticatedStaff["role"], active: true, cashierEventId: row.cashier_event_id ? String(row.cashier_event_id) : null };
+  return { id: String(row.id), username: String(row.username), role: row.role as AuthenticatedStaff["role"], active: true,
+    cashierEventId: row.cashier_event_id ? String(row.cashier_event_id) : null, workstationId: row.workstation_id ? String(row.workstation_id) : null };
+
+}
+
+// Operational workstation validation is separate from the common identity guard.
+// Refund keeps its existing role/event authorization independently of workstation setup.
+export async function requireStaffWorkstation(req: Request): Promise<AuthenticatedStaff> {
+  const actor = await requireStaffSession(req);
+  let station;
+  try { station = await assignedWorkstation(actor.role, actor.cashierEventId, actor.workstationId || null); }
+  catch { if (actor.role !== "admin") throw new StaffAuthError("workstation_assignment_invalid", 403); station = null; }
+  return { ...actor, workstationId: station?.id || null, workstationName: station?.name || null, workstationType: station?.type || null };
+}
+export async function requireAssignedCashRegister(req: Request, eventId?: string) {
+  const actor = await requireStaffWorkstation(req);
+  if (!canUseCashRegister(actor) || eventId !== undefined && !canAccessStaffEvent(actor, eventId)) throw new StaffAuthError("cash_register_forbidden", 403);
+  return actor;
 }
 
 // Server-only lease binding; never send this digest to the browser.

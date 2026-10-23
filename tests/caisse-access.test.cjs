@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { harness, findAll } = require('./ui-harness.cjs');
 
-const cashier = { userId: 'cashier-a', username: 'cashier', role: 'cashier', cashierEventId: 'event-a' };
+const cashier = { userId: 'cashier-a', username: 'cashier', role: 'cashier', cashierEventId: 'event-a', workstationId: '22222222-2222-4222-8222-222222222222', workstationType: 'cashier', workstationName: 'Caisse 1' };
 const settle = async () => { for (let n = 0; n < 4; n++) await new Promise(resolve => setImmediate(resolve)); };
 function text(tree) {
   if (tree == null || typeof tree === 'boolean') return '';
@@ -224,17 +224,17 @@ test('bfcache return revalidates the session and same instance before restarting
   const requests = calls.slice(1).map(([, options]) => JSON.parse(options.body));
   assert.deepEqual(requests.map(body => body.action), ['acquire', 'acquire']);
   assert.equal(requests[0].instanceId, requests[1].instanceId);
-  assert.equal(tabStorage.get('af_cashier_instance_v1:event-a'), requests[0].instanceId);
+  assert.equal(tabStorage.get(`af_cashier_instance_v3:${JSON.stringify(['event-a',cashier.workstationId])}`), requests[0].instanceId);
   cleanup();
 });
 
 test('caisse resumes the one-use setup lease with heartbeat instead of acquiring a second instance', async t => {
   const instanceId = '11111111-1111-4111-8111-111111111111';
-  const data = new Map([['af_cashier_lease_handoff_v1', JSON.stringify({ eventId: 'event-a', instanceId })]]);
+  const data = new Map([['af_cashier_lease_handoff_v1', JSON.stringify({ eventId: 'event-a', instanceId, workstationId: cashier.workstationId })]]);
   const { h, run, calls } = fixture(t, { tabStorage: data });
   run(0); await settle(); run(2); await settle(); const cleanup = run(3); await settle();
   assert.equal(h.state.isUnlocked, true);
-  assert.deepEqual(JSON.parse(calls[1][1].body), { action: 'heartbeat', eventId: 'event-a', instanceId });
+  assert.deepEqual(JSON.parse(calls[1][1].body), { action: 'heartbeat', eventId: 'event-a', instanceId, workstationId: cashier.workstationId });
   assert.equal(data.has('af_cashier_lease_handoff_v1'), false);
   cleanup(); await settle();
   assert.equal(calls.length, 2, 'Unmount suspends the handed-off lease without release');
@@ -299,8 +299,8 @@ test('internal navigation followed by a new document resumes the persisted insta
   assert.equal(page.state.isUnlocked, true);
   assert.equal(authChecks.length, 2);
   assert.deepEqual(calls.filter(([, opts]) => opts?.body).map(([, opts]) => JSON.parse(opts.body)), [
-    { action: 'acquire', eventId: 'event-a', instanceId: instance },
-    { action: 'acquire', eventId: 'event-a', instanceId: instance },
+    { action: 'acquire', eventId: 'event-a', instanceId: instance, workstationId: cashier.workstationId },
+    { action: 'acquire', eventId: 'event-a', instanceId: instance, workstationId: cashier.workstationId },
   ]);
   stop(); await settle();
 });
@@ -373,7 +373,7 @@ test('logout followed by a bfcache restoration never revalidates or reactivates 
   listeners.get('pageshow')({ persisted: true }); await settle();
   assert.equal(h.state.isUnlocked, false); assert.equal(intervals.size, 0);
   assert.equal(authChecks.length, 1);
-  assert.equal(tabStorage.has('af_cashier_instance_v1:event-a'), false);
+  assert.equal(tabStorage.has(`af_cashier_instance_v3:${JSON.stringify(['event-a',cashier.workstationId])}`), false);
   assert.deepEqual(calls.filter(([, opts]) => opts?.body).map(([, opts]) => JSON.parse(opts.body).action), ['acquire', 'release']);
   cleanup(); await settle();
 });

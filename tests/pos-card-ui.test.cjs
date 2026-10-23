@@ -4,7 +4,7 @@ const {harness,findAll,load}=require('./ui-harness.cjs');
 const {backend}=require('./card-backend-harness.cjs');
 test('A/B/D/Q/R: actual manual page double click, cash exclusion, waiting, reload, receipt on demand and next sale',async()=>{
  const previous=Object.fromEntries(['window','localStorage','fetch','navigator'].map(k=>[k,Object.getOwnPropertyDescriptor(globalThis,k)]));
- const storage=new Map(),db=backend(),session={userId:'user-a',username:'kasse',role:'cashier',cashierEventId:'event-a'};let prints=0;
+ const storage=new Map(),db=backend(),session={userId:'user-a',username:'kasse',role:'cashier',cashierEventId:'event-a',workstationId:'11111111-1111-4111-8111-111111111111',workstationType:'cashier'};let prints=0;
  const settle=async()=>{for(let n=0;n<8;n++)await new Promise(resolve=>setImmediate(resolve));};
  try{
   globalThis.localStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};

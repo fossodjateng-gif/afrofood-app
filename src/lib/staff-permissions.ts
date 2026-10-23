@@ -2,6 +2,9 @@ export type ServerStaffRole = "admin" | "cashier" | "kitchen";
 export type AuthenticatedStaff = {
   id: string; username: string; role: ServerStaffRole; active: boolean;
   cashierEventId: string | null;
+  workstationId?: string | null;
+  workstationName?: string | null;
+  workstationType?: "cashier" | "kitchen" | null;
 };
 
 export function canUseCashRegister(user: AuthenticatedStaff) {

@@ -41,7 +41,7 @@ export function emitOrderSync(reason: OrderSyncReason, orderId?: string) {
   }
 }
 
-export function subscribeOrderSync(handler: (message: OrderSyncMessage) => void) {
+export function subscribeOrderSync(handler: (message: OrderSyncMessage) => void, staff = false) {
   if (typeof window === "undefined") return () => {};
 
   const onWindow = (event: Event) => {
@@ -62,7 +62,7 @@ export function subscribeOrderSync(handler: (message: OrderSyncMessage) => void)
   const onChannel = (event: MessageEvent<OrderSyncMessage>) => {
     if (event?.data) handler(event.data);
   };
-  const sse = new EventSource("/api/orders/events");
+  const sse = new EventSource(staff ? "/api/staff/orders/events" : "/api/orders/events");
   const onSseMessage = (event: MessageEvent<string>) => {
     if (!event.data) return;
     try {

@@ -1,3 +1,5 @@
+import { requireCashierWrite, reserveCardCashier } from "@/lib/cashier-write-context";
+import { requireAssignedCashRegister, StaffAuthError } from "@/lib/staff-session-server";
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { calculateOrderTotalCents } from "@/lib/pricing";
@@ -20,6 +22,7 @@ type OrderLike = {
   items: Array<{ id?: string; name: string; qty: number; price?: number }>;
   stripe_payment_intent_id: string | null;
   amount_cents: number | null;
+  event_id: string; paid_by: string | null; paid_register_id: string | null;
   pos_card_key: string | null;
   pos_card_state: string | null;
 };
@@ -29,13 +32,18 @@ export async function POST(req: Request) {
     await ensureOrdersSchema();
     const body = await req.json().catch(() => ({}));
     const orderId = String(body?.orderId || "").trim();
+    const actor = await requireAssignedCashRegister(req);
+    // Reading an existing client secret on the authenticated native terminal
+    // cannot replace the already reserved cashier identity.
+    const nativeRead = body?.includeClientSecret !== false;
+
 
     if (!orderId) {
       return NextResponse.json({ ok: false, error: "Missing orderId" }, { status: 400 });
     }
 
     const rows = await sql`
-      SELECT id, payment, UPPER(status) AS status, items, stripe_payment_intent_id, amount_cents, pos_card_key, pos_card_state
+      SELECT id, payment, UPPER(status) AS status, items, stripe_payment_intent_id, amount_cents, pos_card_key, pos_card_state, event_id, paid_by, paid_register_id
       FROM orders
       WHERE id = ${orderId}
       LIMIT 1
@@ -45,6 +53,13 @@ export async function POST(req: Request) {
     }
 
     const order = rows[0] as unknown as OrderLike;
+    if (body.workstationId !== undefined && body.workstationId !== actor.workstationId) throw new StaffAuthError("workstation_context_mismatch", 403);
+    if (nativeRead && order.stripe_payment_intent_id && (!order.paid_by || order.paid_by !== actor.id || order.paid_register_id !== actor.workstationId)) throw new StaffAuthError("payment_cashier_context_mismatch", 403);
+    if (order.event_id !== actor.cashierEventId || order.paid_by && order.paid_by !== actor.id || order.paid_register_id && order.paid_register_id !== actor.workstationId) throw new StaffAuthError("payment_cashier_context_mismatch", 403);
+    if (!nativeRead || !order.stripe_payment_intent_id) {
+      const context = await requireCashierWrite(req, order.event_id, body.workstationId);
+      await reserveCardCashier(orderId, context);
+    }
     if (order.payment !== "card") {
       return NextResponse.json(
         { ok: false, error: "Order payment is not card" },
@@ -179,6 +194,7 @@ export async function POST(req: Request) {
       status: pi.status,
     });
   } catch (e: unknown) {
+    if (e instanceof StaffAuthError) return NextResponse.json({ ok: false, error: e.code }, { status: e.status });
     const error = e instanceof Error ? e.message : "Server error";
     return NextResponse.json({ ok: false, error }, { status: 500 });
   }

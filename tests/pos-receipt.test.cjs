@@ -65,7 +65,7 @@ test('D/E/F/H: succès sans ticket automatique, ticket à la demande et nouvelle
     useRef: initial => { const index = cursor++;if (!(index in values)) values[index] = { current: initial };return values[index]; },
     useCallback: fn => fn, useMemo: fn => fn(), useEffect: fn => { if (mounting) effects.push(fn); },
   };
-  const session = { userId: 'cashier', role: 'cashier', username: 'Kasse', cashierEventId: 'event-a' };
+  const session = { userId: 'cashier', role: 'cashier', username: 'Kasse', cashierEventId: 'event-a', workstationId: '11111111-1111-4111-8111-111111111111', workstationType: 'cashier' };
   const storage = new Map();
   const previous = Object.fromEntries(['window', 'localStorage', 'fetch'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   try {
@@ -78,7 +78,7 @@ test('D/E/F/H: succès sans ticket automatique, ticket à la demande et nouvelle
       '@/lib/staff-auth': { getSession: () => session, staffFetch: (...args) => fetch(...args), resolveCashierEventId: s => s.cashierEventId, getStaffRoleLabel: () => 'Kasse' },
       '@/lib/translations': { getSavedLang: () => 'de', saveLang: () => {} },
       '@/lib/pos-cash': { ...realCash, confirmPosCash: async () => { payments++;await Promise.resolve();return receipt; } },
-    }).default;
+    }).ManualCaissePage;
     const render = () => { cursor = 0;return Page(); };
     const settle = () => new Promise(resolve => setImmediate(resolve));
     let tree = render();mounting = false;
@@ -93,8 +93,8 @@ test('D/E/F/H: succès sans ticket automatique, ticket à la demande et nouvelle
     assert.equal(component('CashPayment').props.receipt.id, receipt.id);
     assert.equal(component('OrderReceipt'), null);
     assert.equal(prints, 0);assert.equal(navigations, 0);
-    assert.equal(storage.get('af_pos_cart_v1:cashier:event-a'), '[]');
-    assert.equal(storage.has('af_pos_cart_v1:cashier:event-a:cash-attempt'), false);
+    assert.equal(storage.get('af_pos_cart_v1:cashier:event-a:11111111-1111-4111-8111-111111111111'), '[]');
+    assert.equal(storage.has('af_pos_cart_v1:cashier:event-a:11111111-1111-4111-8111-111111111111:cash-attempt'), false);
     // Actual success buttons keep the primary action first and ticket secondary.
     const panel = component('CashPayment').type(component('CashPayment').props);
     const newButton = find(panel, el => el.type === 'button' && el.props.children === 'Neue Bestellung');

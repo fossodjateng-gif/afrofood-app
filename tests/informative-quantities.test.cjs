@@ -171,6 +171,7 @@ for (const flow of ['classic-cash','classic-card','classic-cashless','pos-cash',
         if(q.includes("state = 'ready'")){row.pos_card_state='ready';row.pos_cash_state='ready';return [row];}
         return [];
       };
+      sql.transaction = async statements => Promise.all(statements);
       const route=load('src/app/api/orders/route.ts',{ ...require('./staff-test-mocks.cjs').legacyStaffMocks,
         'next/server':{NextResponse:{json:(body,init)=>Response.json(body,init)}},
         '@/lib/db':{sql},'@/lib/orders-schema':{ensureOrdersSchema:async()=>{}},
@@ -186,7 +187,7 @@ for (const flow of ['classic-cash','classic-card','classic-cashless','pos-cash',
       if(flow==='pos-cash')body.posCashKey='dddddddd-dddd-dddd-dddd-dddddddddddd';
       if(flow==='pos-card'){
         body.posCardKey='cccccccc-cccc-cccc-cccc-cccccccccccc';
-        body.fingerprint=await load('src/lib/pos-card.ts').makeCardFingerprint(body);
+        body.workstationId='11111111-1111-4111-8111-111111111111';body.fingerprint=await load('src/lib/pos-card.ts').makeCardFingerprint(body);
       }
       const req=new Request('http://localhost/api/orders',{method:'POST',headers:{'x-staff-role':'cashier'},body:JSON.stringify(body)}); req.testActor=body; const response=await route.POST(req);
       const refused=['hidden','blocked'].includes(condition);

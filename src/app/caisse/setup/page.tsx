@@ -422,8 +422,6 @@ export default function CaisseSetupPage() {
       const currentSession = getSession();
       const selectedEventId = String(
         currentSession?.cashierEventId ||
-          localStorage.getItem("af_caisse_event_id") ||
-          data.storeConfig?.activeEventId ||
           ""
       ).trim();
       if (selectedEventId) localStorage.setItem("af_caisse_event_id", selectedEventId);
@@ -608,7 +606,8 @@ export default function CaisseSetupPage() {
     }
     setError(null);
     setSavingId("cashier-lock");
-    const lease = createCashierLease(cashierLockEventId);
+    if (!session.workstationId || session.workstationType !== "cashier") { setError("workstation_assignment_required"); setSavingId(null); return; }
+    const lease = createCashierLease(cashierLockEventId, crypto.randomUUID(), session.workstationId);
     try {
       await lease.acquire();
       lease.handoff();

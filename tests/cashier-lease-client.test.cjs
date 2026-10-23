@@ -83,7 +83,7 @@ test('actual setup page acquires using the stable event ID and hands off its ins
     assert.equal(url, '/api/cashier-lock'); calls.push(JSON.parse(options.body)); return Response.json({ ok: true });
   } };
   const page = harness('src/app/caisse/setup/page.tsx', {
-    session: { userId: 'fixture', username: 'cashier', role: 'cashier' }, staffRole: 'cashier', cashierLockEventId: 'event-a',
+    session: { userId: 'fixture', username: 'cashier', role: 'cashier', workstationId: instance, workstationType:'cashier' }, staffRole: 'cashier', cashierLockEventId: 'event-a',
     loading: false, isOnline: true, hasServerConnection: true, terminalSetupUrl: 'afrofood://setup',
     tapConfig: { awarenessSeen: true, termsAccepted: true, educationSeen: true, readinessStatus: 'ready' },
   }, { '@/lib/staff-auth': auth });
@@ -92,10 +92,10 @@ test('actual setup page acquires using the stable event ID and hands off its ins
   button.props.onClick(); await settle();
   assert.equal(window.location.href, '/caisse');
   assert.equal(calls.length, 1);
-  assert.deepEqual(Object.keys(calls[0]).sort(), ['action', 'eventId', 'instanceId']);
+  assert.deepEqual(Object.keys(calls[0]).sort(), ['action', 'eventId', 'instanceId', 'workstationId']);
   assert.equal(calls[0].action, 'acquire'); assert.equal(calls[0].eventId, 'event-a');
   const { takeCashierLeaseHandoff } = load('src/lib/cashier-lease-client.ts', { '@/lib/staff-auth': auth });
-  assert.equal(takeCashierLeaseHandoff('event-a'), calls[0].instanceId);
+  assert.equal(takeCashierLeaseHandoff('event-a', instance), calls[0].instanceId);
 });
 
 test('refresh keeps its instance and resumes the live lease without sending release', async t => {

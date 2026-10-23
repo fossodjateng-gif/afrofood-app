@@ -1,13 +1,14 @@
+import { staffFetch } from "@/lib/staff-auth";
 import type { CancellationOutcome } from "@/lib/pos-card-cancel-server";
 import type { OrderRow } from "@/lib/schema";
 import type { PosCartItem } from "@/lib/pos-cart";
 import { cardIdentityPayload } from "@/lib/pos-card-identity";
 import { prepareTerminalCheckout } from "@/lib/terminal-checkout";
 
-export type CardAttempt = { key: string; fingerprint: string; userId: string; username: string; role: string; eventId: string; eventName: string; items: PosCartItem[]; amountCents: number; createdAt: number; orderId?: string; paymentIntentId?: string; published?: boolean; cancelRequested?: boolean; cancellationOutcome?: CancellationOutcome };
+export type CardAttempt = { key: string; fingerprint: string; userId: string; username: string; role: string; workstationId?: string; eventId: string; eventName: string; items: PosCartItem[]; amountCents: number; createdAt: number; orderId?: string; paymentIntentId?: string; published?: boolean; cancelRequested?: boolean; cancellationOutcome?: CancellationOutcome };
 export const cardAttemptKey = (cartKey: string) => `${cartKey}:card-attempt`;
 
-export async function makeCardFingerprint(input: Pick<CardAttempt, "userId" | "username" | "eventId" | "items">) {
+export async function makeCardFingerprint(input: Pick<CardAttempt, "userId" | "username" | "eventId" | "workstationId" | "items">) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(cardIdentityPayload(input)));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -18,7 +19,7 @@ export function isPaidCardOrder(order: OrderRow, attempt: CardAttempt) {
     && order.amount_cents === attempt.amountCents && order.currency === "eur" && ["NEW", "IN_PROGRESS", "READY", "DONE"].includes(order.status);
 }
 
-export async function checkPosCard(attempt: CardAttempt, request: typeof fetch = fetch): Promise<OrderRow | null> {
+export async function checkPosCard(attempt: CardAttempt, request: typeof fetch = staffFetch): Promise<OrderRow | null> {
   if (!attempt.orderId) return null;
   const response = await request(`/api/orders?id=${encodeURIComponent(attempt.orderId)}`, { cache: "no-store" });
   const data = await response.json();
@@ -26,10 +27,10 @@ export async function checkPosCard(attempt: CardAttempt, request: typeof fetch =
   return data[0];
 }
 
-export async function preparePosCard(attempt: CardAttempt, persist: (attempt: CardAttempt) => void, request: typeof fetch = fetch) {
+export async function preparePosCard(attempt: CardAttempt, persist: (attempt: CardAttempt) => void, request: typeof fetch = staffFetch) {
   if (await makeCardFingerprint(attempt) !== attempt.fingerprint) throw new Error("Die gespeicherte Kartenzahlung wurde verändert.");
   if (!attempt.orderId) {
-    const response = await request("/api/orders", { method: "POST", headers: { "Content-Type": "application/json", "x-staff-role": attempt.role, "x-staff-user-id": attempt.userId }, body: JSON.stringify({ posCardKey: attempt.key, fingerprint: attempt.fingerprint, userId: attempt.userId, username: attempt.username, eventId: attempt.eventId, payment: "card", items: attempt.items }) });
+    const response = await request("/api/orders", { method: "POST", headers: { "Content-Type": "application/json", "x-staff-role": attempt.role, "x-staff-user-id": attempt.userId }, body: JSON.stringify({ posCardKey: attempt.key, fingerprint: attempt.fingerprint, userId: attempt.userId, username: attempt.username, eventId: attempt.eventId, workstationId: attempt.workstationId, payment: "card", items: attempt.items }) });
     const data = await response.json();
     if (!response.ok || !data?.ok || data.fingerprint !== attempt.fingerprint || !data.order?.id || data.order.eventId !== attempt.eventId || data.order.payment !== "card" || !Number.isSafeInteger(data.order.amountCents)) throw new Error(data?.error || "Bestellung noch nicht bestätigt. Dieselbe Zahlung prüfen.");
     attempt.orderId = data.order.id;
@@ -58,7 +59,7 @@ export function isCanceledCardOrder(order: OrderRow | null, attempt: CardAttempt
     && order.payment_error !== "POS_CARD_SUCCESS_AFTER_CANCEL";
 }
 
-export async function cancelPosCard(attempt: CardAttempt, persist: (attempt: CardAttempt) => void, request: typeof fetch = fetch) {
+export async function cancelPosCard(attempt: CardAttempt, persist: (attempt: CardAttempt) => void, request: typeof fetch = staffFetch) {
   if (!attempt.orderId) throw new Error("Bestellnummer fehlt. Zuerst dieselbe Bestellung pr?fen.");
   // Persist before the request: a lost response/reload must never auto-resume payment.
   attempt.cancelRequested = true;
