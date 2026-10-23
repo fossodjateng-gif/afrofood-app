@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { ensureOrdersSchema } from "@/lib/orders-schema";
+import { requireStaffAdmin } from "@/lib/staff-admin-server";
+import { StaffAuthError } from "@/lib/staff-session-server";
 
 type KpiRow = {
   today_cents: string | number | null;
@@ -57,6 +59,7 @@ function parsePeriod(input: string | null): Period {
 
 export async function GET(req: Request) {
   try {
+    await requireStaffAdmin(req);
     await ensureOrdersSchema();
     const { searchParams } = new URL(req.url);
     const period = parsePeriod(searchParams.get("period"));
@@ -295,7 +298,6 @@ export async function GET(req: Request) {
         .filter(Boolean),
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Server error";
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error instanceof StaffAuthError ? error.code : "stats_unavailable" }, { status: error instanceof StaffAuthError ? error.status : 503 });
   }
 }

@@ -36,7 +36,9 @@ export async function GET(req: Request) {
     const statusParam = (searchParams.get("status") || "").toUpperCase();
     const idParam = String(searchParams.get("id") || "").trim();
 
-    const staff = !idParam || req.headers.get("cookie")?.includes("af_staff_session=") ? await requireStaffWorkstation(req) : null;
+    // A cookie alone never turns a public tracking request into a staff read.
+    // The explicit mode only adds authentication requirements; it grants none.
+    const staff = !idParam || req.headers.get("x-af-staff-read") === "1" || req.headers.has("x-staff-user-id") ? await requireStaffWorkstation(req) : null;
     const requestedEvent = searchParams.get("eventId");
     if (staff && requestedEvent && !canAccessStaffEvent(staff, requestedEvent)) throw new StaffAuthError("staff_event_forbidden", 403);
     let rows;
@@ -49,6 +51,7 @@ export async function GET(req: Request) {
         SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, cash_received_cents, change_given_cents, currency, paid_at, payment_error, pos_card_state, UPPER(status) AS status, items
         FROM orders
         WHERE id = ${idParam} AND UPPER(status) = ${statusParam}
+          AND (${!!staff} OR (pos_card_key IS NULL AND pos_cash_key IS NULL))
         ORDER BY created_at DESC
       `;
     } else if (idParam) {
@@ -56,6 +59,7 @@ export async function GET(req: Request) {
         SELECT id, created_at, customer_name, event_id, event_name, reservation_requested, reservation_time, payment, payment_provider, stripe_payment_intent_id, amount_cents, currency, paid_at, payment_error, pos_card_state, UPPER(status) AS status, items
         FROM orders
         WHERE id = ${idParam}
+          AND (${!!staff} OR (pos_card_key IS NULL AND pos_cash_key IS NULL))
         ORDER BY created_at DESC
       `;
     } else if (statusParam) {

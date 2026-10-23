@@ -169,27 +169,7 @@ function KitchenPageContent() {
 	      setStaffRole(s.role);
 	      setStaffUsername(String(s.username || ""));
 
-      if (s.role === "admin") {
-        if (fromCaisse) {
-          const caisseEventId = localStorage.getItem("af_caisse_event_id") || "";
-          let nextEventName = "";
-          if (caisseEventId.trim()) {
-            try {
-              const res = await staffFetch("/api/menu-config", { cache: "no-store" });
-              const data = await res.json().catch(() => null);
-              const events = Array.isArray(data?.storeConfig?.events) ? data.storeConfig.events : [];
-              nextEventName =
-                String(events.find((event: { id?: string }) => String(event?.id || "").trim() === caisseEventId)?.name || "").trim();
-            } catch {}
-            if (!alive) return;
-            setAssignedEventId(caisseEventId.trim());
-            setAssignedEventName(nextEventName);
-            return;
-          }
-        }
-        if (!alive) return;
-        return;
-      }
+      if (s.role === "admin" && !fromCaisse && !s.cashierEventId) return;
 
       let nextEventId = String(s.cashierEventId || "").trim();
       let nextEventName = "";

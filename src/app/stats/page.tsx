@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { getSession, getStaffRoleLabel, getUsers, type StaffRole } from "@/lib/staff-auth";
+import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 
 const STATS_PERIOD_KEY = "af_stats_period";
@@ -300,14 +300,24 @@ export default function StatsPage() {
 
   const t = UI_TEXT[lang];
 
+  const [users, setUsers] = useState<{ id: string; username: string; role: string; active: boolean; cashier_event_id: string | null }[]>([]);
+  useEffect(() => {
+    if (getSession()?.role !== "admin") return;
+    let alive = true;
+    void fetch("/api/staff/users", { cache: "no-store" }).then(async response => {
+      if (!response.ok) throw new Error("Staff assignments unavailable");
+      const data = await response.json();
+      if (alive) setUsers(data.users || []);
+    }).catch(() => { if (alive) setUsers([]); });
+    return () => { alive = false; };
+  }, []);
   const staffAssignments = useMemo(() => {
-    const users = getUsers();
     return storeEvents.map((event) => ({
       eventId: event.id,
-      cashiers: users.filter((user) => user.active && user.role === "cashier" && user.cashierEventId === event.id),
-      kitchen: users.filter((user) => user.active && user.role === "kitchen" && user.cashierEventId === event.id),
+      cashiers: users.filter((user) => user.active && user.role === "cashier" && user.cashier_event_id === event.id),
+      kitchen: users.filter((user) => user.active && user.role === "kitchen" && user.cashier_event_id === event.id),
     }));
-  }, [storeEvents]);
+  }, [storeEvents, users]);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);

@@ -388,16 +388,16 @@ export function ManualCaissePage() {
   }
 
   const labels = {
-    de: { refresh: "Menü aktualisieren", back: "Zurück zur Kasse", event: "Zugewiesenes Event", user: "Angemeldet als", loading: "Wird geladen…", noEvent: "Kein Event geladen", preview: "Barzahlung / Kartenzahlung" },
-    fr: { refresh: "Actualiser le menu", back: "Retour à la caisse", event: "Événement affecté", user: "Connecté en tant que", loading: "Chargement…", noEvent: "Aucun événement chargé", preview: "Espèces / Carte" },
-    en: { refresh: "Refresh menu", back: "Back to cashier", event: "Assigned event", user: "Logged in as", loading: "Loading…", noEvent: "No event loaded", preview: "Cash / Card" },
+    de: { refresh: "Menü aktualisieren", back: "Zurück zur Kasse", event: "Zugewiesenes Event", user: "Angemeldet als", loading: "Wird geladen…", noEvent: "Kein Event geladen", preview: "Barzahlung / Kartenzahlung", title: "Manuelle Kasse", unavailable: "Manuelle Kasse nicht verfügbar", contextError: "Bitte Konto und Arbeitsplatz prüfen und das Menü erneut laden.", storageError: "Der Warenkorb kann auf diesem Gerät nicht gespeichert werden. Beim Neuladen kann er verloren gehen." },
+    fr: { refresh: "Actualiser le menu", back: "Retour à la caisse", event: "Événement affecté", user: "Connecté en tant que", loading: "Chargement…", noEvent: "Aucun événement chargé", preview: "Espèces / Carte", title: "Caisse manuelle", unavailable: "Caisse manuelle indisponible", contextError: "Vérifiez le compte et le poste, puis rechargez le menu.", storageError: "Le panier ne peut pas être enregistré sur cet appareil. Il peut être perdu au rechargement." },
+    en: { refresh: "Refresh menu", back: "Back to cashier", event: "Assigned event", user: "Logged in as", loading: "Loading…", noEvent: "No event loaded", preview: "Cash / Card", title: "Manual cashier", unavailable: "Manual cashier unavailable", contextError: "Check the account and workstation, then reload the menu.", storageError: "The cart cannot be saved on this device. Reloading may lose it." },
   }[lang];
 
   return (
     <main className={styles.page}>
       <div className={styles.shell}>
         <header className={styles.header}>
-          <h1 className={styles.brand}><Image src="/logo-afrofood.png" alt="AfroFood" width={30} height={30} unoptimized className={styles.logo} />Manuelle Kasse</h1>
+          <h1 className={styles.brand}><Image src="/logo-afrofood.png" alt="AfroFood" width={30} height={30} unoptimized className={styles.logo} />{labels.title}</h1>
           <div className={styles.headerActions}>
             <div className={styles.languages} role="group" aria-label="DE / FR / EN">
               {(["de", "fr", "en"] as Lang[]).map((language) => <button key={language} type="button" aria-pressed={lang === language} className={`af-lang-btn ${lang === language ? "is-active" : ""}`} onClick={() => { setLang(language); saveLang(language); }}>{language.toUpperCase()}</button>)}
@@ -409,12 +409,12 @@ export function ManualCaissePage() {
         <div className={styles.separator} aria-hidden="true" />
         <div className={styles.contextBar}>
           <div><span className={styles.contextLabel}>{labels.event}</span><strong>{context?.eventName || (loading ? labels.loading : labels.noEvent)}</strong></div>
-          {context ? <div><span className={styles.contextLabel}>{labels.user}</span><strong>{context.session.username || "Kasse"} ? {context.session.workstationName} <span className="af-role-badge">{getStaffRoleLabel(context.session.role, lang)}</span></strong></div> : null}
+          {context ? <div><span className={styles.contextLabel}>{labels.user}</span><strong>{context.session.username || "Kasse"} · {context.session.workstationName} <span className="af-role-badge">{getStaffRoleLabel(context.session.role, lang)}</span></strong></div> : null}
           <span className="af-role-badge">{labels.preview}</span>
         </div>
-        {error ? <div className={styles.error} role="alert"><strong>Manuelle Kasse nicht verfügbar</strong><p>{error}</p><Link href="/caisse">Zur Kasse zurückkehren</Link></div> : null}
-        {storageError && context ? <div className={styles.error} role="alert">Der Warenkorb kann auf diesem Gerät nicht gespeichert werden. Beim Neuladen kann er verloren gehen.</div> : null}
-        {loading ? <div className={styles.loading} role="status">Event-Menü und Warenkorb werden geladen…</div> : null}
+        {error ? <div className={styles.error} role="alert"><strong>{labels.unavailable}</strong><p>{labels.contextError}</p><Link href="/caisse">{labels.back}</Link></div> : null}
+        {storageError && context ? <div className={styles.error} role="alert">{labels.storageError}</div> : null}
+        {loading ? <div className={styles.loading} role="status">{labels.loading}</div> : null}
         {(cardAttempt || cardBusy) ? <CardPayment lang={lang} order={cardOrder} onCancel={() => void cancelCard()} attempt={cardAttempt} receipt={cardReceipt} busy={cardBusy} error={cardError} delayed={cardDelayed} onCheck={() => void verifyCard()} onResume={() => void resumeCard()} onNew={newCardOrder} onTicket={() => { setHistoryReceiptOrderId(null); setShowReceipt(true); }} /> : null}
         {!cardAttempt && !cardBusy && cardError ? <p role="alert" className={styles.error}>{cardError}</p> : null}
         {cashOpen ? <CashPayment lang={lang} totalCents={cashAttempt?.amountCents ?? getPosBreakdown(items).totalCents} received={received} busy={cashBusy} error={cashError} receipt={cashReceipt} locked={!!cashAttempt} onReceived={setReceived} onConfirm={() => void confirmCash()} onClose={() => setCashOpen(false)} onTicket={() => { setHistoryReceiptOrderId(null); setShowReceipt(true); }} onNew={() => { setShowReceipt(false); setCashReceipt(null); setCashOpen(false); setReceived(""); setCashError(null); }} /> : null}

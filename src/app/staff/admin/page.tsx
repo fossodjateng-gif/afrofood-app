@@ -5,8 +5,6 @@ import Link from "next/link";
 import {
   clearSession,
   getSession,
-  getStaffRoleLabel,
-  type StaffRole,
 } from "@/lib/staff-auth";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 
@@ -64,12 +62,10 @@ const UI_TEXT: Record<
 };
 
 export default function StaffAdminPage() {
-  const [username, setUsername] = useState("");
-  const [lang, setLang] = useState<Lang>("fr");
-  const [role, setRole] = useState<StaffRole | null>(null);
+  const username = getSession()?.username || "";
+  const [lang, setLang] = useState<Lang>(() => getSavedLang());
 
   useEffect(() => {
-    setLang(getSavedLang());
     const s = getSession();
     if (!s) {
       window.location.href = "/team/login";
@@ -79,8 +75,6 @@ export default function StaffAdminPage() {
       window.location.href = "/staff";
       return;
     }
-    setUsername(s.username);
-    setRole(s.role);
   }, []);
 
   const t = UI_TEXT[lang];

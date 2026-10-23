@@ -43,7 +43,7 @@ export function RefundAction({ orderId, amountCents, currency, eligible, refund,
     finally { inFlight.current = false;setBusy(false); }
   }
   if (!eligible && !value) return null;
-  return <div style={{ marginTop: 12, overflowWrap: "anywhere" }}>
+  return <div className="af-panel" style={{ marginTop: 12, overflowWrap: "anywhere" }}>
     <p>{orderId}</p>
     <dl>
       <dt>{balances.paid}</dt><dd>{money(amountCents, currency)}</dd>
@@ -51,7 +51,7 @@ export function RefundAction({ orderId, amountCents, currency, eligible, refund,
       <dt>{balances.remaining}</dt><dd>{value?.state === "requires_review" ? balances.unknown : money(Math.max(0, amountCents - refundedCents), currency)}</dd>
     </dl>
     {value ? <>
-      <p role="status">{value.state === "refunded" ? text.refunded : value.state === "requires_review" ? text.review : value.state === "requested" ? balances.requested : text.pending}</p>
+      <p className={`af-message ${value.state === "refunded" ? "af-message-success" : "af-message-warning"}`} role="status">{value.state === "refunded" ? text.refunded : value.state === "requires_review" ? text.review : value.state === "requested" ? balances.requested : text.pending}</p>
       <p>{money(value.amountCents, value.currency)}{value.refundedAt ? ` · ${new Date(value.refundedAt).toLocaleString(locale)}` : ""}</p>
       {value.state !== "refunded" ? <button type="button" className="af-link-btn" disabled={busy} onClick={() => void request(false)}>{text.check}</button> : null}
       {value.state === "requested" && eligible ? <button type="button" className="af-link-btn" disabled={busy} onClick={() => setConfirm(true)}>{text.retry}</button> : null}
@@ -59,11 +59,11 @@ export function RefundAction({ orderId, amountCents, currency, eligible, refund,
       <p>{text.paid}</p>
       <button type="button" className="af-link-btn" disabled={busy} onClick={() => setConfirm(true)}>{text.action}</button>
     </>}
-    {error ? <p role="alert">{text.error} <button type="button" disabled={busy} onClick={() => void request(false)}>{text.check}</button></p> : null}
-    {confirm && eligible ? <section role="dialog" aria-modal="false" aria-label={text.action} style={{ border: "1px solid var(--af-border)", padding: 16, marginTop: 12 }}>
+    {error ? <p className="af-message af-message-error" role="alert">{text.error} <button type="button" disabled={busy} onClick={() => void request(false)}>{text.check}</button></p> : null}
+    {confirm && eligible ? <section className="af-panel" role="dialog" aria-modal="false" aria-label={text.action} style={{ border: "1px solid var(--af-border)", padding: 16, marginTop: 12 }}>
       <strong>{orderId} · {money(amountCents, currency)}</strong>
       <p>{text.warning}</p>
-      <button type="button" disabled={busy} onClick={() => void request(true)}>{text.confirm}</button>
+      <button type="button" className="af-danger" disabled={busy} onClick={() => void request(true)}>{text.confirm}</button>
       <button type="button" disabled={busy} onClick={() => setConfirm(false)}>{text.cancel}</button>
     </section> : null}
   </div>;

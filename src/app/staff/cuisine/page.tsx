@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -61,14 +62,13 @@ const UI_TEXT: Record<
 
 function StaffCuisinePageContent() {
   const searchParams = useSearchParams();
-  const [username, setUsername] = useState("");
-  const [lang, setLang] = useState<Lang>("fr");
-  const [role, setRole] = useState<"admin" | "cashier" | "kitchen" | null>(null);
+  const username = getSession()?.username || "";
+  const [lang, setLang] = useState<Lang>(() => getSavedLang());
+  const role = getSession()?.role || null;
   const [eventName, setEventName] = useState("");
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
 
   useEffect(() => {
-    setLang(getSavedLang());
     const s = getSession();
     if (!s) {
       window.location.href = "/team/login";
@@ -78,9 +78,7 @@ function StaffCuisinePageContent() {
       window.location.href = "/staff";
       return;
     }
-	    setUsername(s.username);
-	    setRole(s.role);
-	    void fetch("/api/menu-config", { cache: "no-store" })
+    void fetch("/api/menu-config", { cache: "no-store" })
 	      .then((res) => res.json())
 	      .then((data) => {
 	        const assignedId = String(s.cashierEventId || "").trim();
@@ -157,7 +155,7 @@ function StaffCuisinePageContent() {
               </button>
             ))}
             <button type="button" onClick={() => goBackOr(fromCaisse ? "/caisse" : "/staff")} className="af-link-btn" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, cursor: "pointer" }}>{t.back}</button>
-            <a href="/" className="af-link-btn" style={{ textDecoration: "none", padding: "8px 12px", borderRadius: 10, border: "1px solid #111", color: "#111", fontWeight: 800 }}>{t.home}</a>
+            <Link href="/" className="af-link-btn" style={{ textDecoration: "none", padding: "8px 12px", borderRadius: 10, border: "1px solid #111", color: "#111", fontWeight: 800 }}>{t.home}</Link>
             {!fromCaisse ? (
               <button
                 className="af-btn"

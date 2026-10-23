@@ -14,7 +14,9 @@ import {
 import {
   StripeTerminalProvider,
   useStripeTerminal,
+  type Reader,
 } from "@stripe/stripe-terminal-react-native";
+import { isVerifiedNativePayment, nativeErrorMessage, revokeNativeSession } from "./payment-state";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 type OrderItem = {
@@ -33,6 +35,9 @@ type OrderRow = {
   status: "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE" | "CANCELED";
   items: OrderItem[];
   amount_cents?: number | null;
+  currency?: string | null;
+  paid_at?: string | null;
+  payment_provider?: string | null;
   stripe_payment_intent_id?: string | null;
 };
 
@@ -62,6 +67,9 @@ type NativeSession = {
   username: string;
   role: NativeRole;
   loggedAt: string;
+  userId: string;
+  eventId: string;
+  workstationId: string;
 };
 
 const API_BASE_URL =
@@ -77,6 +85,7 @@ const SUPPORT_URL = "https://www.afrofoodoffenburg.de/support";
 
 async function nativeStaffFetch(input: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
+  headers.set("x-af-staff-read", "1");
   if (init.method && init.method !== "GET") headers.set("Origin", new URL(API_BASE_URL).origin);
   return fetch(input, { ...init, headers, credentials: "include" });
 }
@@ -84,7 +93,8 @@ async function authenticatedNativeSession(): Promise<NativeSession | null> {
   const response = await nativeStaffFetch(`${API_BASE_URL}/api/staff/session`, { cache: "no-store" });
   const data = await response.json();
   if (!response.ok || !data.user || !["cashier", "admin"].includes(data.user.role) || data.user.workstationType !== "cashier") return null;
-  return { username: data.user.username, role: data.user.role, loggedAt: new Date().toISOString() };
+  if (!data.user.id || !data.user.cashierEventId || !data.user.workstationId) return null;
+  return { username: data.user.username, role: data.user.role, userId: data.user.id, eventId: data.user.cashierEventId, workstationId: data.user.workstationId, loggedAt: new Date().toISOString() };
 }
 
 function getTodayKey() {
@@ -240,8 +250,8 @@ const NATIVE_TEXT: Record<
     username: "Benutzername",
     password: "Passwort",
     openCashier: "Kasse offnen",
-    demoAccounts: "Demo-Konten",
-    invalidLogin: "Ungultige mobile Demo-Zugangsdaten.",
+    demoAccounts: "Mitarbeiterkonten",
+    invalidLogin: "Ungültige Mitarbeiter-Zugangsdaten.",
     restrictedLogin: "Diese native App ist fur Kasse oder Admin reserviert.",
     awarenessTitle: "Tap to Pay auf dem iPhone",
     awarenessSubtitle: "Kontaktlose Zahlungen direkt auf dem iPhone annehmen.",
@@ -329,8 +339,8 @@ const NATIVE_TEXT: Record<
     username: "Utilisateur",
     password: "Mot de passe",
     openCashier: "Ouvrir la caisse",
-    demoAccounts: "Comptes demo",
-    invalidLogin: "Identifiants mobile demo invalides.",
+    demoAccounts: "Comptes staff",
+    invalidLogin: "Identifiants staff invalides.",
     restrictedLogin: "Cette app native est reservee a la caisse ou a l'admin.",
     awarenessTitle: "Tap to Pay sur iPhone",
     awarenessSubtitle: "Accepter les paiements sans contact directement sur iPhone.",
@@ -418,8 +428,8 @@ const NATIVE_TEXT: Record<
     username: "Username",
     password: "Password",
     openCashier: "Open cashier",
-    demoAccounts: "Demo accounts",
-    invalidLogin: "Invalid mobile demo credentials.",
+    demoAccounts: "Staff accounts",
+    invalidLogin: "Invalid staff credentials.",
     restrictedLogin: "This native app is reserved for cashier or admin.",
     awarenessTitle: "Tap to Pay on iPhone",
     awarenessSubtitle: "Accept contactless payments directly on iPhone.",
@@ -633,16 +643,16 @@ function AwarenessScreen({
   const [busy, setBusy] = useState(false);
   const [setupLog, setSetupLog] = useState("");
   const [termsAcceptedBySdk, setTermsAcceptedBySdk] = useState(false);
-  const discoveredReadersRef = useRef<any[]>([]);
+  const discoveredReadersRef = useRef<Reader.Type[]>([]);
   const terminal = useStripeTerminal({
-    onUpdateDiscoveredReaders: (readers: any[]) => {
+    onUpdateDiscoveredReaders: (readers: Reader.Type[]) => {
       discoveredReadersRef.current = readers;
     },
     onDidAcceptTermsOfService: () => {
       setTermsAcceptedBySdk(true);
       setSetupLog(t.termsAccepted);
     },
-  } as any) as any;
+  });
 
   async function startOfficialTapToPaySetup() {
     try {
@@ -675,8 +685,8 @@ function AwarenessScreen({
 
       setSetupLog(stepText.prepDone);
       setSetupStep("education");
-    } catch (e: any) {
-      const message = e?.message || "Unable to start Tap to Pay on iPhone setup.";
+    } catch (e: unknown) {
+      const message = nativeErrorMessage(e, "Unable to start Tap to Pay on iPhone setup.");
       setSetupLog(message);
       Alert.alert(t.awarenessTitle, message);
     } finally {
@@ -949,10 +959,10 @@ function TerminalScreen({
   onLangChange: (lang: NativeLang) => void;
 }) {
   const t = NATIVE_TEXT[lang];
-  const discoveredReadersRef = useRef<any[]>([]);
+  const discoveredReadersRef = useRef<Reader.Type[]>([]);
   const autoPreparedOrderRef = useRef<string | null>(null);
   const terminal = useStripeTerminal({
-    onUpdateDiscoveredReaders: (readers: any[]) => {
+    onUpdateDiscoveredReaders: (readers: Reader.Type[]) => {
       discoveredReadersRef.current = readers;
     },
     onDidAcceptTermsOfService: () => {
@@ -961,7 +971,7 @@ function TerminalScreen({
         ...prev,
       ].slice(0, 40));
     },
-  } as any) as any;
+  });
 
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
@@ -1030,9 +1040,9 @@ function TerminalScreen({
           ? prev
           : scopedOrders[0].id;
       });
-    } catch (e: any) {
-      log(`Refresh failed: ${e?.message || "unknown error"}`);
-      Alert.alert("Orders error", e?.message || "Unable to load pending orders");
+    } catch (e: unknown) {
+      log(`Refresh failed: ${nativeErrorMessage(e, "unknown error")}`);
+      Alert.alert("Orders error", nativeErrorMessage(e, "Unable to load pending orders"));
     } finally {
       setRefreshing(false);
     }
@@ -1133,9 +1143,9 @@ function TerminalScreen({
       );
       await refreshOrders();
       return String(data.clientSecret || "");
-    } catch (e: any) {
-      log(`PI create failed: ${e?.message || "unknown error"}`);
-      Alert.alert("Error", e?.message || "Unable to create payment intent");
+    } catch (e: unknown) {
+      log(`PI create failed: ${nativeErrorMessage(e, "unknown error")}`);
+      Alert.alert("Error", nativeErrorMessage(e, "Unable to create payment intent"));
       return null;
     } finally {
       setBusy(false);
@@ -1156,7 +1166,7 @@ function TerminalScreen({
       });
       if (discovery?.error) throw discovery.error;
 
-      const discoveredReaders = discovery?.readers || discoveredReadersRef.current || terminal.discoveredReaders || [];
+      const discoveredReaders = discoveredReadersRef.current || terminal.discoveredReaders || [];
       if (!Array.isArray(discoveredReaders) || discoveredReaders.length === 0) {
         throw new Error("No Tap to Pay reader found on this iPhone");
       }
@@ -1174,9 +1184,9 @@ function TerminalScreen({
       if (connectedResult?.error) throw connectedResult.error;
       log("Tap to Pay connected");
       return true;
-    } catch (e: any) {
-      log(`Connect failed: ${e?.message || "unknown error"}`);
-      Alert.alert("Connect error", e?.message || "Unable to connect Tap to Pay");
+    } catch (e: unknown) {
+      log(`Connect failed: ${nativeErrorMessage(e, "unknown error")}`);
+      Alert.alert("Connect error", nativeErrorMessage(e, "Unable to connect Tap to Pay"));
       return false;
     } finally {
       setBusy(false);
@@ -1231,19 +1241,20 @@ function TerminalScreen({
       if (collected?.error) throw collected.error;
 
       const toProcess = collected?.paymentIntent || intent;
+      const compatibilityTerminal = terminal as typeof terminal & { processPayment?: typeof terminal.confirmPaymentIntent; processPaymentIntent?: typeof terminal.confirmPaymentIntent };
       const processed =
         (await terminal.confirmPaymentIntent?.({ paymentIntent: toProcess })) ||
-        (await terminal.processPayment?.({ paymentIntent: toProcess })) ||
-        (await terminal.processPaymentIntent?.({ paymentIntent: toProcess }));
+        (await compatibilityTerminal.processPayment?.({ paymentIntent: toProcess })) ||
+        (await compatibilityTerminal.processPaymentIntent?.({ paymentIntent: toProcess }));
       if (!processed) {
         throw new Error("Stripe Terminal payment confirmation is not available in this build");
       }
       if (processed?.error) throw processed.error;
 
-      const processedIntent = processed?.paymentIntent || processed?.intent || toProcess;
+      const compatibleResult = processed as typeof processed & { intent?: typeof toProcess };
+      const processedIntent = (processed?.paymentIntent || compatibleResult.intent || toProcess) as typeof toProcess & { stripeId?: string };
       const confirmedPaymentIntentId = String(
-        processedIntent?.id ||
-          processedIntent?.stripeId ||
+        processedIntent?.id || processedIntent?.stripeId ||
           paymentIntentId ||
           selectedOrder.stripe_payment_intent_id ||
           ""
@@ -1255,7 +1266,7 @@ function TerminalScreen({
           : "Payment processed by Terminal"
       );
       const webhookOrder = await waitForStripeWebhook(selectedOrder.id);
-      if (!webhookOrder || webhookOrder.status !== "NEW") {
+      if (!isVerifiedNativePayment(webhookOrder, { orderId: selectedOrder.id, paymentIntentId: confirmedPaymentIntentId, amountCents: selectedOrder.amount_cents, currency: selectedOrder.currency })) {
         throw new Error("Payment processed, but Stripe webhook has not validated the order yet");
       }
 
@@ -1278,9 +1289,9 @@ function TerminalScreen({
       }
       setClientSecret("");
       await refreshOrders();
-    } catch (e: any) {
-      log(`Collect/process failed: ${e?.message || "unknown error"}`);
-      Alert.alert("Payment error", e?.message || "Could not complete payment");
+    } catch (e: unknown) {
+      log(`Collect/process failed: ${nativeErrorMessage(e, "unknown error")}`);
+      Alert.alert("Payment error", nativeErrorMessage(e, "Could not complete payment"));
     } finally {
       setBusy(false);
     }
@@ -1376,6 +1387,30 @@ export default function App() {
   const [pendingDeepLinkOrderId, setPendingDeepLinkOrderId] = useState<string | null>(null);
   const [lang, setLang] = useState<NativeLang>("fr");
 
+  async function hasCompletedSetupToday(username: string) {
+    try {
+      return (await AsyncStorage.getItem(getDailySetupStorageKey(username))) === "done";
+    } catch {
+      return false;
+    }
+  }
+
+  async function markSetupCompleteToday(username: string) {
+    await AsyncStorage.setItem(getDailySetupStorageKey(username), "done");
+  }
+
+  async function openTerminalFromCashier(
+    nextSession: NativeSession,
+    orderId: string | null,
+    forceSetup: boolean
+  ) {
+    setSession(nextSession);
+    const preparedToday = await hasCompletedSetupToday(nextSession.username);
+    setTapSetupAccepted(preparedToday);
+    setMerchantEducationSeen(preparedToday);
+    setScreen(forceSetup || !preparedToday ? "awareness" : orderId ? "terminal" : "home");
+  }
+
   async function handleDeepLink(url: string | null) {
     if (!url) return;
     try {
@@ -1411,30 +1446,6 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
-  async function hasCompletedSetupToday(username: string) {
-    try {
-      return (await AsyncStorage.getItem(getDailySetupStorageKey(username))) === "done";
-    } catch {
-      return false;
-    }
-  }
-
-  async function markSetupCompleteToday(username: string) {
-    await AsyncStorage.setItem(getDailySetupStorageKey(username), "done");
-  }
-
-  async function openTerminalFromCashier(
-    nextSession: NativeSession,
-    orderId: string | null,
-    forceSetup: boolean
-  ) {
-    setSession(nextSession);
-    const preparedToday = await hasCompletedSetupToday(nextSession.username);
-    setTapSetupAccepted(preparedToday);
-    setMerchantEducationSeen(preparedToday);
-    setScreen(forceSetup || !preparedToday ? "awareness" : orderId ? "terminal" : "home");
-  }
-
   useEffect(() => {
     if (!session || !tapSetupAccepted || !merchantEducationSeen) return;
     const currentSession = session;
@@ -1442,6 +1453,11 @@ export default function App() {
 
     async function pollActiveOrder() {
       try {
+        const verified = await authenticatedNativeSession();
+        if (stopped) return;
+        if (!verified || verified.userId !== currentSession.userId || verified.eventId !== currentSession.eventId || verified.workstationId !== currentSession.workstationId) {
+          setSession(null); setPendingDeepLinkOrderId(null); setScreen("login"); return;
+        }
         const params = new URLSearchParams({ username: currentSession.username });
         const res = await nativeStaffFetch(`${API_BASE_URL}/api/terminal-active-order?${params.toString()}`, {
           cache: "no-store",
@@ -1475,12 +1491,17 @@ export default function App() {
     setScreen(preparedToday ? (pendingDeepLinkOrderId ? "terminal" : "home") : "awareness");
   }
 
-  function handleLogout() {
-    void nativeStaffFetch(`${API_BASE_URL}/api/staff/session`, { method: "DELETE" });
-    setSession(null);
-    setTapSetupAccepted(false);
-    setMerchantEducationSeen(false);
-    setScreen("login");
+  async function handleLogout() {
+    try {
+      await revokeNativeSession(() => nativeStaffFetch(`${API_BASE_URL}/api/staff/session`, { method: "DELETE" }));
+      setSession(null);
+      setPendingDeepLinkOrderId(null);
+      setTapSetupAccepted(false);
+      setMerchantEducationSeen(false);
+      setScreen("login");
+    } catch {
+      Alert.alert(NATIVE_TEXT[lang].logout, lang === "fr" ? "Déconnexion non confirmée. Réessayez." : lang === "de" ? "Abmeldung nicht bestätigt. Bitte erneut versuchen." : "Logout not confirmed. Please retry.");
+    }
   }
 
   return (
@@ -1678,7 +1699,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   button: {
-    backgroundColor: "#1d4ed8",
+    backgroundColor: "#262018",
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 13,

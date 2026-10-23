@@ -4,17 +4,6 @@ import type { Lang } from "@/lib/translations";
 
 export type StaffRole = "admin" | "cashier" | "kitchen";
 
-export type StaffUser = {
-  id: string;
-  username: string;
-  password: string;
-  role: StaffRole;
-  cashierEventId?: string;
-  active: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
-
 export type StaffSession = {
   userId: string;
   username: string;
@@ -26,81 +15,9 @@ export type StaffSession = {
   loggedAt: string;
 };
 
-const USERS_KEY = "af_staff_users_v1";
-const DELETED_USERS_KEY = "af_staff_deleted_usernames_v1";
 const SESSION_KEY = "af_staff_session_v1";
-const TAP_SETUP_PROGRESS_PREFIX = "af_ttp_setup_progress_";
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function defaultUsers(): StaffUser[] { return []; }
-
-function hasWindow() {
-  return typeof window !== "undefined";
-}
-
-function getDeletedUsernames() {
-  if (!hasWindow()) return new Set<string>();
-  try {
-    const parsed = JSON.parse(localStorage.getItem(DELETED_USERS_KEY) || "[]") as string[];
-    return new Set(parsed.map((username) => String(username || "").toLowerCase()).filter(Boolean));
-  } catch {
-    return new Set<string>();
-  }
-}
-
-function saveDeletedUsernames(next: Set<string>) {
-  if (!hasWindow()) return;
-  localStorage.setItem(DELETED_USERS_KEY, JSON.stringify([...next]));
-}
-
-export function getUsers(): StaffUser[] {
-  if (!hasWindow()) return defaultUsers();
-  const raw = localStorage.getItem(USERS_KEY);
-  if (!raw) {
-    const defaults = defaultUsers();
-    localStorage.setItem(USERS_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-  try {
-    const parsed = (JSON.parse(raw) as StaffUser[]).map((user) => ({ ...user, password: "" }));
-    localStorage.setItem(USERS_KEY, JSON.stringify(parsed));
-    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("invalid");
-    const deletedUsernames = getDeletedUsernames();
-    const defaults = defaultUsers();
-    const existingUsernames = new Set(parsed.map((user) => user.username.toLowerCase()));
-    const missingDefaults = defaults.filter(
-      (user) =>
-        !existingUsernames.has(user.username.toLowerCase()) &&
-        !deletedUsernames.has(user.username.toLowerCase())
-    );
-    if (missingDefaults.length === 0) return parsed;
-    const merged = [...parsed, ...missingDefaults];
-    localStorage.setItem(USERS_KEY, JSON.stringify(merged));
-    return merged;
-  } catch {
-    const defaults = defaultUsers();
-    localStorage.setItem(USERS_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-}
-
-function saveUsers(next: StaffUser[]) {
-  if (!hasWindow()) return;
-  localStorage.setItem(USERS_KEY, JSON.stringify(next.map((user) => ({ ...user, password: "" }))));
-}
-
-function normalizeCashierEventId(role: StaffRole, cashierEventId?: string) {
-  if (role !== "cashier" && role !== "kitchen") return "";
-  return String(cashierEventId || "").trim();
-}
-
-function resetTapSetupProgress(userId: string) {
-  if (!hasWindow()) return;
-  localStorage.removeItem(`${TAP_SETUP_PROGRESS_PREFIX}${userId}`);
-}
+function nowIso() { return new Date().toISOString(); }
+function hasWindow() { return typeof window !== "undefined"; }
 
 // Display cache only. Every sensitive API authenticates the HttpOnly cookie.
 let verifiedSession: StaffSession | null = null;
@@ -118,6 +35,7 @@ export async function refreshStaffSession(): Promise<StaffSession | null> {
 export function getSession(): StaffSession | null { return verifiedSession; }
 export function staffFetch(input: RequestInfo | URL, init?: RequestInit) {
   const headers = new Headers(init?.headers);
+  headers.set("x-af-staff-read", "1");
   if (verifiedSession) headers.set("x-staff-user-id", verifiedSession.userId);
   if (verifiedSession?.workstationId) {
     headers.set("x-workstation-id", verifiedSession.workstationId);
@@ -152,76 +70,6 @@ export async function login(username: string, password: string): Promise<{ ok: t
     // Old account records are never accepted as credentials by the server.
   }
   return { ok: true, session: verifiedSession };
-}
-
-export function createUser(input: { username: string; password: string; role: StaffRole; cashierEventId?: string }) {
-  const username = String(input.username || "").trim();
-  const password = String(input.password || "").trim();
-  if (!username) throw new Error("Missing username");
-  if (!password) throw new Error("Missing password");
-  const users = getUsers();
-  if (users.some((u) => u.username.toLowerCase() === username.toLowerCase())) {
-    throw new Error("Username already exists");
-  }
-  const now = nowIso();
-  const nextUser: StaffUser = {
-    id: `u-${Date.now()}`,
-    username,
-    password,
-    role: input.role,
-    cashierEventId: normalizeCashierEventId(input.role, input.cashierEventId) || undefined,
-    active: true,
-    createdAt: now,
-    updatedAt: now,
-  };
-  const next = [...users, nextUser];
-  const deletedUsernames = getDeletedUsernames();
-  deletedUsernames.delete(username.toLowerCase());
-  saveDeletedUsernames(deletedUsernames);
-  saveUsers(next);
-  resetTapSetupProgress(nextUser.id);
-  return nextUser;
-}
-
-export function updateUser(
-  userId: string,
-  patch: Partial<Pick<StaffUser, "role" | "active" | "password" | "cashierEventId">>
-) {
-  const users = getUsers();
-  const next = users.map((u) =>
-    u.id === userId
-      ? (() => {
-          const nextRole = patch.role ?? u.role;
-          return {
-            ...u,
-            role: nextRole,
-            active: patch.active ?? u.active,
-            password: patch.password ?? u.password,
-            cashierEventId: normalizeCashierEventId(
-              nextRole,
-              patch.cashierEventId !== undefined ? patch.cashierEventId : u.cashierEventId
-            ) || undefined,
-            updatedAt: nowIso(),
-          };
-        })()
-      : u
-  );
-  saveUsers(next);
-
-}
-
-export async function deleteUser(userId: string) {
-  const users = getUsers();
-  const deleted = users.find((u) => u.id === userId);
-  const next = users.filter((u) => u.id !== userId);
-  if (deleted) {
-    const deletedUsernames = getDeletedUsernames();
-    deletedUsernames.add(deleted.username.toLowerCase());
-    saveDeletedUsernames(deletedUsernames);
-  }
-  saveUsers(next);
-  const s = getSession();
-  if (s?.userId === userId) await clearSession();
 }
 
 export function roleLandingPath(role: StaffRole) {

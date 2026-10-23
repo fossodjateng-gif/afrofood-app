@@ -70,7 +70,7 @@ export async function PATCH(req: Request) {
     }
 
     if (setting === "custom_item_delete") {
-      if (!canManageCatalog) {
+      if (actor.role !== "admin") {
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
       }
       const itemId = String(body?.itemId || "").trim();

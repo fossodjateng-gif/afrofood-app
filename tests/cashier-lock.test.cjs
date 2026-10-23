@@ -38,8 +38,9 @@ function fixture() {
       assert.match(q, /ON CONFLICT \(event_name\) DO UPDATE/);
       assert.match(q, /WHERE cashier_event_locks.expires_at <= NOW\(\) OR cashier_event_locks.user_id = EXCLUDED.user_id/);
       assert.match(q, /FOR SHARE OF s, u/);
-      const [hash, userId, eventId, workstationId, , , legacyKey, key, owner, username] = v, old = locks.get(key);
-      if (!valid(hash, userId, eventId) || sessions.get(hash).user.workstation_id !== workstationId || (locks.get(legacyKey) && Date.parse(locks.get(legacyKey).expires_at)>now) || (old && Date.parse(old.expires_at) > now && old.user_id !== owner)) return [];
+      assert.match(q, /legacy.event_name NOT LIKE 'v3:%'/);
+      const [hash, userId, eventId, workstationId, , , , key, owner, username] = v, old = locks.get(key);
+      if (!valid(hash, userId, eventId) || sessions.get(hash).user.workstation_id !== workstationId || [...locks.values()].some(row => !row.event_name.startsWith('v3:') && Date.parse(row.expires_at) > now) || (old && Date.parse(old.expires_at) > now && old.user_id !== owner)) return [];
       return renewed(key, owner, username);
     }
     if (q.includes('UPDATE cashier_event_locks')) {
@@ -223,3 +224,14 @@ test('a session revoked between HTTP authorization and the write cannot acquire 
   assert.notEqual((await other.api.POST(other.request('heartbeat'))).status, 200);
   assert.equal(other.locks.get(lockKey('event-a')).expires_at, expiry);
 });
+
+for (const legacyKey of ['testmaison', 'v2:event-a']) {
+  test(`legacy lease ${legacyKey} blocks v3 until natural TTL`, async () => {
+    const h = fixture();
+    h.locks.set(legacyKey, { event_name: legacyKey, user_id: 'old-owner', username: 'old-cashier', heartbeat_at: new Date().toISOString(), expires_at: new Date(Date.now() + 120000).toISOString() });
+    assert.equal((await h.api.POST(h.request())).status, 423);
+    assert.equal(h.locks.size, 1);
+    h.advance(180000);
+    assert.equal((await h.api.POST(h.request())).status, 200);
+  });
+}

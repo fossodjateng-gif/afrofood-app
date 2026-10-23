@@ -1,4 +1,5 @@
 "use client";
+import { startPublicOrderPolling } from "@/lib/public-order-polling";
 
 import { isQuantityZero, quantityZeroLabel } from "@/lib/quantity-policy";
 import type { ItemAvailability } from "@/lib/menu-settings";
@@ -418,6 +419,11 @@ export default function CartPage() {
       }
     });
   }, [order?.id, checkOrderStatus]);
+
+  useEffect(() => {
+    if (!order?.id || orderStatus === "DONE" || orderStatus === "CANCELED") return;
+    return startPublicOrderPolling(() => checkOrderStatus(order.id), () => document.visibilityState === "visible");
+  }, [order?.id, orderStatus, checkOrderStatus]);
 
   function printTicket() {
     window.print();

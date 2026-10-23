@@ -1,3 +1,4 @@
+import { retryStaffTransaction } from "@/lib/staff-transaction-retry";
 import { randomUUID } from "node:crypto";
 import { sql } from "@/lib/db";
 import { getStoreConfig } from "@/lib/menu-settings";
@@ -49,22 +50,22 @@ export async function saveStaff(req: Request, body: Record<string, unknown>, cre
     const username = String(body.username || "").trim().toLowerCase();
     if (!username || username.length > 80 || typeof body.password !== "string" || body.password.length < 12 || body.password.length > 256) throw new StaffAuthError("invalid_staff_credentials", 400);
     const passwordHash = await hashStaffPassword(body.password);
-    const results = await sql.transaction([
+    const results = await retryStaffTransaction(() => sql.transaction([
       adminGuard(req, admin.id), assignmentLock,
       sql`INSERT INTO staff_users (id, username, password_hash, role, active, cashier_event_id, workstation_id)
         SELECT ${id}, ${username}, ${passwordHash}, ${role}, ${body.active}, ${eventId || null}, ${stationId || null}
         WHERE ${!eventId} OR EXISTS (SELECT 1 FROM app_settings WHERE setting_key = ${`workstations:${eventId}`} AND setting_value = ${expected}::jsonb)
         ON CONFLICT (username) DO NOTHING RETURNING id`,
-    ], { isolationLevel: "ReadCommitted" });
+    ], { isolationLevel: "ReadCommitted" }));
     if (!results[2].length) throw new StaffAuthError("account_exists_or_assignment_changed", 409);
   } else {
-    const results = await sql.transaction([
+    const results = await retryStaffTransaction(() => sql.transaction([
       adminGuard(req, admin.id), assignmentLock,
       sql`UPDATE staff_users SET role = ${role}, active = ${body.active}, cashier_event_id = ${eventId || null}, workstation_id = ${stationId || null}, updated_at = NOW()
         WHERE id = ${id} AND (${!eventId} OR EXISTS (SELECT 1 FROM app_settings WHERE setting_key = ${`workstations:${eventId}`} AND setting_value = ${expected}::jsonb)) RETURNING id`,
       sql`UPDATE staff_sessions SET revoked_at = COALESCE(revoked_at, NOW()) WHERE user_id = ${id}`,
       sql`DELETE FROM cashier_event_locks WHERE split_part(user_id, ':', 2) IN (SELECT token_hash FROM staff_sessions WHERE user_id = ${id})`,
-    ], { isolationLevel: "ReadCommitted" });
+    ], { isolationLevel: "ReadCommitted" }));
     if (!results[2].length) throw new StaffAuthError("account_missing_or_assignment_changed", 409);
   }
 }
@@ -82,7 +83,7 @@ export async function saveWorkstation(req: Request, body: Record<string, unknown
   if (!create && (!existing || existing.type !== type)) throw new StaffAuthError("workstation_type_immutable", 400);
   const next = { id, name, type, active: body.active };
   config[type] = create ? [...config[type], next] : config[type].map(station => station.id === id ? next : station);
-  const results = await sql.transaction([
+  const results = await retryStaffTransaction(() => sql.transaction([
     adminGuard(req, admin.id),
     sql`INSERT INTO app_settings (setting_key, setting_value, updated_at)
       VALUES (${`workstations:${eventId}`}, ${JSON.stringify(config)}::jsonb, NOW())
@@ -92,6 +93,6 @@ export async function saveWorkstation(req: Request, body: Record<string, unknown
       WHERE ${!body.active} AND user_id IN (SELECT id FROM staff_users WHERE cashier_event_id = ${eventId} AND workstation_id = ${id})`,
     sql`DELETE FROM cashier_event_locks WHERE ${!body.active} AND split_part(user_id, ':', 2) IN
       (SELECT token_hash FROM staff_sessions WHERE user_id IN (SELECT id FROM staff_users WHERE cashier_event_id = ${eventId} AND workstation_id = ${id}))`,
-  ], { isolationLevel: "ReadCommitted" });
+  ], { isolationLevel: "ReadCommitted" }));
   if (!results[1].length) throw new StaffAuthError("workstations_changed_reload", 409);
 }

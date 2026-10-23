@@ -1,4 +1,4 @@
--- Review and apply explicitly to the intended Preview database only.
+-- Review and apply explicitly to the intended database; see production-cutover.md.
 -- Never executed by application startup or ensureOrdersSchema.
 BEGIN;
 ALTER TABLE staff_users ADD COLUMN IF NOT EXISTS workstation_id TEXT;
@@ -40,18 +40,17 @@ BEGIN
 END $$;
 
 -- Old application instances must stop acquiring/renewing event-wide leases.
--- Existing v2 rows remain until logout/release/TTL; v3 acquisition respects them.
+-- Existing raw/v2 rows remain until logout/release/TTL; v3 acquisition respects them.
 CREATE OR REPLACE FUNCTION af_reject_legacy_cashier_protocol() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.event_name LIKE 'v2:%' THEN
+  IF NEW.event_name NOT LIKE 'v3:%' THEN
     RAISE EXCEPTION 'cashier_protocol_upgrade_required';
   END IF;
   RETURN NEW;
 END $$;
-DROP TRIGGER IF EXISTS af_cashier_protocol_version ON cashier_event_locks;
-CREATE TRIGGER af_cashier_protocol_version BEFORE INSERT OR UPDATE ON cashier_event_locks
-FOR EACH ROW EXECUTE FUNCTION af_reject_legacy_cashier_protocol();
+-- Activation is deliberately separate: enforce_cashier_v3_cutover.sql.
+-- Stop legacy tills before activating the protocol boundary.
 
 -- Lock authorization rows for the entire transaction containing the sale write.
 -- Admin reassignment, station edits, logout and lease replacement must wait.

@@ -52,7 +52,7 @@ export async function acquireCashierLock(input: CashierLease): Promise<CashierLo
         AND EXISTS (SELECT 1 FROM app_settings a, jsonb_array_elements(a.setting_value->'cashier') w
           WHERE a.setting_key = ${`workstations:${input.eventId}`} AND w->>'id' = ${input.workstationId}
             AND w->>'type' = 'cashier' AND w->>'active' = 'true')
-        AND NOT EXISTS (SELECT 1 FROM cashier_event_locks legacy WHERE legacy.event_name = ${`v2:${input.eventId}`} AND legacy.expires_at > NOW())
+        AND NOT EXISTS (SELECT 1 FROM cashier_event_locks legacy WHERE (legacy.event_name = ${`v2:${input.eventId}`} OR legacy.event_name NOT LIKE 'v3:%') AND legacy.expires_at > NOW())
       FOR SHARE OF s, u
     )
     INSERT INTO cashier_event_locks (event_name, user_id, username, heartbeat_at, expires_at)

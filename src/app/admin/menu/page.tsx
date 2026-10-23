@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import type { Lang } from "@/lib/translations";
 import { getSavedLang, saveLang } from "@/lib/translations";
 import { detectClientPlatform, type ClientPlatform } from "@/lib/payment-platform";
-import { getSession, getStaffRoleLabel, getUsers } from "@/lib/staff-auth";
+import { getSession, getStaffRoleLabel } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 import {
   APPLE_TTP_ASSET_PATHS,
@@ -61,7 +61,6 @@ type TapToPayConfig = {
 type CustomItemCategory = "dish" | "drink" | "dip";
 type CustomItemScope = "event" | "all";
 type TapSetupStep = "awareness" | "terms" | "education" | "prepare";
-const CAISSE_EVENT_ID_KEY = "af_caisse_event_id";
 
 function formatTapPrepareError(error: unknown, lang: Lang) {
   const message = error instanceof Error ? error.message : String(error || "Preparation failed");
@@ -362,18 +361,28 @@ function AdminMenuPageContent() {
   const showAddSection = canManageCatalog && !isPricingView && !isPaymentView && !isEventView && !isTapView;
   const showPricingSection = canManageCatalog && !isAddView && !isPaymentView && !isEventView && !isTapView;
   const showEventSummary = false;
+  const [users, setUsers] = useState<{ id: string; username: string; role: string; active: boolean; cashier_event_id: string | null }[]>([]);
+  useEffect(() => {
+    if (getSession()?.role !== "admin") return;
+    let alive = true;
+    void fetch("/api/staff/users", { cache: "no-store" }).then(async response => {
+      if (!response.ok) throw new Error("Staff assignments unavailable");
+      const data = await response.json();
+      if (alive) setUsers(data.users || []);
+    }).catch(() => { if (alive) setUsers([]); });
+    return () => { alive = false; };
+  }, []);
   const staffAssignments = useMemo(() => {
-    const users = getUsers();
     return storeConfig.events.map((event) => ({
       eventId: event.id,
-      cashiers: users.filter((user) => user.active && user.role === "cashier" && user.cashierEventId === event.id),
-      kitchen: users.filter((user) => user.active && user.role === "kitchen" && user.cashierEventId === event.id),
+      cashiers: users.filter((user) => user.active && user.role === "cashier" && user.cashier_event_id === event.id),
+      kitchen: users.filter((user) => user.active && user.role === "kitchen" && user.cashier_event_id === event.id),
     }));
-  }, [storeConfig.events]);
+  }, [storeConfig.events, users]);
 
   useEffect(() => {
     if (!fromCaisse) return;
-    const caisseEventId = localStorage.getItem(CAISSE_EVENT_ID_KEY) || "";
+    const caisseEventId = getSession()?.cashierEventId || "";
     if (caisseEventId.trim()) {
       setPricingEventId(caisseEventId.trim());
     }
@@ -2086,7 +2095,7 @@ function AdminMenuPageContent() {
                 >
                   {savingId === item.id ? ui.saveItemBusy : ui.saveItem}
                 </button>
-                {item.isCustom ? (
+                {item.isCustom && staffRoleSession === "admin" ? (
                   <button
                     className="af-btn"
                     type="button"

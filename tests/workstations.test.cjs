@@ -297,7 +297,7 @@ for (const [token, username, workstationId, identifier] of [['a', 'cem', station
       if (url === '/api/staff/workstations') return h.api('src/app/api/staff/workstations/route.ts').GET(request);
       throw Error('Unexpected endpoint: ' + url);
     };
-    const page = harness('src/app/staff/admin/users/page.tsx', {}, { '@/lib/staff-auth': { staffFetch } });
+    const page = harness('src/app/staff/admin/users/page.tsx', { lang: 'fr' }, { '@/lib/staff-auth': { staffFetch } });
     let tree = page.render();
     page.effects[0]();
     for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve));

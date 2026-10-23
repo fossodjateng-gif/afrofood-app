@@ -8,7 +8,6 @@ import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 
-const CAISSE_EVENT_ID_KEY = "af_caisse_event_id";
 
 const UI_TEXT: Record<
   Lang,
@@ -133,19 +132,7 @@ function ScreenPageContent() {
       setStaffRole(s.role);
       setLang(getSavedLang());
 
-      if (s.role === "admin" && fromCaisse) {
-        const caisseEventId = localStorage.getItem(CAISSE_EVENT_ID_KEY) || "";
-        if (caisseEventId.trim()) {
-          if (!alive) return;
-          setAssignedEventId(caisseEventId.trim());
-          return;
-        }
-      }
-
-      if (s.role === "admin") {
-        if (!alive) return;
-        return;
-      }
+      if (s.role === "admin" && !fromCaisse && !s.cashierEventId) return;
 
       const nextEventId = String(s.cashierEventId || "").trim();
       if (!nextEventId || !s.workstationId) throw new Error("workstation_assignment_required");
