@@ -11,7 +11,7 @@ import { OrderHistory } from "@/components/pos/OrderHistory";
 import { getCashierLogMessage, getPaymentErrorMessage, paymentPresentation } from "@/components/pos/payment-presentation";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { clearSession, getSession, staffFetch, getStaffRoleLabel, resolveCashierEventId, type StaffRole, type StaffSession } from "@/lib/staff-auth";
+import { clearSession, getSession, refreshStaffSession, staffFetch, getStaffRoleLabel, resolveCashierEventId, type StaffRole, type StaffSession } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
 import { openCashierLease } from "@/lib/cashier-lease-client";
 
@@ -284,6 +284,8 @@ export default function CaissePage() {
   const [cashierEventId, setCashierEventId] = useState("");
   const cashierLeaseRef = useRef<Awaited<ReturnType<typeof openCashierLease>> | null>(null);
   const closingRef = useRef(false);
+  const suspendedRef = useRef(false);
+  const suspendCashierRef = useRef<(() => Promise<void>) | null>(null);
 
   const t = UI_TEXT[lang];
   const initCardPaymentLabel = getCashierInitCardPaymentLabel(lang, clientPlatform);
@@ -294,7 +296,8 @@ export default function CaissePage() {
     let alive = true;
 
     async function boot() {
-      const s = getSession();
+      const s = await refreshStaffSession();
+      if (!alive) return;
       if (!s) {
         window.location.href = "/team/login";
         return;
@@ -396,10 +399,11 @@ export default function CaissePage() {
   }, [staffRole, cashierEventId, selectedEventId, t.unknownError]);
 
   async function leaveCashier(navigate: () => void) {
-    closingRef.current = true;
+    suspendedRef.current = true;
     setIsUnlocked(false);
     try {
-      await cashierLeaseRef.current?.release();
+      if (suspendCashierRef.current) await suspendCashierRef.current();
+      else await cashierLeaseRef.current?.detach();
       navigate();
     } catch (error) {
       setAccessError(`${t.lockError}: ${error instanceof Error ? error.message : t.unknownError}`);
@@ -416,66 +420,102 @@ export default function CaissePage() {
   }
 
   useEffect(() => {
-    if (!staffReady || !staffRole || !staffSession || !eventReady || accessError || closingRef.current) return;
+    if (!staffReady || !staffRole || !staffSession || !eventReady || closingRef.current) return;
+    const initialSession = staffSession;
     let stopped = false;
-    let hidden = false;
-    const previous = cashierLeaseRef.current;
+    let generation = 0;
     let lease: Awaited<ReturnType<typeof openCashierLease>> | null = null;
-    let busy = false;
+    let detaching: Promise<void> = Promise.resolve();
+    let interval: number | undefined;
+    const current = (epoch: number) => !stopped && !closingRef.current && generation === epoch;
+    const stopHeartbeat = () => {
+      if (interval !== undefined) window.clearInterval(interval);
+      interval = undefined;
+    };
+    const detachCurrent = () => {
+      const previous = lease;
+      lease = null;
+      if (previous) detaching = Promise.all([detaching, previous.detach()]).then(() => undefined);
+      return detaching;
+    };
+    const suspend = () => {
+      ++generation; // Invalidate every response from the previous activation.
+      suspendedRef.current = true;
+      setIsUnlocked(false);
+      stopHeartbeat();
+      return detachCurrent(); // Keep the server lease and persistent instance ID.
+    };
+    suspendCashierRef.current = suspend;
 
-    async function heartbeat(initial = false) {
-      if (stopped || busy || closingRef.current) return;
-      busy = true;
+    async function activate(revalidate: boolean) {
+      if (stopped || closingRef.current) return;
+      const epoch = ++generation;
+      suspendedRef.current = true;
+      setIsUnlocked(false);
+      setAccessError(null);
+      stopHeartbeat();
       try {
-        if (initial && previous) await previous.release();
-        if (stopped || closingRef.current) return;
-        if (initial) {
-          lease = await openCashierLease(selectedEventId);
-          if (stopped || closingRef.current) {
-            if (hidden) void lease.detach();
-            else void lease.release().catch(() => undefined);
-            return;
-          }
-          cashierLeaseRef.current = lease;
+        await detachCurrent();
+        if (!current(epoch)) return;
+        const session = revalidate ? await refreshStaffSession() : initialSession;
+        if (!current(epoch)) return;
+        if (!session || (session.role !== "admin" && session.role !== "cashier")) {
+          closingRef.current = true;
+          window.location.href = session ? "/staff" : "/team/login";
+          return;
         }
-        if (!lease) return;
-        await (initial && !lease.handedOff ? lease.acquire() : lease.heartbeat());
-        if (!stopped && !closingRef.current) setIsUnlocked(true);
+        if (session.userId !== initialSession.userId || session.role !== initialSession.role || session.username !== initialSession.username || (session.cashierEventId || "") !== (initialSession.cashierEventId || "")) {
+          // A different staff context must mount a fresh page, not reuse cached orders.
+          closingRef.current = true;
+          window.location.href = "/caisse";
+          return;
+        }
+        const active = await openCashierLease(selectedEventId);
+        if (!current(epoch)) { await active.detach(); return; }
+        lease = active;
+        cashierLeaseRef.current = active;
+        await (!revalidate && active.handedOff ? active.heartbeat() : active.acquire());
+        if (!current(epoch)) return;
+        suspendedRef.current = false;
+        setIsUnlocked(true);
+
+        let busy = false;
+        interval = window.setInterval(() => {
+          if (!current(epoch) || suspendedRef.current || busy) return;
+          busy = true;
+          void active.heartbeat().catch((error: unknown) => {
+            if (current(epoch) && !suspendedRef.current) {
+              stopHeartbeat();
+              setAccessError(`${t.lockError}: ${error instanceof Error ? error.message : t.unknownError}`);
+              setIsUnlocked(false);
+            }
+          }).finally(() => { busy = false; });
+        }, 30000);
       } catch (e: unknown) {
-        if (!stopped && !closingRef.current) {
+        if (current(epoch)) {
           setAccessError(`${t.lockError}: ${e instanceof Error ? e.message : t.unknownError}`);
           setIsUnlocked(false);
         }
-      } finally {
-        busy = false;
       }
     }
 
-    void heartbeat(true);
-    const id = window.setInterval(() => {
-      void heartbeat();
-    }, 30000);
     const hide = () => {
-      hidden = true;
-      stopped = true;
-      closingRef.current = true;
-      setIsUnlocked(false);
-      window.clearInterval(id);
-      void lease?.detach(); // No server release on refresh; abrupt closure uses TTL.
+      void suspend().catch(() => undefined);
     };
     const restored = (event: PageTransitionEvent) => {
-      if (event.persisted) setAccessError("cashier_lock_lost");
+      if (event.persisted && !closingRef.current) void activate(true);
     };
+    void activate(false);
     window.addEventListener("pagehide", hide);
     window.addEventListener("pageshow", restored);
     return () => {
       window.removeEventListener("pagehide", hide);
       window.removeEventListener("pageshow", restored);
       stopped = true;
-      window.clearInterval(id);
-      if (!hidden) void lease?.release().catch(() => undefined);
+      if (suspendCashierRef.current === suspend) suspendCashierRef.current = null;
+      void suspend().catch(() => undefined);
     };
-  }, [staffReady, staffRole, staffSession, selectedEventId, eventReady, accessError, t.lockError, t.unknownError]);
+  }, [staffReady, staffRole, staffSession, selectedEventId, eventReady, t.lockError, t.unknownError]);
 
   const sortedOrders = useMemo(() => {
     return [...orders].sort((a, b) => {

@@ -157,3 +157,25 @@ test('tab isolation fails closed when Web Locks is unavailable', async t => {
   const { openCashierLease } = load('src/lib/cashier-lease-client.ts', { '@/lib/staff-auth': { staffFetch: () => { throw Error('No request expected'); } } });
   await assert.rejects(openCashierLease('event-a'), /cashier_tab_isolation_unavailable/);
 });
+
+test('detach cancels queued heartbeats and frees the Web Lock without waiting for the old network request', async t => {
+  const { activate } = browserTabs(t), storage = new Map(), calls = []; activate(storage);
+  let finishAcquire;
+  const { openCashierLease } = load('src/lib/cashier-lease-client.ts', { '@/lib/staff-auth': { staffFetch: async (_, options) => {
+    const body = JSON.parse(options.body); calls.push(body);
+    if (calls.length === 1) return new Promise(resolve => { finishAcquire = resolve; });
+    return Response.json({ ok: true });
+  } } });
+  const old = await openCashierLease('event-a');
+  const acquiring = old.acquire(); await settle();
+  const queued = assert.rejects(old.heartbeat(), /cashier_lock_closed/);
+  await old.detach();
+  const restored = await openCashierLease('event-a');
+  assert.equal(restored.instanceId, old.instanceId);
+  await restored.acquire();
+  finishAcquire(Response.json({ ok: true })); await acquiring; await queued;
+  await assert.rejects(old.heartbeat(), /cashier_lock_closed/);
+  assert.deepEqual(calls.map(body => body.action), ['acquire', 'acquire']);
+  assert.equal(storage.get('af_cashier_instance_v1:event-a'), old.instanceId);
+  await restored.release();
+});

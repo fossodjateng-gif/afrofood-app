@@ -147,6 +147,26 @@ test('two concurrent acquisitions grant exactly one holder; same live lease is i
   assert.equal((await h.api.POST(h.request('heartbeat'))).status, 200);
 });
 
+for (const newHolder of [false, true]) {
+  test(`expired lease return uses acquisition and preserves a new legitimate holder, newHolder=${newHolder}`, async () => {
+    const h = fixture();
+    assert.equal((await h.api.POST(h.request())).status, 200);
+    h.advance(120001);
+    if (newHolder) assert.equal((await h.api.POST(h.request('acquire', { token: 'b', instanceId: instanceB }))).status, 200);
+    const returned = await h.api.POST(h.request('acquire'));
+    assert.equal(returned.status, newHolder ? 423 : 200);
+    const body = await returned.json();
+    if (newHolder) {
+      assert.equal(body.error, 'cashier_locked');
+      assert.equal(body.lock.username, 'cem');
+      assert.equal(h.locks.get('v2:event-a').username, 'cem');
+    } else {
+      assert.equal(body.ok, true);
+      assert.equal(body.lock.username, 'louka');
+    }
+  });
+}
+
 test('heartbeat without acquisition, after expiration or release never creates a lock', async () => {
   const h = fixture();
   assert.equal((await h.api.POST(h.request('heartbeat'))).status, 409);

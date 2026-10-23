@@ -10,9 +10,9 @@ function text(tree) {
   if (Array.isArray(tree)) return tree.map(text).join(' ');
   return typeof tree === 'object' ? text(tree.props?.children) : String(tree);
 }
-function fixture(t, { session = cashier, menu, lock = async () => Response.json({ ok: true }), seed = {}, tabStorage = new Map() } = {}) {
+function fixture(t, { session = cashier, refresh = async () => session, menu, lock = async () => Response.json({ ok: true }), seed = {}, tabStorage = new Map() } = {}) {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
-  const storage = new Map(), intervals = new Map(), calls = [], listeners = new Map();
+  const storage = new Map(), intervals = new Map(), calls = [], listeners = new Map(), authChecks = [];
   globalThis.window = {
     location: {}, setInterval: fn => { const id = intervals.size + 1; intervals.set(id, fn); return id; },
     clearInterval: id => intervals.delete(id),
@@ -36,6 +36,7 @@ function fixture(t, { session = cashier, menu, lock = async () => Response.json(
     if (previousTabStorage) Object.defineProperty(globalThis, 'sessionStorage', previousTabStorage); else delete globalThis.sessionStorage;
   });
   const auth = {
+    refreshStaffSession: () => { authChecks.push('session'); return refresh(); },
     getSession: () => session, resolveCashierEventId: s => s.cashierEventId || '', getStaffRoleLabel: () => 'Kasse',
     clearSession: async () => { calls.push(['logout']); },
     staffFetch: async (url, options) => {
@@ -58,7 +59,7 @@ function fixture(t, { session = cashier, menu, lock = async () => Response.json(
     getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value),
   } });
   t.after(() => { if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage); else delete globalThis.localStorage; });
-  return { h, calls, intervals, run, storage, listeners, newPage, tabStorage };
+  return { h, calls, intervals, run, storage, listeners, newPage, tabStorage, authChecks };
 }
 function blocked(h, message) {
   const tree = h.render();
@@ -137,8 +138,8 @@ for (const failure of ['occupied', 'server', 'network']) {
     run(0); await settle(); run(2); await settle(); const cleanup = run(3); await settle();
     blocked(h, failure === 'occupied' ? 'cashier_locked: other-cashier' : failure === 'server' ? 'Lock service unavailable' : 'Network unavailable');
     assert.equal(h.state.isUnlocked, false);
-    const stop = run(3); // A blocked state must not retry or unlock automatically.
-    assert.equal(stop, undefined);
+    await settle(); // A blocked state must not retry or unlock automatically.
+    assert.equal(h.state.isUnlocked, false);
     assert.equal(calls.length, 2);
     cleanup();
   });
@@ -170,11 +171,11 @@ test('heartbeat failure after opening blocks the caisse and preserves uncertain 
   cleanup();
 });
 
-test('voluntary link navigation waits for release and no heartbeat follows departure', async t => {
-  let resolveRelease;
+test('temporary link navigation detaches without release and no heartbeat follows departure', async t => {
   const { h, run, calls, intervals } = fixture(t, { lock: async () => {
     const action = JSON.parse(calls[calls.length - 1][1].body).action;
-    return action === 'release' ? new Promise(resolve => { resolveRelease = resolve; }) : Response.json({ ok: true });
+    assert.notEqual(action, 'release');
+    return Response.json({ ok: true });
   } });
   run(0); await settle(); run(2); await settle(); const cleanup = run(3); await settle();
   const tick = intervals.values().next().value; let prevented = false;
@@ -182,13 +183,11 @@ test('voluntary link navigation waits for release and no heartbeat follows depar
   main.props.onClickCapture({ button: 0, target: { closest: () => ({ getAttribute: name => name === 'href' ? '/staff/cuisine' : null, hasAttribute: () => false }) }, preventDefault: () => { prevented = true; } });
   await settle();
   assert.equal(prevented, true);
-  assert.equal(window.location.href, undefined);
-  assert.equal(h.state.isUnlocked, false);
-  assert.deepEqual(calls.slice(1).map(([, options]) => JSON.parse(options.body).action), ['acquire', 'release']);
-  resolveRelease(Response.json({ ok: true })); await settle();
   assert.equal(window.location.href, '/staff/cuisine');
+  assert.equal(h.state.isUnlocked, false);
+  assert.deepEqual(calls.slice(1).map(([, options]) => JSON.parse(options.body).action), ['acquire']);
   cleanup(); tick(); await settle();
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 2);
 });
 
 for (const releaseFails of [false, true]) {
@@ -209,16 +208,23 @@ for (const releaseFails of [false, true]) {
   });
 }
 
-test('pagehide preserves its server lease for refresh; a bfcache restoration stays blocked', async t => {
-  const { h, run, calls, intervals, listeners } = fixture(t);
+test('bfcache return revalidates the session and same instance before restarting heartbeat', async t => {
+  const { h, run, calls, intervals, listeners, authChecks, tabStorage } = fixture(t);
   run(0); await settle(); run(2); await settle(); const cleanup = run(3); await settle();
   const tick = intervals.values().next().value;
   listeners.get('pagehide')(); await settle();
   assert.equal(h.state.isUnlocked, false);
   listeners.get('pageshow')({ persisted: true });
-  blocked(h, 'cashier_lock_lost');
+  blocked(h, 'Laden...');
+  assert.equal(intervals.size, 0);
   tick(); await settle();
-  assert.deepEqual(calls.slice(1).map(([, options]) => JSON.parse(options.body).action), ['acquire']);
+  assert.equal(h.state.isUnlocked, true);
+  assert.equal(authChecks.length, 2);
+  assert.equal(intervals.size, 1);
+  const requests = calls.slice(1).map(([, options]) => JSON.parse(options.body));
+  assert.deepEqual(requests.map(body => body.action), ['acquire', 'acquire']);
+  assert.equal(requests[0].instanceId, requests[1].instanceId);
+  assert.equal(tabStorage.get('af_cashier_instance_v1:event-a'), requests[0].instanceId);
   cleanup();
 });
 
@@ -231,7 +237,7 @@ test('caisse resumes the one-use setup lease with heartbeat instead of acquiring
   assert.deepEqual(JSON.parse(calls[1][1].body), { action: 'heartbeat', eventId: 'event-a', instanceId });
   assert.equal(data.has('af_cashier_lease_handoff_v1'), false);
   cleanup(); await settle();
-  assert.deepEqual(JSON.parse(calls[2][1].body), { action: 'release', eventId: 'event-a', instanceId });
+  assert.equal(calls.length, 2, 'Unmount suspends the handed-off lease without release');
 });
 
 for (const succeeds of [true, false]) {
@@ -261,12 +267,12 @@ for (const succeeds of [true, false]) {
   });
 }
 
-test('voluntary departure cannot be reopened by a successful in-flight heartbeat while release waits', async t => {
-  let finishHeartbeat, finishRelease;
+test('temporary departure does not wait for an in-flight heartbeat and ignores its success', async t => {
+  let finishHeartbeat;
   const { h, run, calls, intervals } = fixture(t, { lock: async () => {
     const action = JSON.parse(calls[calls.length - 1][1].body).action;
     if (action === 'heartbeat') return new Promise(resolve => { finishHeartbeat = resolve; });
-    if (action === 'release') return new Promise(resolve => { finishRelease = resolve; });
+    assert.notEqual(action, 'release');
     return Response.json({ ok: true });
   } });
   run(0); await settle(); run(2); await settle(); const cleanup = run(3); await settle();
@@ -276,12 +282,133 @@ test('voluntary departure cannot be reopened by a successful in-flight heartbeat
   assert.equal(h.state.isUnlocked, false);
   finishHeartbeat(Response.json({ ok: true })); await settle();
   assert.equal(h.state.isUnlocked, false);
-  assert.equal(calls.some(([url]) => url === 'navigate'), false);
   tick(); await settle();
-  finishRelease(Response.json({ ok: true })); await settle();
   assert.equal(calls.some(([url]) => url === 'navigate'), true);
   assert.equal(h.state.isUnlocked, false);
   cleanup();
+});
+
+test('internal navigation followed by a new document resumes the persisted instance', async t => {
+  const { h, run, calls, newPage, authChecks } = fixture(t);
+  run(0); await settle(); run(2); await settle(); const cleanup = run(3); await settle();
+  const instance = JSON.parse(calls[1][1].body).instanceId;
+  findAll(h.render(), node => node.type === 'button' && node.props.children === 'Zuruck')[0].props.onClick();
+  await settle(); cleanup(); await settle();
+  const page = newPage(), step = index => { page.render(); return page.effects[index](); };
+  step(0); await settle(); step(2); await settle(); const stop = step(3); await settle();
+  assert.equal(page.state.isUnlocked, true);
+  assert.equal(authChecks.length, 2);
+  assert.deepEqual(calls.filter(([, opts]) => opts?.body).map(([, opts]) => JSON.parse(opts.body)), [
+    { action: 'acquire', eventId: 'event-a', instanceId: instance },
+    { action: 'acquire', eventId: 'event-a', instanceId: instance },
+  ]);
+  stop(); await settle();
+});
+
+for (const occupied of [false, true]) {
+  test(`bfcache after 120s reacquires only when no new owner exists, occupied=${occupied}`, async t => {
+    let now = 0, owner, expires = 0;
+    const { h, run, calls, listeners } = fixture(t, { lock: async () => {
+      const body = JSON.parse(calls[calls.length - 1][1].body);
+      if (owner && owner !== body.instanceId && expires > now)
+        return Response.json({ ok: false, lock: { username: 'cem' } }, { status: 423 });
+      owner = body.instanceId; expires = now + 120000;
+      return Response.json({ ok: true });
+    } });
+    run(0); await settle(); run(2); await settle(); const cleanup = run(3); await settle();
+    const original = owner;
+    listeners.get('pagehide')(); await settle(); now = 120001;
+    if (occupied) { owner = 'cem-instance'; expires = now + 120000; }
+    listeners.get('pageshow')({ persisted: true });
+    assert.equal(h.state.isUnlocked, false); await settle();
+    if (occupied) { blocked(h, 'cashier_locked: cem'); assert.equal(owner, 'cem-instance'); }
+    else { assert.equal(h.state.isUnlocked, true); assert.equal(owner, original); }
+    assert.deepEqual(calls.filter(([, opts]) => opts?.body).map(([, opts]) => JSON.parse(opts.body).action), ['acquire', 'acquire']);
+    cleanup(); await settle();
+  });
+}
+
+for (const outcome of ['success', 'error']) {
+  test(`old heartbeat ${outcome} cannot affect restored UI during or after new acquisition`, async t => {
+    let finishHeartbeat, finishAcquire, acquisitions = 0;
+    const { h, run, calls, intervals, listeners } = fixture(t, { lock: async () => {
+      const action = JSON.parse(calls[calls.length - 1][1].body).action;
+      if (action === 'heartbeat') return new Promise((resolve, reject) => {
+        finishHeartbeat = () => outcome === 'success' ? resolve(Response.json({ ok: true })) : reject(Error('Old heartbeat'));
+      });
+      if (++acquisitions > 1) return new Promise(resolve => { finishAcquire = resolve; });
+      return Response.json({ ok: true });
+    } });
+    run(0); await settle(); run(2); await settle(); const cleanup = run(3); await settle();
+    intervals.values().next().value(); await settle();
+    listeners.get('pagehide')(); listeners.get('pageshow')({ persisted: true }); await settle();
+    assert.equal(h.state.isUnlocked, false);
+    if (outcome === 'success') { finishHeartbeat(); await settle(); assert.equal(h.state.isUnlocked, false); }
+    finishAcquire(Response.json({ ok: true })); await settle();
+    if (outcome === 'error') { finishHeartbeat(); await settle(); }
+    assert.equal(h.state.isUnlocked, true); assert.equal(h.state.accessError, null);
+    assert.equal(intervals.size, 1);
+    cleanup(); await settle();
+  });
+}
+
+for (const session of [null, { ...cashier, cashierEventId: 'event-b' }, { ...cashier, role: 'kitchen' }]) {
+  test(`bfcache refuses a revoked or changed staff context: ${session?.cashierEventId || 'revoked'}/${session?.role || ''}`, async t => {
+    let checks = 0;
+    const { h, run, calls, listeners } = fixture(t, { refresh: async () => ++checks === 1 ? cashier : session });
+    run(0); await settle(); run(2); await settle(); const cleanup = run(3); await settle();
+    listeners.get('pagehide')(); listeners.get('pageshow')({ persisted: true }); await settle();
+    assert.equal(h.state.isUnlocked, false);
+    assert.equal(calls.filter(([, opts]) => opts?.body).length, 1, 'No lease confirmation with stale staff context');
+    assert.equal(window.location.href, session ? session.role === 'kitchen' ? '/staff' : '/caisse' : '/team/login');
+    cleanup(); await settle();
+  });
+}
+
+test('logout followed by a bfcache restoration never revalidates or reactivates the old page', async t => {
+  const { h, run, calls, listeners, intervals, authChecks, tabStorage } = fixture(t);
+  run(0); await settle(); run(2); await settle(); const cleanup = run(3); await settle();
+  await findAll(h.render(), node => node.type === 'button' && node.props.children === 'Abmelden')[0].props.onClick();
+  listeners.get('pagehide')(); await settle();
+  listeners.get('pageshow')({ persisted: true }); await settle();
+  assert.equal(h.state.isUnlocked, false); assert.equal(intervals.size, 0);
+  assert.equal(authChecks.length, 1);
+  assert.equal(tabStorage.has('af_cashier_instance_v1:event-a'), false);
+  assert.deepEqual(calls.filter(([, opts]) => opts?.body).map(([, opts]) => JSON.parse(opts.body).action), ['acquire', 'release']);
+  cleanup(); await settle();
+});
+
+test('bfcache remains blocked until session revalidation completes and ignores non-persisted pageshow', async t => {
+  let finishSession, checks = 0;
+  const { h, run, calls, listeners, intervals } = fixture(t, {
+    refresh: () => ++checks === 1 ? Promise.resolve(cashier) : new Promise(resolve => { finishSession = resolve; }),
+  });
+  run(0); await settle(); run(2); await settle(); const cleanup = run(3); await settle();
+  listeners.get('pageshow')({ persisted: false }); await settle();
+  assert.equal(checks, 1);
+  listeners.get('pagehide')(); listeners.get('pageshow')({ persisted: true }); await settle();
+  blocked(h, 'Laden...'); assert.equal(intervals.size, 0);
+  assert.equal(calls.filter(([, opts]) => opts?.body).length, 1);
+  finishSession(cashier); await settle();
+  assert.equal(h.state.isUnlocked, true); assert.equal(intervals.size, 1);
+  cleanup(); await settle();
+});
+
+test('a second suspension invalidates an acquisition from the preceding bfcache return', async t => {
+  let finishAcquire, count = 0;
+  const { h, run, calls, listeners, intervals } = fixture(t, { lock: async () => {
+    assert.equal(JSON.parse(calls[calls.length - 1][1].body).action, 'acquire');
+    if (++count === 2) return new Promise(resolve => { finishAcquire = resolve; });
+    return Response.json({ ok: true });
+  } });
+  run(0); await settle(); run(2); await settle(); const cleanup = run(3); await settle();
+  listeners.get('pagehide')(); listeners.get('pageshow')({ persisted: true }); await settle();
+  listeners.get('pagehide')(); await settle();
+  finishAcquire(Response.json({ ok: true })); await settle();
+  assert.equal(h.state.isUnlocked, false); assert.equal(intervals.size, 0);
+  listeners.get('pageshow')({ persisted: true }); await settle();
+  assert.equal(h.state.isUnlocked, true); assert.equal(intervals.size, 1);
+  cleanup(); await settle();
 });
 
 test('actual caisse refresh resumes its own server lease with no pagehide release or false 423', async t => {

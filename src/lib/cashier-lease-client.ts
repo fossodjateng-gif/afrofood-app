@@ -33,6 +33,9 @@ export function createCashierLease(eventId: string, instanceId = crypto.randomUU
     instanceId,
     acquire: () => request("acquire"),
     heartbeat: () => request("heartbeat"),
+    suspend() {
+      stopped = true; // Cancel queued requests without releasing the server lease.
+    },
     release() {
       stopped = true; // Synchronous: no new heartbeat can start while leaving.
       if (!releasePromise) {
@@ -93,7 +96,10 @@ export async function openCashierLease(eventId: string) {
     handedOff: handoff === instanceId,
     // On refresh/pagehide detach only the local document. Keep the server lease
     // and its tab-local ID: the new document must resume without racing release.
-    detach: detachDocument,
+    detach() {
+      lease.suspend();
+      return detachDocument();
+    },
     release() {
       try { if (sessionStorage.getItem(key) === instanceId) sessionStorage.removeItem(key); }
       catch { /* Storage failure must not prevent server revocation on logout. */ }
