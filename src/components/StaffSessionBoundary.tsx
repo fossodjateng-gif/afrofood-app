@@ -3,12 +3,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { refreshStaffSession, type StaffSession } from "@/lib/staff-auth";
+import { StaffAccessState } from "@/components/StaffAccessState";
 
 export function StaffSessionBoundary({ children }: { children: ReactNode }) {
   const path = usePathname();
   const staffPath = /^\/(staff|caisse|kitchen|screen|commande|stats|admin)(\/|$)/.test(path || "");
   const [snapshot, setSnapshot] = useState<{ path: string; session: StaffSession } | null>(null);
   const [failed, setFailed] = useState(false);
+  const [absent, setAbsent] = useState(false);
   useEffect(() => {
     if (!staffPath) return;
     let stopped = false;
@@ -16,8 +18,8 @@ export function StaffSessionBoundary({ children }: { children: ReactNode }) {
       try {
         const session = await refreshStaffSession();
         if (stopped) return;
-        if (!session) { window.location.replace("/team/login"); return; }
-        setSnapshot({ path, session });setFailed(false);
+        if (!session) { setAbsent(true); setSnapshot(null); window.location.replace("/team/login"); return; }
+        setSnapshot({ path, session });setFailed(false);setAbsent(false);
       } catch { if (!stopped) { setSnapshot(null);setFailed(true); } }
     };
     void check();
@@ -26,6 +28,6 @@ export function StaffSessionBoundary({ children }: { children: ReactNode }) {
     return () => { stopped = true; window.removeEventListener("focus", check); window.clearInterval(interval); };
   }, [path, staffPath]);
   if (!staffPath) return children;
-  if (!snapshot || snapshot.path !== path) return <main role="status">{failed ? "Staff session unavailable. Please reload." : "AfroFood…"}</main>;
+  if (!snapshot || snapshot.path !== path) return <StaffAccessState kind="session" error={failed ? "session_unavailable" : null} absent={absent} />;
   return <div key={`${snapshot.session.userId}:${snapshot.session.role}:${snapshot.session.cashierEventId || ""}:${snapshot.session.workstationId || ""}`}>{children}</div>;
 }

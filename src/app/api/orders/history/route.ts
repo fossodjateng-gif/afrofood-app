@@ -30,7 +30,11 @@ export async function GET(req: Request) {
       ORDER BY created_at DESC, id DESC
       LIMIT ${limit + 1} OFFSET ${offset}
     `;
-    return NextResponse.json({ eventId, orders: rows.slice(0, limit), hasMore: rows.length > limit }, {
+    // Presentation capability only. The refund service independently guards creation.
+    const orders = rows.slice(0, limit).map(row => ({
+      ...row, can_refund: process.env.REFUND_CREATE_ENABLED === "1" && row.can_refund === true,
+    }));
+    return NextResponse.json({ eventId, orders, hasMore: rows.length > limit }, {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

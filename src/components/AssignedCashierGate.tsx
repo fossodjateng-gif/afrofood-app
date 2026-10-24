@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { refreshStaffSession, type StaffSession } from "@/lib/staff-auth";
 import { startCashierLifecycle } from "@/lib/cashier-lifecycle";
 import type { openCashierLease } from "@/lib/cashier-lease-client";
+import { StaffAccessState } from "@/components/StaffAccessState";
 
 export function AssignedCashierGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<StaffSession | null>(null);
@@ -15,6 +16,7 @@ export function AssignedCashierGate({ children }: { children: ReactNode }) {
     let stopped = false;
     void refreshStaffSession().then(value => {
       if (stopped) return;
+      if (!value) throw new Error("session_required");
       if (!value?.cashierEventId || !value.workstationId || value.workstationType !== "cashier") throw new Error("workstation_assignment_required");
       setSession(value);
     }).catch(error => { if (!stopped) setAccessError(error instanceof Error ? error.message : "Session unavailable"); });
@@ -25,7 +27,7 @@ export function AssignedCashierGate({ children }: { children: ReactNode }) {
     return startCashierLifecycle({ session, eventId: session.cashierEventId!, lockError: "Caisse", unknownError: "Unavailable",
       closingRef, suspendedRef, suspendCashierRef, cashierLeaseRef, setIsUnlocked, setAccessError }).dispose;
   }, [session]);
-  if (!isUnlocked || accessError) return <main role="status"><p>{accessError || "Vérification de la caisse…"}</p><a href="/staff">Retour</a></main>;
+  if (!isUnlocked || accessError) return <StaffAccessState kind="cashier" error={accessError} />;
   return <div onClickCapture={event => {
     const link = (event.target as Element).closest("a[href]");
     if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || link.getAttribute("target") === "_blank") return;

@@ -71,3 +71,20 @@ test('removed workstation assignment blocks Refund without reaching Stripe', asy
   assert.equal((await h.request('POST', paul.cookie)).status, 403);
   assert.equal(h.refund.rows.size, 0);assert.equal(h.refund.calls.length, 0);
 });
+
+test('direct client POST with Refund OFF cannot create a Stripe refund', async () => {
+  const previous = process.env.REFUND_CREATE_ENABLED;
+  process.env.REFUND_CREATE_ENABLED = '0';
+  try {
+    const h = await setup(), paul = await h.staff.login('paul');
+    const response = await h.request('POST', paul.cookie, { amountCents: 1250 });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).refund.state, 'requested');
+    assert.equal(h.refund.calls.some(([method]) => method === 'POST'), false);
+    assert.equal(h.refund.keys.size, 0);
+    assert.equal(h.refund.rows.get('ORDER-X').refund_error, 'CREATION_DISABLED');
+  } finally {
+    if (previous === undefined) delete process.env.REFUND_CREATE_ENABLED;
+    else process.env.REFUND_CREATE_ENABLED = previous;
+  }
+});

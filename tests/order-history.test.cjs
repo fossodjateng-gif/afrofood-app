@@ -69,6 +69,36 @@ test('bounded pagination returns older sales without duplicate ids; database err
   assert.doesNotMatch(JSON.stringify(await response.json()), /secret connection/);
 });
 
+test('Refund OFF hides creation in the actual UI while retaining historical refund states', async () => {
+  const previous = process.env.REFUND_CREATE_ENABLED;
+  try {
+    const refund = { state: 'requested', amountCents: 1000, currency: 'eur', refundedAt: null };
+    for (const flag of [undefined, '0', 'false', '1']) {
+      if (flag === undefined) delete process.env.REFUND_CREATE_ENABLED;
+      else process.env.REFUND_CREATE_ENABLED = flag;
+      const api = route([
+        { ...sale('eligible', 'a', 'READY', 'card'), can_refund: true, refund },
+        { ...sale('ineligible', 'a', 'READY'), can_refund: false },
+      ]);
+      const data = await (await api.GET(new Request('https://local/api/orders/history?eventId=a'))).json();
+      const order = data.orders.find(row => row.id === 'eligible');
+      assert.equal(order.can_refund, flag === '1');
+      assert.equal(data.orders.find(row => row.id === 'ineligible').can_refund, false);
+      assert.deepEqual(order.refund, refund);
+      const h = harness('src/components/pos/RefundAction.tsx', { confirm: true });
+      const tree = h.render(h.component.RefundAction, {
+        orderId: order.id, amountCents: 1000, currency: 'eur', lang: 'fr',
+        eligible: order.can_refund, refund: order.refund, onRefresh: () => {},
+      });
+      assert.equal(findAll(tree, node => node.props?.role === 'dialog').length, flag === '1' ? 1 : 0);
+      assert.equal(findAll(tree, node => node.type === 'button').length, flag === '1' ? 4 : 1);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.REFUND_CREATE_ENABLED;
+    else process.env.REFUND_CREATE_ENABLED = previous;
+  }
+});
+
 test('history receipt selection is explicit and single; rendering and loading never print or POST', async () => {
   const rows = [sale('one', 'a', 'NEW'), sale('two', 'a', 'DONE', 'card')];
   const h = harness('src/components/pos/OrderHistory.tsx', { snapshot: { eventId: 'a', offset: 0, orders: rows, hasMore: false } });
