@@ -34,7 +34,7 @@ type PosContext = {
   sections: PosSection[];
 };
 
-export function ManualCaissePage() {
+function ManualCaissePage() {
   const [cardAttempt, setCardAttempt] = useState<CardAttempt | null>(null);
   const [cardOrder, setCardOrder] = useState<OrderRow | null>(null);
   const [cardReceipt, setCardReceipt] = useState<OrderRow | null>(null);

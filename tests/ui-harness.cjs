@@ -38,7 +38,9 @@ function harness(file, seed = {}, mocks = {}) {
     useEffect: fn => { effects.push(fn); }, useCallback: fn => fn, useMemo: fn => fn(),
   };
   const component = load(file, { react: hooks, ...mocks });
-  const render = (fn = component.ManualCaissePage || component.default, props) => { cursor = 0;refCursor = 0;effects.length = 0;return fn(props); };
+  // Exercise the manual cashier inside its unchanged assignment wrapper.
+  const Page = file === 'src/app/caisse/manual/page.tsx' ? component.default().props.children.type : component.default;
+  const render = (fn = Page, props) => { cursor = 0;refCursor = 0;effects.length = 0;return fn(props); };
   return { component, render, state, effects };
 }
 

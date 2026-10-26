@@ -78,7 +78,7 @@ test('D/E/F/H: succès sans ticket automatique, ticket à la demande et nouvelle
       '@/lib/staff-auth': { getSession: () => session, staffFetch: (...args) => fetch(...args), resolveCashierEventId: s => s.cashierEventId, getStaffRoleLabel: () => 'Kasse' },
       '@/lib/translations': { getSavedLang: () => 'de', saveLang: () => {} },
       '@/lib/pos-cash': { ...realCash, confirmPosCash: async () => { payments++;await Promise.resolve();return receipt; } },
-    }).ManualCaissePage;
+    }).default().props.children.type;
     const render = () => { cursor = 0;return Page(); };
     const settle = () => new Promise(resolve => setImmediate(resolve));
     let tree = render();mounting = false;
