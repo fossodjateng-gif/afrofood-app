@@ -1,11 +1,12 @@
 "use client";
 import { useRef, useState } from "react";
 import { getSession, staffFetch } from "@/lib/staff-auth";
+import { RefundStatus } from "@/components/pos/RefundStatus";
 import type { Lang } from "@/lib/translations";
 
-export type PublicRefund = { state: "requested" | "processing" | "refunded" | "requires_review"; amountCents: number; currency: string; refundedAt: string | null };
-export function RefundAction({ orderId, amountCents, currency, eligible, refund, lang, onRefresh }: {
-  orderId: string; amountCents: number; currency: string; eligible: boolean; refund?: PublicRefund | null; lang: Lang; onRefresh: () => void;
+export type PublicRefund = { state: "requested" | "processing" | "refunded" | "requires_review"; amountCents: number; currency: string; refundedAt: string | null; paymentMethod?: "card" | "cash" };
+export function RefundAction({ orderId, amountCents, currency, eligible, refund, payment = "card", lang, onRefresh }: {
+  orderId: string; amountCents: number; currency: string; eligible: boolean; payment?: "card" | "cash" | "cashless"; refund?: PublicRefund | null; lang: Lang; onRefresh: () => void;
 }) {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -24,6 +25,12 @@ export function RefundAction({ orderId, amountCents, currency, eligible, refund,
     de: { paid: "Karte bezahlt", refunded: "Bereits erstattet", remaining: "Noch erstattbar", unknown: "Zu prüfen", requested: "Anfrage gespeichert · Verarbeitung ausstehend" },
     fr: { paid: "Montant payé carte", refunded: "Déjà remboursé", remaining: "Encore remboursable", unknown: "À vérifier", requested: "Demande enregistrée · En attente de traitement" },
     en: { paid: "Card amount paid", refunded: "Already refunded", remaining: "Still refundable", unknown: "Needs verification", requested: "Request recorded · Awaiting processing" },
+  }[lang];
+  const cash = (value?.paymentMethod || payment) === "cash";
+  const cashText = {
+    fr: { paid: "Espèces · Payé", balance: "Montant payé en espèces", warning: "Remettez le montant total en espèces au client une seule fois. Cette confirmation enregistre la restitution dans AfroFood, sans virement automatique." },
+    de: { paid: "Barzahlung · Bezahlt", balance: "Bar bezahlter Betrag", warning: "Geben Sie dem Kunden den gesamten Betrag einmalig in bar zurück. Diese Bestätigung erfasst die Rückgabe in AfroFood; es erfolgt keine automatische Auszahlung." },
+    en: { paid: "Cash · Paid", balance: "Amount paid in cash", warning: "Return the full amount to the customer in cash once. This confirmation records the cash return in AfroFood; no automatic transfer takes place." },
   }[lang];
   const refundedCents = value?.state === "refunded" ? value.amountCents : 0;
   async function request(create: boolean) {
@@ -45,8 +52,9 @@ export function RefundAction({ orderId, amountCents, currency, eligible, refund,
   if (!eligible && !value) return null;
   return <div className="af-panel" style={{ marginTop: 12, overflowWrap: "anywhere" }}>
     <p>{orderId}</p>
+    {value ? <RefundStatus refund={value} payment={payment} amountCents={amountCents} currency={currency} lang={lang} /> : null}
     <dl>
-      <dt>{balances.paid}</dt><dd>{money(amountCents, currency)}</dd>
+      <dt>{cash ? cashText.balance : balances.paid}</dt><dd>{money(amountCents, currency)}</dd>
       <dt>{balances.refunded}</dt><dd>{value?.state === "requires_review" ? balances.unknown : money(refundedCents, currency)}</dd>
       <dt>{balances.remaining}</dt><dd>{value?.state === "requires_review" ? balances.unknown : money(Math.max(0, amountCents - refundedCents), currency)}</dd>
     </dl>
@@ -56,13 +64,13 @@ export function RefundAction({ orderId, amountCents, currency, eligible, refund,
       {value.state !== "refunded" ? <button type="button" className="af-link-btn" disabled={busy} onClick={() => void request(false)}>{text.check}</button> : null}
       {value.state === "requested" && eligible ? <button type="button" className="af-link-btn" disabled={busy} onClick={() => setConfirm(true)}>{text.retry}</button> : null}
     </> : <>
-      <p>{text.paid}</p>
+      <p>{cash ? cashText.paid : text.paid}</p>
       <button type="button" className="af-link-btn" disabled={busy} onClick={() => setConfirm(true)}>{text.action}</button>
     </>}
     {error ? <p className="af-message af-message-error" role="alert">{text.error} <button type="button" disabled={busy} onClick={() => void request(false)}>{text.check}</button></p> : null}
     {confirm && eligible ? <section className="af-panel" role="dialog" aria-modal="false" aria-label={text.action} style={{ border: "1px solid var(--af-border)", padding: 16, marginTop: 12 }}>
       <strong>{orderId} · {money(amountCents, currency)}</strong>
-      <p>{text.warning}</p>
+      <p>{cash ? cashText.warning : text.warning}</p>
       <button type="button" className="af-danger" disabled={busy} onClick={() => void request(true)}>{text.confirm}</button>
       <button type="button" disabled={busy} onClick={() => setConfirm(false)}>{text.cancel}</button>
     </section> : null}

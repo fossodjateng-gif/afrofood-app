@@ -183,3 +183,65 @@ integration pass can cover full refunds, dashboard refunds, duplicate/out-of-ord
 and after Stripe success, and failed DB persistence. Use a dedicated test
 environment first. No real payment/refund is authorized by this implementation
 task. No deployment/commit/push has been performed.
+
+## Total cash refunds (cashier V3 extension)
+
+Product rule: refunds are **total only**, for card and cash. There is no item,
+quantity, partial amount, or free amount input. `amountCents` only confirms the
+stored original total; a different value is rejected. Stripe full-refund keys,
+webhook, feature flags and reconciliation remain unchanged.
+
+Apply `scripts/add_cash_total_refunds.sql` explicitly after isolated SQL testing,
+before deploying this extension. It adds `payment_method` with default `card`
+for existing rows, allows NULL PaymentIntents for cash only, and checks that cash
+rows are dated, confirmed refunds without Stripe identifiers. Existing order,
+operation-key, PaymentIntent and Stripe Refund uniqueness constraints remain.
+There is no runtime schema migration. The migration has **not** been applied to
+Production as part of local implementation.
+
+The same authenticated `/api/orders/[id]/refund` POST dispatches a paid cash sale
+to an isolated cash branch. It requires the server-assigned event/workstation
+and V3 lease, respects `REFUND_CREATE_ENABLED`, locks the sale, and commits one
+`refunded` row in the same transaction. Amount/currency come from the sale; actor,
+event and workstation snapshots come from server context. It never calls Stripe.
+GET and retries return that existing cash row without reconciliation or writes.
+A failed/uncertain client response must be resolved by checking that same
+operation. A retry never overwrites the first actor or records another cash
+refund. The physical handover remains a cashier action: the confirmation states
+that cash must be returned once. Software cannot automate a cash handover.
+
+The sale amount, items, quantities, paid attribution and business status are never
+changed by either refund method. No quantity restock is performed. Staff order
+reads and history expose a non-secret financial summary; public tracking is not
+given the additional refund data. These reads do not reconcile refunds. The
+shared badge shows normal validated green, orange pending, violet refunded and
+amber review, with the original amount and cash/card refund method.
+
+### Statistics follow-up (not implemented here)
+
+`/api/stats` currently sums confirmed sale amounts without subtracting refunds;
+its revenue remains gross, including refunded card and cash sales. Preserve
+original sales and join `order_refunds` for a later report: gross sales, confirmed
+refunds, net, cash refunded and card refunded. Pending/requested/review amounts
+must not be booked as successful refunds. Define the reporting period explicitly
+(sale date versus refund cash-flow date), event/workstation attribution and
+transaction/basket metrics before changing those aggregates. Product quantities
+continue to describe the original sales, not restocked units.
+
+### Local verification
+
+Run `node --test tests/*.test.cjs` for mocked service/API/UI and Stripe regression
+coverage. For real PostgreSQL SQL/constraint tests, install `@electric-sql/pglite`
+into an isolated temporary directory (no repository dependency change), then run:
+
+```sh
+AFROFOOD_PGLITE_MODULE=/path/to/temp/node_modules/@electric-sql/pglite \
+  node --test tests/refund-cash-sql.test.cjs
+```
+
+This uses an in-memory PostgreSQL engine and synthetic fixtures, never a
+DATABASE_URL, environment file, Stripe request or external database. It exercises
+the migration, preserved card row, CHECK/unique constraints, actual cash INSERT,
+concurrent service calls through serialized SQL transactions, lease rollback,
+attribution and original sale preservation. It does not simulate independent
+PostgreSQL connections contending on a row lock.

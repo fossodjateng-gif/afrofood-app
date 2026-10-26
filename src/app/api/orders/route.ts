@@ -99,6 +99,21 @@ export async function GET(req: Request) {
     }
 
     if (staff && rows.some(row => !canAccessStaffEvent(staff, String(row.event_id || "")))) throw new StaffAuthError("staff_event_forbidden", 403);
+    // Financial summaries only in authenticated staff reads; never reconcile here.
+    if (staff && rows.length) {
+      const refunds = await sql`
+        SELECT order_id, refund_state, refund_amount_cents, currency, refunded_at, payment_method
+        FROM order_refunds WHERE order_id = ANY(${rows.map(row => row.id)}::text[])
+      `;
+      const byOrder = new Map(refunds.map(refund => [refund.order_id, refund]));
+      rows = rows.map(order => {
+        const refund = byOrder.get(order.id);
+        return { ...order, refund: refund ? {
+          state: refund.refund_state, amountCents: refund.refund_amount_cents,
+          currency: refund.currency, refundedAt: refund.refunded_at, paymentMethod: refund.payment_method,
+        } : null };
+      });
+    }
     return NextResponse.json(rows);
   } catch (e: unknown) {
     if (e instanceof StaffAuthError) return NextResponse.json({ ok: false, error: e.code }, { status: e.status });

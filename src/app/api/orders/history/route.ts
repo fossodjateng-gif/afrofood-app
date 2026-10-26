@@ -18,11 +18,12 @@ export async function GET(req: Request) {
         reservation_requested, reservation_time, payment, amount_cents,
         cash_received_cents, change_given_cents, currency, paid_at,
         UPPER(status) AS status, items,
-        (payment = 'card' AND payment_provider = 'stripe' AND paid_at IS NOT NULL
-          AND stripe_payment_intent_id IS NOT NULL AND amount_cents > 0 AND currency = 'eur'
+        (paid_at IS NOT NULL AND amount_cents > 0 AND currency = 'eur'
+          AND ((payment = 'card' AND payment_provider = 'stripe' AND stripe_payment_intent_id IS NOT NULL)
+            OR (payment = 'cash' AND payment_provider IS NULL AND stripe_payment_intent_id IS NULL))
           AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.order_id = orders.id AND r.refund_state <> 'requested')) AS can_refund,
         (SELECT jsonb_build_object('state', r.refund_state, 'amountCents', r.refund_amount_cents,
-          'currency', r.currency, 'refundedAt', r.refunded_at)
+          'currency', r.currency, 'refundedAt', r.refunded_at, 'paymentMethod', r.payment_method)
           FROM order_refunds r WHERE r.order_id = orders.id) AS refund
       FROM orders
       WHERE event_id = ${eventId}

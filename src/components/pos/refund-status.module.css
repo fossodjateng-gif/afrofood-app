@@ -1,0 +1,6 @@
+.status { padding: 10px 14px; border-radius: 12px; font-weight: 800; overflow-wrap: anywhere; }
+.normal { background: linear-gradient(135deg, #16a34a, #15803d); color: white; }
+.pending { background: #ffedd5; color: #7c2d12; border-left: 6px solid #ea580c; }
+.refunded { background: #ede9fe; color: #4c1d95; border-left: 6px solid #7c3aed; }
+.review { background: #fef3c7; color: #78350f; border-left: 6px solid #d97706; }
+.original { margin-top: 4px; font-size: 0.875rem; font-weight: 500; }

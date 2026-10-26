@@ -39,7 +39,9 @@ for (const suffix of ['', '&status=READY']) {
     const rows = [{ id: 'public', status: 'READY', event_id: 'event-x' }, { id: 'private', status: 'READY', event_id: 'event-x', pos_card_key: 'key' }, { id: 'cash', status: 'READY', event_id: 'event-x', pos_cash_key: 'key' }];
     const api = load('src/app/api/orders/route.ts', { ...h.mocks,
       '@/lib/db': { sql: async (strings, ...values) => {
-        const q = strings.join(''); assert.match(q, /pos_card_key IS NULL AND pos_cash_key IS NULL/);
+        const q = strings.join('');
+        if (q.includes('FROM order_refunds')) return [];
+        assert.match(q, /pos_card_key IS NULL AND pos_cash_key IS NULL/);
         const staff = values.at(-1);
         return rows.filter(row => row.id === values[0] && (staff || (!row.pos_card_key && !row.pos_cash_key)));
       } }, '@/lib/orders-schema': { ensureOrdersSchema: async () => {} },

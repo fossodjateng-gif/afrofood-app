@@ -65,3 +65,24 @@ test('Refund UI sends only the confirmed amount through staffFetch and does not 
   assert.equal(text(findAll(render(), n => n.props.role === 'status')[0]).includes('en cours'), true);
   assert.equal(findAll(render(), n => n.type === 'button' && text(n) === 'Remboursement').length, 0);
 });
+
+test('cash confirmation names the full order, physical cash return and sends no item or quantity selection', async () => {
+  const calls = [];
+  const h = harness('src/components/pos/RefundAction.tsx', {}, { '@/lib/staff-auth': {
+    getSession: () => ({ userId: 'paul' }),
+    staffFetch: async (...args) => { calls.push(args);return Response.json({ ok: true, refund: { state: 'refunded', paymentMethod: 'cash', amountCents: 1250, currency: 'eur', refundedAt: '2026-10-26T12:00:00Z' } }); },
+  } });
+  const render = () => h.render(h.component.RefundAction, { ...props, payment: 'cash', lang: 'fr' });
+  assert.equal(calls.length, 0);
+  findAll(render(), n => n.type === 'button' && text(n) === 'Remboursement')[0].props.onClick();
+  const dialog = findAll(render(), n => n.props.role === 'dialog')[0];
+  assert.match(text(dialog), /ORDER-X/);assert.match(text(dialog), /12,50/);assert.match(text(dialog), /espèces/);
+  assert.equal(findAll(dialog, n => ['input','select'].includes(n.type)).length, 0);
+  const confirm = findAll(dialog, n => n.type === 'button' && text(n) === 'Rembourser le montant total')[0];
+  confirm.props.onClick();confirm.props.onClick();
+  for (let i = 0; i < 5; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.length, 1);assert.deepEqual(JSON.parse(calls[0][1].body), { amountCents: 1250 });
+  assert.equal(findAll(render(), n => n.type === 'button' && ['Remboursement','Rembourser le montant total','Reprendre le même remboursement'].includes(text(n))).length, 0);
+  const status = findAll(render(), n => typeof n.type === 'function' && n.type.name === 'RefundStatus')[0];
+  assert.equal(status.props.refund.paymentMethod, 'cash');assert.equal(status.props.amountCents, 1250);
+});

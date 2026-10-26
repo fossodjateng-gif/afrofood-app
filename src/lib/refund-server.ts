@@ -8,7 +8,8 @@ import type { CashierWriteContext } from "@/lib/cashier-write-context";
 
 export type RefundState = "requested" | "processing" | "refunded" | "requires_review";
 export type RefundRow = {
-  order_id: string; refund_key: string; stripe_payment_intent_id: string;
+  order_id: string; refund_key: string; stripe_payment_intent_id: string | null;
+  payment_method?: "card" | "cash";
   refund_amount_cents: number; currency: string; refund_state: RefundState;
   stripe_refund_id: string | null; refund_requested_at: string; requested_by: string;
   refunded_at: string | null; refund_error: string | null;
@@ -26,8 +27,13 @@ export function eligibleCardSale(order: OrderRow) {
     && !!order.stripe_payment_intent_id && Number.isSafeInteger(order.amount_cents)
     && Number(order.amount_cents) > 0 && order.currency === "eur";
 }
+export function eligibleCashSale(order: OrderRow) {
+  return order.payment === "cash" && order.stripe_payment_intent_id == null && order.payment_provider == null && !!order.paid_at
+    && ["NEW", "IN_PROGRESS", "READY", "DONE"].includes(order.status)
+    && Number.isSafeInteger(order.amount_cents) && Number(order.amount_cents) > 0 && order.currency === "eur";
+}
 export function refundSummary(row?: RefundRow) {
-  return row ? { state: row.refund_state, amountCents: row.refund_amount_cents, currency: row.currency, refundedAt: row.refunded_at } : null;
+  return row ? { state: row.refund_state, amountCents: row.refund_amount_cents, currency: row.currency, refundedAt: row.refunded_at, paymentMethod: row.payment_method || "card" } : null;
 }
 async function readRefund(orderId: string) {
   return (await sql`SELECT * FROM order_refunds WHERE order_id = ${orderId} LIMIT 1`)[0] as RefundRow | undefined;
@@ -60,6 +66,9 @@ async function accept(row: RefundRow, refund: StripeRefund, external = false, co
 }
 
 export async function reconcileRefund(row: RefundRow, order: OrderRow, allowCreate = false): Promise<RefundRow> {
+  // Cash is recorded atomically at confirmation; it never enters Stripe reconciliation.
+  if (row.payment_method === "cash") return row;
+  if (!row.stripe_payment_intent_id) throw new RefundError("refund_payment_mismatch");
   if (row.refund_state === "refunded") return row;
   let intent: Intent;
   try { intent = await stripeGet<Intent>(`/payment_intents/${encodeURIComponent(row.stripe_payment_intent_id)}`); }
@@ -119,11 +128,39 @@ export async function getOrderRefund(orderId: string, user: AuthenticatedStaff, 
   if (!order) throw new RefundError("order_not_found", 404);
   if (!canUseCashRegister(user) || !canAccessStaffEvent(user, order.event_id || "")) throw new RefundError("refund_forbidden", 403);
   if (!user.workstationId || user.workstationType !== "cashier" || user.cashierEventId !== order.event_id) throw new RefundError("refund_context_forbidden", 403);
-  if (!eligibleCardSale(order)) throw new RefundError("refund_not_eligible");
-  // V1 is full-refund only. The client may confirm the amount, never choose it.
+  const cash = eligibleCashSale(order);
+  if (!cash && !eligibleCardSale(order)) throw new RefundError("refund_not_eligible");
+  // Total only, for both methods. The client confirms the amount, never chooses it.
   if (requestedAmount !== undefined && (!Number.isSafeInteger(requestedAmount) || requestedAmount !== order.amount_cents)) throw new RefundError("refund_invalid_amount", 400);
   if (create && (!context || context.userId !== user.id || context.eventId !== order.event_id || context.workstationId !== user.workstationId)) throw new RefundError("refund_context_forbidden", 403);
   let row = await readRefund(orderId);
+  if (cash) {
+    if (!row && create) {
+      if (process.env.REFUND_CREATE_ENABLED !== "1") throw new RefundError("refund_creation_disabled", 503);
+      await sql.transaction([
+        cashierLeaseGuard(context!),
+        // Lock eligibility with the sale while serializing concurrent confirmations.
+        sql`SELECT id FROM orders WHERE id = ${order.id} FOR UPDATE`,
+        sql`INSERT INTO order_refunds (order_id, refund_key, payment_method, stripe_payment_intent_id,
+          refund_amount_cents, currency, refund_state, requested_by, requested_by_username,
+          requested_event_id, requested_register_id, requested_register_name, refunded_at)
+          SELECT id, ${randomUUID()}, 'cash', NULL, amount_cents, currency, 'refunded', ${user.id},
+            ${context!.username}, ${context!.eventId}, ${context!.workstationId}, ${context!.workstationName}, NOW()
+          FROM orders WHERE id = ${order.id} AND event_id = ${context!.eventId}
+            AND payment = 'cash' AND payment_provider IS NULL AND stripe_payment_intent_id IS NULL
+            AND paid_at IS NOT NULL AND UPPER(status) IN ('NEW','IN_PROGRESS','READY','DONE')
+            AND amount_cents = ${order.amount_cents} AND currency = 'eur'
+          ON CONFLICT (order_id) DO NOTHING`,
+      ], { isolationLevel: "ReadCommitted" });
+      row = await readRefund(orderId);
+      if (!row) throw new RefundError("refund_conflict");
+    }
+    if (row && (row.payment_method !== "cash" || row.refund_state !== "refunded"
+      || row.refund_amount_cents !== order.amount_cents || row.currency !== order.currency
+      || row.stripe_payment_intent_id || row.stripe_refund_id || !row.refunded_at)) throw new RefundError("refund_payment_mismatch");
+    return row;
+  }
+  if (row?.payment_method === "cash") throw new RefundError("refund_payment_mismatch");
   if (!row && create) {
     // The unique order/PI constraints serialize claims. No network call occurs
     // until this INSERT commits. requested_by is never updated by retries.

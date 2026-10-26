@@ -88,3 +88,23 @@ test('direct client POST with Refund OFF cannot create a Stripe refund', async (
     else process.env.REFUND_CREATE_ENABLED = previous;
   }
 });
+
+test('cash endpoint records total once with authenticated V3 context and never touches Stripe', async () => {
+  const h = await setup();
+  Object.assign(h.refund.order, { payment: 'cash', payment_provider: null, stripe_payment_intent_id: null });
+  const paul = await h.staff.login('paul');
+  assert.equal((await h.request('POST', '', { amountCents: 1250 })).status, 401);
+  assert.equal((await h.request('POST', paul.cookie, { amountCents: 50 })).status, 400);
+  assert.equal((await h.request('POST', paul.cookie, {}, { 'x-cashier-instance-id': '' })).status, 423);
+  const before = structuredClone(h.refund.order);
+  const first = await h.request('POST', paul.cookie, { amountCents: 1250, username: 'forged', eventId: 'other', workstationId: 'other' });
+  assert.equal(first.status, 200);
+  const result = (await first.json()).refund;
+  assert.equal(result.state, 'refunded');assert.equal(result.paymentMethod, 'cash');assert.equal(result.amountCents, 1250);
+  const row = structuredClone(h.refund.rows.get('ORDER-X'));
+  const retry = await h.request('POST', paul.cookie, { amountCents: 1250 });
+  assert.equal(retry.status, 200);assert.deepEqual((await retry.json()).refund, result);
+  assert.equal(row.requested_by, 'paul');assert.equal(row.requested_event_id, 'event-x');
+  assert.equal(row.requested_register_id, '11111111-1111-4111-8111-111111111111');
+  assert.deepEqual(h.refund.rows.get('ORDER-X'), row);assert.deepEqual(h.refund.order, before);assert.deepEqual(h.refund.calls, []);
+});

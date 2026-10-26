@@ -11,7 +11,21 @@ function refundHarness() {
     const q = strings.join('');queries.push(q);
     assert.doesNotMatch(q, /UPDATE orders|DELETE FROM orders|app_settings|quantity_applied\s*=|status\s*=\s*'NEW'|terminal_active_orders/);
     if (q.includes('af_assert_cashier_lease')) { if (h.guardError) throw Error('lease revoked'); return [{ authorized: true }]; }
+    if (q.includes('SELECT id FROM orders')) return [{ id: order.id }];
     if (q.includes('SELECT * FROM orders')) return v[0] === order.id ? [structuredClone(order)] : [];
+    if (q.includes('INSERT INTO order_refunds') && q.includes("'cash', NULL")) {
+      if (!rows.has(v[6]) && order.id === v[6] && order.event_id === v[7]
+        && order.payment === 'cash' && order.payment_provider == null && order.stripe_payment_intent_id == null
+        && order.paid_at && ['NEW','IN_PROGRESS','READY','DONE'].includes(order.status)
+        && order.amount_cents === v[8] && order.currency === 'eur') {
+        if (h.failSave) { h.failSave = false; throw Error('simulated DB commit failure'); }
+        rows.set(order.id, { order_id: order.id, refund_key: v[0], payment_method: 'cash', stripe_payment_intent_id: null,
+          refund_amount_cents: order.amount_cents, currency: order.currency, refund_state: 'refunded', stripe_refund_id: null,
+          requested_by: v[1], requested_by_username: v[2], requested_event_id: v[3], requested_register_id: v[4], requested_register_name: v[5],
+          refund_requested_at: new Date().toISOString(), refunded_at: new Date().toISOString(), refund_error: null });
+      }
+      return [];
+    }
     if (q.includes('INSERT INTO order_refunds')) {
       if (!rows.has(v[6]) && ![...rows.values()].some(row => row.stripe_payment_intent_id === v[8])) rows.set(v[6], {
         order_id: v[6], refund_key: v[0], stripe_payment_intent_id: v[8], refund_amount_cents: v[9], currency: v[10], requested_by: v[1],

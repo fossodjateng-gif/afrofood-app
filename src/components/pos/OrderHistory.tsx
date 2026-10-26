@@ -78,7 +78,7 @@ export function OrderHistory({ eventId, lang, selectedOrderId, onSelect }: {
       <strong>{order.id}</strong> · <time dateTime={order.paid_at || order.created_at}>{new Date(order.paid_at || order.created_at).toLocaleString(locale)}</time>
       <ul>{order.items.map((item, index) => <li key={index}>{item.name} × {item.qty}</li>)}</ul>
       <p>{Number.isSafeInteger(order.amount_cents) ? new Intl.NumberFormat(locale, { style: "currency", currency: order.currency || "eur" }).format(Number(order.amount_cents) / 100) : "—"} · {paymentLabels[lang][order.payment] || "—"} · {statusLabels[lang][order.status] || "—"}</p>
-      <RefundAction orderId={order.id} amountCents={order.amount_cents || 0} currency={order.currency || "eur"} eligible={order.can_refund === true} refund={order.refund} lang={lang} onRefresh={() => setRefreshKey((key) => key + 1)} />
+      <RefundAction payment={order.payment} orderId={order.id} amountCents={order.amount_cents || 0} currency={order.currency || "eur"} eligible={order.can_refund === true} refund={order.refund} lang={lang} onRefresh={() => setRefreshKey((key) => key + 1)} />
       <p>{order.event_name || order.event_id || "—"} · {order.created_by_username || "—"} / {order.register_name || "—"} · {order.paid_by_username || "—"} / {order.paid_register_name || "—"}</p>
       <OnDemandOrderReceipt order={order} lang={lang} labels={labels[lang]} showEvent
         requested={selectedOrderId === order.id} onRequest={() => onSelect(order.id)} onPrint={() => window.print()} />

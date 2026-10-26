@@ -19,7 +19,7 @@ export type OrderItem = {
 };
 
 export type OrderRow = {
-  refund?: { state: "requested" | "processing" | "refunded" | "requires_review"; amountCents: number; currency: string; refundedAt: string | null } | null;
+  refund?: { state: "requested" | "processing" | "refunded" | "requires_review"; amountCents: number; currency: string; refundedAt: string | null; paymentMethod?: "card" | "cash" } | null;
   can_refund?: boolean;
   created_by?: string | null;
   created_by_username?: string | null;

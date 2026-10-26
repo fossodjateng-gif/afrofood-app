@@ -7,6 +7,7 @@ import { getOrderBreakdownEur } from "@/lib/pricing";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type { OrderRow } from "@/lib/schema";
 import { OnDemandOrderReceipt } from "@/components/OnDemandOrderReceipt";
+import { RefundStatus, refundTone } from "@/components/pos/RefundStatus";
 import { OrderHistory } from "@/components/pos/OrderHistory";
 import { getCashierLogMessage, getPaymentErrorMessage, paymentPresentation } from "@/components/pos/payment-presentation";
 import { subscribeOrderSync } from "@/lib/order-sync";
@@ -981,6 +982,7 @@ export default function CaissePage() {
 		        {sortedOrders.length === 0 ? <p style={{ opacity: 0.8, marginTop: 12 }}>{t.noOrders}</p> : null}
         <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
         {sortedOrders.map((o) => {
+          const financialTone = refundTone(o.refund);
           const isPending = o.status === "PENDING_PAYMENT";
           const isCanceled = o.status === "CANCELED";
           const breakdown = getOrderBreakdown(o);
@@ -990,14 +992,16 @@ export default function CaissePage() {
               key={o.id}
               className="af-order-card"
               style={{
-                background: isPending
+                background: financialTone === "refunded" ? "rgba(124,58,237,0.18)"
+                  : financialTone === "pending" || financialTone === "review" ? "rgba(249,115,22,0.22)"
+                  : isPending
                   ? "rgba(249,115,22,0.22)"
                   : isCanceled
                   ? "rgba(100,116,139,0.25)"
                   : "rgba(22,163,74,0.22)",
                 borderRadius: 16,
                 padding: 16,
-                border: isPending ? "1px solid #fb923c" : isCanceled ? "1px solid #64748b" : "1px solid #22c55e",
+                border: financialTone === "refunded" ? "2px solid #a78bfa" : financialTone !== "normal" ? "2px solid #fb923c" : isPending ? "1px solid #fb923c" : isCanceled ? "1px solid #64748b" : "1px solid #22c55e",
               }}
             >
               <div className="af-order-heading" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
@@ -1134,17 +1138,8 @@ export default function CaissePage() {
                     {t.canceled}
                   </div>
                 ) : (
-                  <div
-                    style={{
-                      padding: "10px 14px",
-                      borderRadius: 12,
-                      background: "linear-gradient(135deg,#16a34a,#15803d)",
-                      color: "white",
-                      fontWeight: 900,
-                    }}
-                  >
-                    {t.validated}
-                  </div>
+                  <RefundStatus refund={o.refund} payment={o.payment} amountCents={o.amount_cents}
+                    currency={o.currency} lang={lang} validatedLabel={t.validated} />
                 )}
               </div>
 
