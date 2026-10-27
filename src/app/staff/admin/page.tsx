@@ -109,7 +109,7 @@ export default function StaffAdminPage() {
               <div style={{ fontWeight: 900, fontSize: 22, color: "#111", textTransform: "uppercase", letterSpacing: 0.4 }}>{section.title}</div>
               <div style={{ marginTop: 10, display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
                 {section.cards.map((c) => (
-                  <a
+                  <Link
                     key={c.href}
                     href={c.href}
                     className="af-link-btn"
@@ -124,7 +124,7 @@ export default function StaffAdminPage() {
                     }}
                   >
                     {c.label}
-                  </a>
+                  </Link>
                 ))}
               </div>
             </div>

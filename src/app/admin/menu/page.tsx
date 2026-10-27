@@ -6,7 +6,7 @@ import type { Lang } from "@/lib/translations";
 import { getSavedLang, saveLang } from "@/lib/translations";
 import { detectClientPlatform, type ClientPlatform } from "@/lib/payment-platform";
 import { getSession, getStaffRoleLabel } from "@/lib/staff-auth";
-import { goBackOr } from "@/lib/client-nav";
+import Link from "next/link";
 import { ProductPresentation } from "@/components/pos/ProductPresentation";
 import productStyles from "@/components/pos/product-presentation.module.css";
 import {
@@ -32,13 +32,6 @@ type AdminSection = {
   id: string;
   title: Record<Lang, string>;
   items: AdminItem[];
-};
-
-type EventSummary = {
-  eventId: string;
-  eventName: string;
-  sections: AdminSection[];
-  paymentConfig: PaymentConfig;
 };
 
 type PaymentConfig = {
@@ -239,7 +232,6 @@ function AdminMenuPageContent() {
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [sections, setSections] = useState<AdminSection[]>([]);
-  const [eventSummaries, setEventSummaries] = useState<EventSummary[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({
     cashEnabled: true,
@@ -252,7 +244,12 @@ function AdminMenuPageContent() {
     events: [],
   });
   const adminEventId = searchParams.get("adminEventId") || "";
-  const [pricingEventId, setPricingEventId] = useState(() => searchParams.get("adminEventId") || "");
+  const [pricingEventId, setPricingEventId] = useState(() => {
+    const adminContext = searchParams.get("adminEventId") || "";
+    if ((searchParams.get("from") || "").toLowerCase() !== "caisse") return adminContext;
+    // The verified display session already provides this context before loading.
+    return getSession()?.cashierEventId?.trim() || adminContext;
+  });
   const [newEventName, setNewEventName] = useState("");
   const [newItemCategory, setNewItemCategory] = useState<CustomItemCategory>("dish");
   const [newItemScope, setNewItemScope] = useState<CustomItemScope>("event");
@@ -351,12 +348,12 @@ function AdminMenuPageContent() {
   const isKitchenScopedView = staffRoleSession === "kitchen" && (isAddView || isPricingView);
   const workspaceHref = adminEventId && staffRoleSession === "admin" ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "";
   const returnHref = workspaceHref || (from === "admin-events" ? "/staff/admin/events" : fromCaisse
-    ? isAddView || isPricingView
-      ? "/staff/cuisine?from=caisse"
-      : "/caisse"
+    ? "/caisse"
     : staffRoleSession === "kitchen" || staffRoleSession === "cashier"
     ? "/staff/cuisine"
-    : "/staff");
+    : "/staff/admin");
+  // Returning to the register keeps the full document navigation used by V3.
+  const BackLink = returnHref === "/caisse" ? "a" : Link;
   const isFocusedView = isAddView || isPricingView || isPaymentView || isEventView || isTapView;
   const showPaymentSection = canManageOps && (isPaymentView || (!isFocusedView && !isKitchenScopedView));
   const showEventSection = !fromCaisse && canManageOps && (isEventView || (!isFocusedView && !isKitchenScopedView));
@@ -365,26 +362,6 @@ function AdminMenuPageContent() {
   const showMarketingSection = canManageTapToPay && (isTapView || (!isFocusedView && !isKitchenScopedView));
   const showAddSection = canManageCatalog && !isPricingView && !isPaymentView && !isEventView && !isTapView;
   const showPricingSection = canManageCatalog && !isAddView && !isPaymentView && !isEventView && !isTapView;
-  const showEventSummary = false;
-  const [users, setUsers] = useState<{ id: string; username: string; role: string; active: boolean; cashier_event_id: string | null }[]>([]);
-  useEffect(() => {
-    if (getSession()?.role !== "admin") return;
-    let alive = true;
-    void fetch("/api/staff/users", { cache: "no-store" }).then(async response => {
-      if (!response.ok) throw new Error("Staff assignments unavailable");
-      const data = await response.json();
-      if (alive) setUsers(data.users || []);
-    }).catch(() => { if (alive) setUsers([]); });
-    return () => { alive = false; };
-  }, []);
-  const staffAssignments = useMemo(() => {
-    return storeConfig.events.map((event) => ({
-      eventId: event.id,
-      cashiers: users.filter((user) => user.active && user.role === "cashier" && user.cashier_event_id === event.id),
-      kitchen: users.filter((user) => user.active && user.role === "kitchen" && user.cashier_event_id === event.id),
-    }));
-  }, [storeConfig.events, users]);
-
   useEffect(() => {
     if (!fromCaisse) return;
     const caisseEventId = getSession()?.cashierEventId || "";
@@ -421,54 +398,6 @@ function AdminMenuPageContent() {
     setTapFlowStep("prepare");
   }, [isTapView, tapToPayConfig.awarenessSeen, tapToPayConfig.termsAccepted, tapToPayConfig.educationSeen]);
 
-  useEffect(() => {
-    if (!isUnlocked) return;
-    if (storeConfig.events.length === 0) {
-      setEventSummaries([]);
-      return;
-    }
-
-    let cancelled = false;
-
-    async function loadEventSummaries() {
-      try {
-        const summaries = await Promise.all(
-          storeConfig.events.map(async (event) => {
-            const res = await fetch(`/api/admin/menu-config?eventId=${encodeURIComponent(event.id)}`, {
-              headers: buildAuthHeaders(),
-              cache: "no-store",
-            });
-            const data = await res.json().catch(() => null);
-            if (!res.ok || !data?.ok) {
-              throw new Error(data?.error || "Summary load failed");
-            }
-            return {
-              eventId: event.id,
-              eventName: event.name,
-              sections: Array.isArray(data.sections) ? (data.sections as AdminSection[]) : [],
-              paymentConfig: {
-                cashEnabled: data?.paymentConfig?.cashEnabled !== false,
-                cardEnabled: data?.paymentConfig?.cardEnabled !== false,
-                cashlessEnabled: data?.paymentConfig?.cashlessEnabled !== false,
-              },
-            } satisfies EventSummary;
-          })
-        );
-        if (!cancelled) {
-          setEventSummaries(summaries);
-        }
-      } catch {
-        if (!cancelled) {
-          setEventSummaries([]);
-        }
-      }
-    }
-
-    void loadEventSummaries();
-    return () => {
-      cancelled = true;
-    };
-  }, [isUnlocked, storeConfig.events, staffRoleSession, pin]);
   const ui = {
     paymentAllowed: lang === "de" ? "Zugelassene Zahlungen" : lang === "en" ? "Allowed payments" : "Paiements autorises",
     save: lang === "de" ? "Speichern" : lang === "en" ? "Save" : "Sauvegarder",
@@ -1112,9 +1041,8 @@ function AdminMenuPageContent() {
           }}
         >
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-	            <button
-	              type="button"
-	              onClick={() => goBackOr("/staff")}
+	            <BackLink
+	              href={returnHref}
 	              className="af-link-btn"
 	              style={{
 	                padding: "6px 10px",
@@ -1127,7 +1055,7 @@ function AdminMenuPageContent() {
 	              }}
 	            >
 	              {ui.back}
-	            </button>
+	            </BackLink>
             {(["de", "fr", "en"] as Lang[]).map((L) => (
               <button
                 key={L}
@@ -1225,7 +1153,7 @@ function AdminMenuPageContent() {
           }}
         >
 	          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-		            <button type="button" onClick={() => { if (workspaceHref || from === "admin-events") window.location.href = returnHref; else goBackOr(returnHref); }} className="af-link-btn" style={{ fontWeight: 900, color: "#111", border: "none", background: "transparent", cursor: "pointer" }}>{ui.back}</button>
+		            <BackLink href={returnHref} className="af-link-btn" style={{ fontWeight: 900, color: "#111", border: "none", background: "transparent", cursor: "pointer" }}>{ui.back}</BackLink>
 	          </div>
 		          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, display: "flex", alignItems: "center", gap: 8 }}>
 	            <img src="/logo-afrofood.png" alt="AfroFood" style={{ width: 30, height: 30, borderRadius: 8, objectFit: "cover", border: "1px solid var(--af-border)" }} />
@@ -1379,7 +1307,7 @@ function AdminMenuPageContent() {
 	        {showEventSection ? (
 	              <div style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12, marginTop: 12 }}>
 	          <div style={{ fontWeight: 900 }}>{ui.eventActive}</div>
-          <a className="af-link-btn" href="/staff/admin/events">{lang === "fr" ? "Espaces événements" : lang === "de" ? "Event-Bereiche" : "Event workspaces"}</a>
+          <Link className="af-link-btn" href="/staff/admin/events">{lang === "fr" ? "Espaces événements" : lang === "de" ? "Event-Bereiche" : "Event workspaces"}</Link>
 	          <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>
 	            {ui.eventHelp}
 	          </div>
@@ -1477,139 +1405,6 @@ function AdminMenuPageContent() {
 		          </div>
 		        </div>
 	            ) : null}
-
-	        {showEventSummary ? (
-	          <div style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12, marginTop: 12 }}>
-	            <div style={{ fontWeight: 900 }}>{ui.summaryTitle}</div>
-	            <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>{ui.summarySub}</div>
-	            {storeConfig.events.length === 0 ? (
-	              <div style={{ marginTop: 10, opacity: 0.8 }}>{ui.summaryEmpty}</div>
-	            ) : eventSummaries.length === 0 ? (
-	              <div style={{ marginTop: 10, opacity: 0.8 }}>{ui.summaryLoading}</div>
-	            ) : (
-	              <div style={{ marginTop: 12, display: "grid", gap: 12, minWidth: 0, overflowWrap: "anywhere", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))" }}>
-	                {eventSummaries.map((summary) => {
-	                  const assignment = staffAssignments.find((entry) => entry.eventId === summary.eventId);
-	                  const visibleItems = summary.sections.flatMap((section) =>
-	                    section.items
-	                      .filter((item) => item.visible)
-	                      .map((item) => ({
-	                        sectionTitle: section.title[lang],
-	                        itemName: item.name[lang],
-	                        price: item.price,
-	                      }))
-	                  );
-	                  const paymentBadges = [
-	                    summary.paymentConfig.cashEnabled ? "Cash" : null,
-	                    summary.paymentConfig.cardEnabled ? "Carte" : null,
-	                    summary.paymentConfig.cashlessEnabled ? "Cashless" : null,
-	                  ].filter(Boolean);
-
-	                  return (
-	                    <div
-	                      key={summary.eventId}
-	                      style={{
-	                        border: "1px solid #F1D7C8",
-	                        borderRadius: 14,
-	                        padding: 14,
-	                        background: summary.eventId === storeConfig.activeEventId ? "#fff7ed" : "#fffaf6",
-	                      }}
-	                    >
-	                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
-	                        <div>
-	                          <div style={{ fontWeight: 900, fontSize: 18 }}>{summary.eventName}</div>
-	                          <div style={{ fontSize: 12, opacity: 0.6 }}>{summary.eventId}</div>
-	                        </div>
-	                        {summary.eventId === storeConfig.activeEventId ? (
-	                          <div style={{ padding: "6px 10px", borderRadius: 999, background: "#111", color: "white", fontWeight: 800, fontSize: 12 }}>
-	                            {ui.activeBadge}
-	                          </div>
-	                        ) : null}
-	                      </div>
-
-	                      <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-	                        <div>
-	                          <div style={{ fontWeight: 800, marginBottom: 6 }}>{ui.allowedPayments}</div>
-	                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-	                            {paymentBadges.length > 0 ? (
-	                              paymentBadges.map((label) => (
-	                                <span key={`${summary.eventId}-${label}`} style={{ padding: "6px 10px", borderRadius: 999, background: "#dcfce7", color: "#166534", fontWeight: 800, fontSize: 12 }}>
-	                                  {label}
-	                                </span>
-	                              ))
-	                            ) : (
-	                              <span style={{ padding: "6px 10px", borderRadius: 999, background: "#fee2e2", color: "#991b1b", fontWeight: 800, fontSize: 12 }}>
-	                                {ui.ordersClosed}
-	                              </span>
-	                            )}
-	                          </div>
-	                        </div>
-
-	                        <div>
-	                          <div style={{ fontWeight: 800, marginBottom: 6 }}>{ui.assignedCashiers}</div>
-	                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-	                            {assignment && assignment.cashiers.length > 0 ? (
-	                              assignment.cashiers.map((user) => (
-	                                <span key={user.id} style={{ padding: "6px 10px", borderRadius: 999, background: "#dbeafe", color: "#1d4ed8", fontWeight: 800, fontSize: 12 }}>
-	                                  {user.username}
-	                                </span>
-	                              ))
-	                            ) : (
-	                              <span style={{ opacity: 0.75 }}>{ui.noAssignedCashiers}</span>
-	                            )}
-	                          </div>
-	                        </div>
-
-	                        <div>
-	                          <div style={{ fontWeight: 800, marginBottom: 6 }}>{ui.assignedKitchen}</div>
-	                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-	                            {assignment && assignment.kitchen.length > 0 ? (
-	                              assignment.kitchen.map((user) => (
-	                                <span key={user.id} style={{ padding: "6px 10px", borderRadius: 999, background: "#fef3c7", color: "#92400e", fontWeight: 800, fontSize: 12 }}>
-	                                  {user.username}
-	                                </span>
-	                              ))
-	                            ) : (
-	                              <span style={{ opacity: 0.75 }}>{ui.noAssignedKitchen}</span>
-	                            )}
-	                          </div>
-	                        </div>
-
-	                        <div>
-	                          <div style={{ fontWeight: 800, marginBottom: 6 }}>
-	                            {ui.visibleProducts} ({ui.menuCount}: {visibleItems.length})
-	                          </div>
-	                          <div style={{ display: "grid", gap: 6 }}>
-	                            {visibleItems.map((item, index) => (
-	                              <div
-	                                key={`${summary.eventId}-${item.itemName}-${index}`}
-	                                style={{
-	                                  display: "flex",
-	                                  justifyContent: "space-between",
-	                                  gap: 10,
-	                                  padding: "8px 10px",
-	                                  borderRadius: 10,
-	                                  background: "rgba(255,255,255,0.9)",
-	                                  border: "1px solid #F3E2D6",
-	                                }}
-	                              >
-	                                <div>
-	                                  <div style={{ fontWeight: 700 }}>{item.itemName}</div>
-	                                  <div style={{ fontSize: 12, opacity: 0.65 }}>{item.sectionTitle}</div>
-	                                </div>
-	                                <div style={{ fontWeight: 900, whiteSpace: "nowrap" }}>{item.price.toFixed(2)} EUR</div>
-	                              </div>
-	                            ))}
-	                          </div>
-	                        </div>
-	                      </div>
-	                    </div>
-	                  );
-	                })}
-	              </div>
-	            )}
-	          </div>
-	        ) : null}
 
 	        {showTapSections ? (
           isTapView ? (

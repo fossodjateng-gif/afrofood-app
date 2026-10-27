@@ -6,7 +6,7 @@ import type { OrderRow } from "@/lib/schema";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { getSession, staffFetch, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
-import { goBackOr } from "@/lib/client-nav";
+import Link from "next/link";
 import { StaffPageFrame } from "@/components/StaffPageFrame";
 
 const UI_TEXT: Record<
@@ -98,8 +98,9 @@ function KitchenPageContent() {
   const [accessError, setAccessError] = useState<string | null>(null);
   const t = UI_TEXT[lang];
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
+  const displaySession = getSession();
   const adminEventId = searchParams.get("adminEventId") || "";
-  const workspaceHref = getSession()?.role === "admin" && adminEventId ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "";
+  const workspaceHref = displaySession?.role === "admin" && adminEventId ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "";
   const backHref = fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine";
 
   const sortedOrders = useMemo(() => {
@@ -240,9 +241,9 @@ function KitchenPageContent() {
   return (
     <StaffPageFrame title={t.title} subtitle={t.subtitle} lang={lang} wide
       context={{ name: staffUsername, role: staffRole ? getStaffRoleLabel(staffRole, lang) : "",
-        eventName: assignedEventName || assignedEventId, workstationName: getSession()?.workstationName,
-        globalAdministration: staffRole === "admin" && !getSession()?.cashierEventId }}
-      back={<button type="button" onClick={() => { if (workspaceHref) window.location.href = workspaceHref; else goBackOr(backHref); }} className="af-link-btn">{t.back}</button>}
+        eventName: assignedEventName || assignedEventId, workstationName: displaySession?.workstationName,
+        globalAdministration: staffRole === "admin" && !displaySession?.cashierEventId }}
+      back={<Link href={workspaceHref || backHref} className="af-link-btn">{t.back}</Link>}
       onLangChange={language => { setLang(language); saveLang(language); }}
     >
       <button

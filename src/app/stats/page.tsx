@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
-import { goBackOr } from "@/lib/client-nav";
+import Link from "next/link";
 
 const STATS_PERIOD_KEY = "af_stats_period";
 const STATS_EVENT_KEY = "af_stats_event";
@@ -463,9 +463,7 @@ export default function StatsPage() {
           }}
         >
           <div style={{ display: "flex", gap: 8 }}>
-	            <button
-	              type="button"
-	              onClick={() => goBackOr("/staff")}
+	            <Link href="/staff/admin"
 	              className="af-link-btn"
 	              style={{
 	                padding: "6px 10px",
@@ -478,7 +476,7 @@ export default function StatsPage() {
 	              }}
 		          >
 		            {t.back}
-		          </button>
+		          </Link>
             {(["de", "fr", "en"] as Lang[]).map((L) => (
               <button
                 key={L}
@@ -560,9 +558,7 @@ export default function StatsPage() {
     >
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
 	        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-	          <button
-	            type="button"
-	            onClick={() => goBackOr("/staff")}
+	          <Link href="/staff/admin"
 	            className="af-link-btn"
 	            style={{
 	              padding: "6px 10px",
@@ -575,7 +571,7 @@ export default function StatsPage() {
 	            }}
 	          >
 	            {t.back}
-	          </button>
+	          </Link>
           {(["de", "fr", "en"] as Lang[]).map((L) => (
             <button
               key={L}

@@ -6,7 +6,7 @@ import type { OrderRow } from "@/lib/schema";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
-import { goBackOr } from "@/lib/client-nav";
+import Link from "next/link";
 import { StaffPageFrame } from "@/components/StaffPageFrame";
 
 
@@ -77,8 +77,9 @@ function ScreenPageContent() {
   const refreshRequestRef = useRef<AbortController | null>(null);
   const t = UI_TEXT[lang];
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
+  const displaySession = getSession();
   const adminEventId = searchParams.get("adminEventId") || "";
-  const workspaceHref = getSession()?.role === "admin" && adminEventId ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "";
+  const workspaceHref = displaySession?.role === "admin" && adminEventId ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "";
   const backHref = fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine";
 
   // Display-only event name; this does not gate or filter order loading.
@@ -187,11 +188,11 @@ function ScreenPageContent() {
 
   return (
     <StaffPageFrame title={t.title} subtitle={t.subtitle} lang={lang} wide
-      context={{ name: getSession()?.username || "", role: staffRole ? getStaffRoleLabel(staffRole, lang) : "",
+      context={{ name: displaySession?.username || "", role: staffRole ? getStaffRoleLabel(staffRole, lang) : "",
         eventName: eventLabel?.eventId === assignedEventId ? eventLabel.name : assignedEventId,
-        workstationName: getSession()?.workstationName,
-        globalAdministration: staffRole === "admin" && !getSession()?.cashierEventId }}
-      back={<button type="button" onClick={() => { if (workspaceHref) window.location.href = workspaceHref; else goBackOr(backHref); }} className="af-link-btn">{t.back}</button>}
+        workstationName: displaySession?.workstationName,
+        globalAdministration: staffRole === "admin" && !displaySession?.cashierEventId }}
+      back={<Link href={workspaceHref || backHref} className="af-link-btn">{t.back}</Link>}
       onLangChange={language => { setLang(language); saveLang(language); }}
     >
       {accessError ? <p role="alert">{accessError}</p> : null}

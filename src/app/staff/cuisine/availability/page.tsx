@@ -5,7 +5,6 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { clearSession, getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { goBackOr } from "@/lib/client-nav";
 import { ProductPresentation } from "@/components/pos/ProductPresentation";
 import productStyles from "@/components/pos/product-presentation.module.css";
 
@@ -251,7 +250,7 @@ function AvailabilityPageContent() {
             {(["de", "fr", "en"] as Lang[]).map((L) => (
               <button key={L} type="button" onClick={() => { setLang(L); saveLang(L); }} className={`af-lang-btn ${lang === L ? "is-active" : ""}`}>{L.toUpperCase()}</button>
             ))}
-            <button type="button" onClick={() => { if (workspaceHref) window.location.href = workspaceHref; else goBackOr(fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine"); }} className="af-link-btn" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800 }}>{ui.back}</button>
+            <Link href={workspaceHref || (fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine")} className="af-link-btn" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800 }}>{ui.back}</Link>
             <Link href="/" className="af-link-btn" style={{ textDecoration: "none", padding: "8px 12px", borderRadius: 10, border: "1px solid #111", color: "#111", fontWeight: 800 }}>{ui.home}</Link>
             {!fromCaisse ? <button type="button" className="af-btn" onClick={async () => { await clearSession(); window.location.href = "/team/login"; }} style={{ padding: "8px 12px", borderRadius: 10, border: "none", background: "#111", color: "white", fontWeight: 800 }}>{ui.logout}</button> : null}
           </div>

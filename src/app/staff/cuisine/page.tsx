@@ -63,9 +63,10 @@ const UI_TEXT: Record<
 
 function StaffCuisinePageContent() {
   const searchParams = useSearchParams();
-  const username = getSession()?.username || "";
+  const displaySession = getSession();
+  const username = displaySession?.username || "";
   const [lang, setLang] = useState<Lang>(() => getSavedLang());
-  const role = getSession()?.role || null;
+  const role = displaySession?.role || null;
   const [eventName, setEventName] = useState("");
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
 
@@ -100,10 +101,10 @@ function StaffCuisinePageContent() {
   return (
     <StaffPageFrame title={t.title} lang={lang} sticky
       context={{ name: username, role: role ? getStaffRoleLabel(role, lang) : "",
-        eventName: eventName || getSession()?.cashierEventId,
-        workstationName: getSession()?.workstationName,
-        globalAdministration: role === "admin" && !getSession()?.cashierEventId }}
-      back={<button type="button" onClick={() => goBackOr(fromCaisse ? "/caisse" : "/staff")} className="af-link-btn">{t.back}</button>}
+        eventName: eventName || displaySession?.cashierEventId,
+        workstationName: displaySession?.workstationName,
+        globalAdministration: role === "admin" && !displaySession?.cashierEventId }}
+      back={fromCaisse ? <a href="/caisse" className="af-link-btn">{t.back}</a> : role === "admin" ? <Link href="/staff/admin" className="af-link-btn">{t.back}</Link> : <button type="button" onClick={() => goBackOr("/staff")} className="af-link-btn">{t.back}</button>}
       onLangChange={language => { setLang(language); saveLang(language); }}
       home={<Link href="/" className="af-link-btn">{t.home}</Link>}
       actions={!fromCaisse ? <button className="af-btn af-primary" type="button" onClick={async () => {
@@ -115,7 +116,7 @@ function StaffCuisinePageContent() {
           <div style={{ fontWeight: 900, fontSize: 18 }}>{t.section}</div>
           <div style={{ marginTop: 10, display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
             {cards.map((c) => (
-              <a
+              <Link
                 key={c.href + c.label}
                 href={c.href}
                 className="af-link-btn"
@@ -130,7 +131,7 @@ function StaffCuisinePageContent() {
                 }}
               >
                 {c.label}
-              </a>
+              </Link>
             ))}
           </div>
         </div>
