@@ -90,5 +90,25 @@
 
 .quantityAlert { color: #991b1b; background: #fee2e2; border-radius: 8px; padding: 6px 8px; font-weight: 800; }
 
-.history { min-width: 0; overflow-wrap: anywhere; }
+.history { min-width: 0; overflow-wrap: anywhere; margin-top: 24px; padding: 16px; border: 1px solid #F1D7C8; border-radius: 12px; background: white; color: #111; }
 .history button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.historyCard { padding: 16px 0; border-bottom: 1px solid #F1D7C8; }
+.historyHeading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; }
+.historyHeading time { color: #5f5f5f; font-size: 0.875rem; }
+.historyAmount { margin: 6px 0; }
+.historyRefund { display: grid; justify-items: start; gap: 8px; }
+.historyHint { color: #7c2d12; font-size: 0.875rem; }
+.historyActions, .historyTools { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-top: 8px; }
+.historyActions:empty { display: none; }
+.historyTools > div { min-width: 0; max-width: 100%; }
+.historyDetails { margin-top: 8px; }
+.historyDetails summary { cursor: pointer; width: fit-content; min-height: 44px; padding: 10px 12px; border: 1px solid #F1D7C8; border-radius: 10px; font-weight: 700; }
+.historyDetails summary:focus-visible { outline: 3px solid #146cbe; outline-offset: 4px; }
+.historyDetails ul { padding-left: 20px; margin: 12px 0; }
+.historyFacts { display: grid; gap: 8px; font-size: 0.875rem; }
+.historyFacts > div { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.historyFacts dt { color: #5f5f5f; }
+.historyFacts dd { margin: 0; }
+.historyConfirmation { border: 1px solid var(--af-border); padding: 16px; margin-top: 8px; }
+.historyConfirmation p { margin: 8px 0; }
+.historyConfirmation button { margin: 4px 8px 4px 0; }

@@ -9,8 +9,9 @@ const name = { de: 'Produit', fr: 'Produit', en: 'Product' };
 const product = (id, imagePath) => ({ id, imagePath, name, price: 10, visible: true });
 const sections = items => [{ id: 'food', title: name, items }];
 const imageProps = tree => findAll(tree, el => el.props?.alt === name.de && el.props?.src)[0].props;
+const text = tree => tree == null || typeof tree === 'boolean' ? '' : Array.isArray(tree) ? tree.map(text).join(' ') : typeof tree === 'object' ? text(tree.props?.children) : String(tree);
 
-test('A/B/C/D: Menu et POS conservent les chemins configurés, personnalisés et logo provisoire', () => {
+test('A/B/C/D: Menu et POS conservent les chemins configurés, personnalisés et logo provisoire', async () => {
   const originals = load('src/lib/menu-catalog.ts').MENU_CATALOG.flatMap(section => section.items).filter(item => item.imagePath).map(item => item.imagePath);
   for (const source of [...originals, '/photos/custom-special.jpg', '/logo-afrofood.png', undefined]) {
     const p = product('custom-special', source), before = JSON.stringify(p);
@@ -21,7 +22,10 @@ test('A/B/C/D: Menu et POS conservent les chemins configurés, personnalisés et
     menuImage.onError({ currentTarget: element });
     assert.equal(element.src, '/logo-afrofood.png');
     const grid = harness('src/components/pos/ProductGrid.tsx');
-    const tree = grid.render(grid.component.ProductGrid, { lang: 'de', sections: sections([p]), categoryId: '', quantities: new Map(), onCategoryChange: () => {}, onAdd: () => {} });
+    const added = [];
+    const tree = grid.render(grid.component.ProductGrid, { lang: 'de', sections: sections([p]), categoryId: '', quantities: new Map(), onCategoryChange: () => {}, onAdd: item => added.push(item) });
+    const add = findAll(tree, node => node.type === 'button' && node.props['aria-label']?.includes(name.de))[0];
+    assert.equal(add.props.disabled, false);add.props.onClick();assert.deepEqual(added, [p]);
     const imageComponent = findAll(tree, el => el.type?.name === 'ProductImage')[0];
     const image = grid.render(imageComponent.type, imageComponent.props);
     assert.equal(imageProps(image).src, menuImage.src);
@@ -30,6 +34,35 @@ test('A/B/C/D: Menu et POS conservent les chemins configurés, personnalisés et
     assert.equal(imageProps(grid.render(imageComponent.type, imageComponent.props)).src, '/logo-afrofood.png');
     assert.equal(JSON.stringify(p), before);
   }
+  // The extracted presentation must retain the real availability controls and
+  // their revision token, without executing effects or calling an external API.
+  const revision = JSON.stringify({ status: 'limited', remainingQty: 0, resumeAt: null });
+  const p = { ...product('custom-special', '/photos/custom-special.jpg'), availability: { status: 'limited', remainingQty: 0, resumeAt: null, revision } };
+  const page = harness('src/app/staff/cuisine/availability/page.tsx', { lang: 'fr', role: 'kitchen', eventId: 'event-a', sections: sections([p]) }, {
+    'next/navigation': { useSearchParams: () => new URLSearchParams() },
+  });
+  const Page = page.render().props.children.type;
+  const render = () => page.render(Page);
+  const card = findAll(render(), node => node.type?.name === 'ProductPresentation')[0];
+  assert.equal(card.props.imagePath, p.imagePath);assert.equal(card.props.name, name.fr);assert.equal(card.props.category, name.fr);
+  assert.match(text(card), /information uniquement, vente toujours autorisee/);
+  const quantity = findAll(card, node => node.type === 'input' && node.props.type === 'number')[0];
+  assert.equal(quantity.props.value, 0);assert.ok(!quantity.props.disabled);
+  quantity.props.onChange({ target: { value: '2' } });
+  assert.equal(page.state.sections[0].items[0].availability.remainingQty, 2);
+  assert.equal(page.state.sections[0].items[0].availability.revision, revision);
+  const savedFetch = global.fetch, calls = [];
+  global.fetch = async (...args) => { calls.push(args);return Response.json({ ok: true, revision: 'next-revision' }); };
+  try {
+    await findAll(render(), node => node.type === 'button' && text(node) === 'Enregistrer')[0].props.onClick();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], '/api/admin/menu-config');assert.equal(calls[0][1].method, 'PATCH');
+    assert.deepEqual(JSON.parse(calls[0][1].body), { setting: 'item_availability', expectedRevision: revision, itemId: p.id, eventId: 'event-a', status: 'limited', remainingQty: 2, resumeAt: null });
+    assert.equal(page.state.sections[0].items[0].availability.revision, 'next-revision');
+  } finally { global.fetch = savedFetch; }
+  findAll(render(), node => node.type === 'select' && node.props.value === 'limited')[0].props.onChange({ target: { value: 'blocked' } });
+  assert.equal(page.state.sections[0].items[0].availability.status, 'blocked');
+  assert.equal(findAll(render(), node => node.type?.name === 'ProductPresentation')[0].props.tone, 'blocked');
 });
 
 test('E: catalogue et assets photo identiques à HEAD 91118345', () => {

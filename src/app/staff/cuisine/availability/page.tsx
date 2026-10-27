@@ -6,9 +6,12 @@ import { useSearchParams } from "next/navigation";
 import { clearSession, getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { goBackOr } from "@/lib/client-nav";
+import { ProductPresentation } from "@/components/pos/ProductPresentation";
+import productStyles from "@/components/pos/product-presentation.module.css";
 
 type AdminItem = {
   id: string;
+  imagePath?: string;
   name: Record<Lang, string>;
   price: number;
   visible: boolean;
@@ -254,24 +257,15 @@ function AvailabilityPageContent() {
 
         {error ? <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "#fee2e2", color: "#991b1b", fontWeight: 700 }}>{error}</div> : null}
 
-        <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+        <div className={productStyles.grid}>
           {items.map((item) => {
             const availability = item.availability || { status: "available" as const, remainingQty: null, resumeAt: null };
             const isBlocked = availability.status === "blocked";
             const isZeroLimited = availability.status === "limited" && Number(availability.remainingQty ?? 0) <= 0;
             return (
-              <div
-                key={item.id}
-                style={{
-                  background: isBlocked ? "#fff1f2" : isZeroLimited ? "#fff7ed" : "white",
-                  border: isBlocked ? "2px solid #e11d48" : isZeroLimited ? "2px solid #f97316" : "1px solid #F1D7C8",
-                  borderRadius: 12,
-                  padding: 12,
-                  boxShadow: isBlocked ? "0 10px 24px rgba(225,29,72,0.12)" : isZeroLimited ? "0 10px 24px rgba(249,115,22,0.12)" : "none",
-                }}
-              >
-                <div style={{ fontWeight: 900, fontSize: 20 }}>{item.name[lang]}</div>
-                <div style={{ opacity: 0.6, fontSize: 12, marginTop: 2 }}>{item.id}</div>
+              <ProductPresentation key={item.id} id={item.id} imagePath={item.imagePath} name={item.name[lang]}
+                category={sections.find(section => section.items.some(product => product.id === item.id))?.title[lang]}
+                tone={isBlocked ? "blocked" : isZeroLimited ? "warning" : "normal"}>
                 {isBlocked ? (
                   <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "#ffe4e6", color: "#be123c", fontWeight: 900 }}>
                     {lang === "fr" ? "Produit actuellement bloque" : lang === "de" ? "Produkt aktuell gesperrt" : "Product currently blocked"}
@@ -386,7 +380,7 @@ function AvailabilityPageContent() {
                     {savingId === item.id ? ui.saving : ui.save}
                   </button>
                 </div>
-              </div>
+              </ProductPresentation>
             );
           })}
         </div>

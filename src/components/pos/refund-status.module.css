@@ -4,3 +4,4 @@
 .refunded { background: #ede9fe; color: #4c1d95; border-left: 6px solid #7c3aed; }
 .review { background: #fef3c7; color: #78350f; border-left: 6px solid #d97706; }
 .original { margin-top: 4px; font-size: 0.875rem; font-weight: 500; }
+.compact { width: fit-content; max-width: 100%; padding: 6px 10px; font-size: 0.875rem; }

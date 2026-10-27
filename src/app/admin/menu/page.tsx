@@ -7,6 +7,8 @@ import { getSavedLang, saveLang } from "@/lib/translations";
 import { detectClientPlatform, type ClientPlatform } from "@/lib/payment-platform";
 import { getSession, getStaffRoleLabel } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
+import { ProductPresentation } from "@/components/pos/ProductPresentation";
+import productStyles from "@/components/pos/product-presentation.module.css";
 import {
   APPLE_TTP_ASSET_PATHS,
   getHeroBannerAssetPath,
@@ -20,6 +22,7 @@ import {
 
 type AdminItem = {
   id: string;
+  imagePath?: string;
   name: Record<Lang, string>;
   price: number;
   visible: boolean;
@@ -2049,11 +2052,13 @@ function AdminMenuPageContent() {
                 ) : null}
 	            </div>
 	          ) : null}
+          <div className={productStyles.grid}>
           {allItems.map((item) => (
-            <div key={item.id} style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12 }}>
-              <div style={{ fontWeight: 900 }}>{item.name[lang]}</div>
-              <div style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>{item.id}</div>
-              <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <ProductPresentation key={item.id} id={item.id} imagePath={item.imagePath} name={item.name[lang]}
+              category={sections.find(section => section.id === item.sectionId)?.title[lang]}>
+              <div className={productStyles.controls}>
+                <label className={productStyles.price}>
+                  {lang === "fr" ? "Prix (€)" : lang === "de" ? "Preis (€)" : "Price (€)"}
                 <input
                   type="number"
                   min={0}
@@ -2070,6 +2075,7 @@ function AdminMenuPageContent() {
                   }}
                   style={{ width: 120, padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}
                 />
+                </label>
                 <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 700 }}>
                   <input
                     type="checkbox"
@@ -2084,7 +2090,7 @@ function AdminMenuPageContent() {
                       );
                     }}
                   />
-                  {ui.visible}
+                  {item.visible ? ui.visible : lang === "fr" ? "Masqué" : lang === "de" ? "Ausgeblendet" : "Hidden"}
                 </label>
                 <button
                   className="af-btn"
@@ -2107,8 +2113,9 @@ function AdminMenuPageContent() {
                   </button>
                 ) : null}
               </div>
-            </div>
+            </ProductPresentation>
           ))}
+          </div>
         </div>
         ) : null}
       </div>

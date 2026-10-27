@@ -1,21 +1,9 @@
 import { isQuantityZero, quantityZeroLabel } from "@/lib/quantity-policy";
-import Image from "next/image";
-import { getProductImageSource, PRODUCT_IMAGE_FALLBACK } from "@/lib/product-image";
+import { ProductImage } from "./ProductPresentation";
 import { getDipPriceLabel, isDipItem } from "@/lib/pricing";
-import { useState } from "react";
 import type { Lang } from "@/lib/translations";
 import { formatPosMoney, getProductLimit, type PosProduct, type PosSection } from "@/lib/pos-cart";
 import styles from "./pos.module.css";
-
-function ProductImage({ product }: { product: PosProduct }) {
-  const [failed, setFailed] = useState(false);
-  const source = failed ? PRODUCT_IMAGE_FALLBACK : getProductImageSource(product.imagePath);
-  return (
-    <div className={styles.productImage}>
-      <Image src={source} alt={product.name.de} width={240} height={160} unoptimized style={{ objectFit: source === PRODUCT_IMAGE_FALLBACK ? "contain" : "cover" }} onError={() => setFailed(true)} />
-    </div>
-  );
-}
 
 export function ProductGrid({ lang, sections, categoryId, quantities, onCategoryChange, onAdd }: {
   lang: Lang;
@@ -52,7 +40,7 @@ export function ProductGrid({ lang, sections, categoryId, quantities, onCategory
               return (
                 <button className={styles.productCard} key={product.id} type="button" disabled={disabled}
                   onClick={() => onAdd(product)} aria-label={`${product.name[lang]} ${text.add}`}>
-                  <ProductImage key={`${product.id}:${product.imagePath}`} product={product} />
+                  <ProductImage key={`${product.id}:${product.imagePath}`} imagePath={product.imagePath} alt={product.name.de} />
                   <div className={styles.productBody}>
                     <span className={styles.productName}>{product.name[lang]}</span>
                     <span className={isQuantityZero(product.availability) ? styles.quantityAlert : styles.availability}>{label}{quantity > 0 ? ` · ${quantity} ${text.inCart}` : ""}</span>

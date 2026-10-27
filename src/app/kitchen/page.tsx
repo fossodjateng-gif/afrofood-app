@@ -7,6 +7,7 @@ import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { getSession, staffFetch, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
+import { StaffPageFrame } from "@/components/StaffPageFrame";
 
 const UI_TEXT: Record<
   Lang,
@@ -235,73 +236,13 @@ function KitchenPageContent() {
   }
 
   return (
-    <main
-      style={{
-        padding: 24,
-        fontFamily: "system-ui",
-        backgroundColor: "#FFF3E6",
-        backgroundImage:
-          "linear-gradient(180deg, rgba(255,243,230,0.82) 0%, rgba(255,243,230,0.9) 100%), url('/logo-afrofood.png')",
-        backgroundRepeat: "no-repeat",
-        backgroundPosition: "center, center",
-        backgroundSize: "cover, min(64vw, 420px)",
-        minHeight: "100vh",
-        color: "#111",
-      }}
+    <StaffPageFrame title={t.title} subtitle={t.subtitle} lang={lang} wide
+      context={{ name: staffUsername, role: staffRole ? getStaffRoleLabel(staffRole, lang) : "",
+        eventName: assignedEventName || assignedEventId, workstationName: getSession()?.workstationName,
+        globalAdministration: staffRole === "admin" && !getSession()?.cashierEventId }}
+      back={<button type="button" onClick={() => goBackOr(backHref)} className="af-link-btn">{t.back}</button>}
+      onLangChange={language => { setLang(language); saveLang(language); }}
     >
-      <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <button
-          type="button"
-          onClick={() => goBackOr(backHref)}
-          className="af-link-btn"
-          style={{
-            padding: "6px 10px",
-            borderRadius: 10,
-            border: "1px solid #111",
-            background: "white",
-            color: "#111",
-            fontWeight: 800,
-            cursor: "pointer",
-          }}
-        >
-          {t.back}
-        </button>
-        {(["de", "fr", "en"] as Lang[]).map((L) => (
-          <button
-            key={L}
-            type="button"
-            onClick={() => {
-              setLang(L);
-              saveLang(L);
-            }}
-            className={`af-lang-btn ${lang === L ? "is-active" : ""}`}
-          >
-            {L.toUpperCase()}
-          </button>
-        ))}
-	        <span>{t.name}: {staffUsername || "-"}</span>
-	        {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
-      </div>
-      <h1 style={{ margin: "10px 0 0 0", fontSize: 28, fontWeight: 900 }}>{t.title} · {getSession()?.workstationName || ""}</h1>
-      <p style={{ opacity: 0.75 }}>{t.subtitle}</p>
-      {assignedEventName ? (
-        <div
-          style={{
-            marginTop: 10,
-            display: "inline-flex",
-            gap: 8,
-            alignItems: "center",
-            padding: "8px 12px",
-            borderRadius: 999,
-            background: "rgba(255,255,255,0.9)",
-            border: "1px solid #F1D7C8",
-            fontWeight: 800,
-          }}
-        >
-          <span>{t.eventAssigned}:</span>
-          <span>{assignedEventName}</span>
-        </div>
-      ) : null}
       <button
         className="af-btn"
         onClick={refresh}
@@ -401,7 +342,7 @@ function KitchenPageContent() {
           );
         })}
       </div>
-    </main>
+    </StaffPageFrame>
   );
 }
 

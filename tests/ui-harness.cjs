@@ -15,8 +15,9 @@ function load(relative, mocks = {}, cache = new Map()) {
   const localRequire = name => {
     if (name in mocks) return mocks[name];
     if (name.endsWith('.css')) return {};
-    if (!name.startsWith('@/')) return require(name);
-    const stem = 'src/' + name.slice(2);
+    if (!name.startsWith('@/') && !name.startsWith('.')) return require(name);
+    const stem = name.startsWith('@/') ? path.resolve('src', name.slice(2)) : path.resolve(path.dirname(filename), name);
+    if (/\.tsx?$/.test(stem)) return load(stem, mocks, cache);
     return load(stem + (fs.existsSync(stem + '.ts') ? '.ts' : '.tsx'), mocks, cache);
   };
   new Function('require', 'module', 'exports', source)(localRequire, loadedModule, loadedModule.exports);

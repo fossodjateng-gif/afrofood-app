@@ -33,9 +33,9 @@ export function OrderHistory({ eventId, lang, selectedOrderId, onSelect }: {
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const text = {
-    de: { title: "Verkaufshistorie", empty: "Keine bestätigten Verkäufe für dieses Event.", refresh: "Aktualisieren", loading: "Verkäufe werden geladen…", previous: "Zurück", next: "Weitere Verkäufe", error: "Verkaufshistorie konnte nicht geladen werden.", close: "Beleg schließen" },
-    fr: { title: "Historique des ventes", empty: "Aucune vente validée pour cet événement.", refresh: "Actualiser", loading: "Chargement des ventes…", previous: "Précédent", next: "Ventes suivantes", error: "Impossible de charger l’historique.", close: "Fermer le ticket" },
-    en: { title: "Sales history", empty: "No confirmed sales for this event.", refresh: "Refresh", loading: "Loading sales…", previous: "Previous", next: "More sales", error: "Unable to load sales history.", close: "Close receipt" },
+    de: { title: "Verkaufshistorie", empty: "Keine bestätigten Verkäufe für dieses Event.", refresh: "Aktualisieren", loading: "Verkäufe werden geladen…", previous: "Zurück", next: "Weitere Verkäufe", error: "Verkaufshistorie konnte nicht geladen werden.", close: "Beleg schließen", details: "Details", original: "Ursprünglicher Betrag", preparation: "Zubereitungsstatus", createdBy: "Erstellt von", paidBy: "Kassiert von", workstation: "Arbeitsplatz", event: "Veranstaltung", customer: "Kunde", refundAmount: "Erstattungsbetrag", refundDate: "Bestätigte Erstattung", saleDate: "Verkaufsdatum" },
+    fr: { title: "Historique des ventes", empty: "Aucune vente validée pour cet événement.", refresh: "Actualiser", loading: "Chargement des ventes…", previous: "Précédent", next: "Ventes suivantes", error: "Impossible de charger l’historique.", close: "Fermer le ticket", details: "Détails", original: "Montant original", preparation: "Statut de préparation", createdBy: "Créée par", paidBy: "Encaissée par", workstation: "Poste", event: "Événement", customer: "Client", refundAmount: "Montant du remboursement", refundDate: "Remboursement confirmé", saleDate: "Date de vente" },
+    en: { title: "Sales history", empty: "No confirmed sales for this event.", refresh: "Refresh", loading: "Loading sales…", previous: "Previous", next: "More sales", error: "Unable to load sales history.", close: "Close receipt", details: "Details", original: "Original amount", preparation: "Preparation status", createdBy: "Created by", paidBy: "Collected by", workstation: "Workstation", event: "Event", customer: "Customer", refundAmount: "Refund amount", refundDate: "Refund confirmed", saleDate: "Sale date" },
   }[lang];
 
   useEffect(() => {
@@ -68,23 +68,50 @@ export function OrderHistory({ eventId, lang, selectedOrderId, onSelect }: {
   if (!eventId) return null;
   const current = snapshot?.eventId === eventId && snapshot.offset === offset ? snapshot : null;
   const locale = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
-  return <section className={styles.history} aria-label={text.title} style={{ marginTop: 24, padding: 16, border: "1px solid #F1D7C8", borderRadius: 12, background: "white", color: "#111" }}>
+  const shortDate = (value: string) => {
+    const date = new Date(value);
+    return `${date.toLocaleDateString(locale, { day: "2-digit", month: "2-digit" })} · ${date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}`;
+  };
+  const money = (value: number, currency: string) => new Intl.NumberFormat(locale, { style: "currency", currency }).format(value / 100);
+  return <section className={styles.history} aria-label={text.title}>
     <h2>{text.title}</h2>
     <button type="button" className="af-link-btn" onClick={() => setRefreshKey((key) => key + 1)}>{text.refresh}</button>
     {error ? <p role="alert">{error}</p> : null}
     {!current && !error ? <p role="status">{text.loading}</p> : null}
     {current?.orders.length === 0 ? <p>{text.empty}</p> : null}
-    {current?.orders.map((order) => <article key={order.id} style={{ padding: "12px 0", borderBottom: "1px solid #ddd" }}>
-      <strong>{order.id}</strong> · <time dateTime={order.paid_at || order.created_at}>{new Date(order.paid_at || order.created_at).toLocaleString(locale)}</time>
-      <ul>{order.items.map((item, index) => <li key={index}>{item.name} × {item.qty}</li>)}</ul>
-      <p>{Number.isSafeInteger(order.amount_cents) ? new Intl.NumberFormat(locale, { style: "currency", currency: order.currency || "eur" }).format(Number(order.amount_cents) / 100) : "—"} · {paymentLabels[lang][order.payment] || "—"} · {statusLabels[lang][order.status] || "—"}</p>
+    {current?.orders.map((order) => <article key={order.id} className={styles.historyCard}>
+      <header className={styles.historyHeading}>
+        <strong>{order.id}</strong>
+        <time dateTime={order.paid_at || order.created_at} title={new Date(order.paid_at || order.created_at).toLocaleString(locale)}>{shortDate(order.paid_at || order.created_at)}</time>
+      </header>
+      <p className={styles.historyAmount}>
+        {paymentLabels[lang][order.payment] || "—"} · {order.refund?.state === "refunded" ? `${text.original} : ` : ""}
+        {Number.isSafeInteger(order.amount_cents) ? money(Number(order.amount_cents), order.currency || "eur") : "—"}
+      </p>
       <RefundAction payment={order.payment} orderId={order.id} amountCents={order.amount_cents || 0} currency={order.currency || "eur"} eligible={order.can_refund === true} refund={order.refund} lang={lang} onRefresh={() => setRefreshKey((key) => key + 1)} />
-      <p>{order.event_name || order.event_id || "—"} · {order.created_by_username || "—"} / {order.register_name || "—"} · {order.paid_by_username || "—"} / {order.paid_register_name || "—"}</p>
-      <OnDemandOrderReceipt order={order} lang={lang} labels={labels[lang]} showEvent
-        requested={selectedOrderId === order.id} onRequest={() => onSelect(order.id)} onPrint={() => window.print()} />
-      {selectedOrderId === order.id ? <button type="button" className="af-link-btn" onClick={() => onSelect(null)}>{text.close}</button> : null}
+      <div className={styles.historyTools}>
+        <OnDemandOrderReceipt order={order} lang={lang} labels={labels[lang]} showEvent
+          requested={selectedOrderId === order.id} onRequest={() => onSelect(order.id)} onPrint={() => window.print()} />
+        {selectedOrderId === order.id ? <button type="button" className="af-link-btn" onClick={() => onSelect(null)}>{text.close}</button> : null}
+      </div>
+      <details className={styles.historyDetails}>
+        <summary>{text.details}</summary>
+        <ul>{order.items.map((item, index) => <li key={index}>{item.name} × {item.qty}</li>)}</ul>
+        <dl className={styles.historyFacts}>
+          <div><dt>{text.preparation}</dt><dd>{statusLabels[lang][order.status] || "—"}</dd></div>
+          <div><dt>{text.saleDate}</dt><dd>{new Date(order.paid_at || order.created_at).toLocaleString(locale)}</dd></div>
+          {order.customer_name ? <div><dt>{text.customer}</dt><dd>{order.customer_name}</dd></div> : null}
+          <div><dt>{text.event}</dt><dd>{order.event_name || order.event_id || "—"}</dd></div>
+          <div><dt>{text.createdBy}</dt><dd>{order.created_by_username || "—"} · {text.workstation} : {order.register_name || "—"}</dd></div>
+          <div><dt>{text.paidBy}</dt><dd>{order.paid_by_username || "—"} · {text.workstation} : {order.paid_register_name || "—"}</dd></div>
+          {order.refund ? <>
+            <div><dt>{text.refundAmount}</dt><dd>{money(order.refund.amountCents, order.refund.currency)}</dd></div>
+            {order.refund.state === "refunded" && order.refund.refundedAt ? <div><dt>{text.refundDate}</dt><dd>{new Date(order.refund.refundedAt).toLocaleString(locale)}</dd></div> : null}
+          </> : null}
+        </dl>
+      </details>
     </article>)}
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
+    <div className={styles.historyActions}>
       <button type="button" disabled={offset === 0} onClick={() => { onSelect(null); setOffset(Math.max(0, offset - PAGE_SIZE)); }}>{text.previous}</button>
       <button type="button" disabled={!current?.hasMore} onClick={() => { onSelect(null); setOffset(offset + PAGE_SIZE); }}>{text.next}</button>
     </div>

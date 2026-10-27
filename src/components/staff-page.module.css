@@ -11,3 +11,24 @@
 .accounts li { padding: 12px 0; border-bottom: 1px solid var(--af-border); }
 .accounts li:last-child { border-bottom: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.wideShell { max-width: none; }
+.staffHeader { display: block; }
+.stickyHeader { position: sticky; top: 12px; z-index: 20; }
+.toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; margin-bottom: 16px; }
+.back { justify-self: start; }
+.languages, .headerActions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.languages { justify-content: center; }
+.headerActions { justify-content: flex-end; }
+.back a, .back button, .headerActions a, .headerActions button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 8px 12px; border: 1px solid #111; border-radius: 10px; background: white; color: #111; font-weight: 800; text-decoration: none; }
+.headerActions :global(.af-primary) { background: #111; color: white; }
+.identity { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 12px; }
+.identity > div { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.identity dt { color: #5f5f5f; }
+.identity dt::after { content: " :"; }
+.identity dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.subtitle { margin-top: 8px; color: #5f5f5f; }
+@media (max-width: 600px) {
+  .toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .languages { justify-content: flex-end; }
+  .headerActions { grid-column: 1 / -1; }
+}

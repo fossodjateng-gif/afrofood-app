@@ -3,8 +3,9 @@ import { useRef, useState } from "react";
 import { getSession, staffFetch } from "@/lib/staff-auth";
 import { RefundStatus } from "@/components/pos/RefundStatus";
 import type { Lang } from "@/lib/translations";
+import styles from "./pos.module.css";
 
-export type PublicRefund = { state: "requested" | "processing" | "refunded" | "requires_review"; amountCents: number; currency: string; refundedAt: string | null; paymentMethod?: "card" | "cash" };
+export type PublicRefund = { state: "requested" | "processing" | "refunded" | "requires_review" | "failed"; amountCents: number; currency: string; refundedAt: string | null; paymentMethod?: "card" | "cash" };
 export function RefundAction({ orderId, amountCents, currency, eligible, refund, payment = "card", lang, onRefresh }: {
   orderId: string; amountCents: number; currency: string; eligible: boolean; payment?: "card" | "cash" | "cashless"; refund?: PublicRefund | null; lang: Lang; onRefresh: () => void;
 }) {
@@ -14,25 +15,19 @@ export function RefundAction({ orderId, amountCents, currency, eligible, refund,
   const [error, setError] = useState(false);
   const inFlight = useRef(false);
   const text = {
-    de: { paid: "Kartenzahlung · Bezahlt", action: "Rückerstattung", confirm: "Gesamten Betrag erstatten", cancel: "Zurück", warning: "Der Betrag wird auf das ursprüngliche Zahlungsmittel zurückerstattet.", refunded: "Erstattet", pending: "Rückerstattung wird geprüft. Keine neue Rückerstattung starten.", review: "Überprüfung erforderlich", check: "Rückerstattung prüfen", retry: "Dieselbe Rückerstattung fortsetzen", error: "Ergebnis unklar. Bitte dieselbe Rückerstattung prüfen." },
-    fr: { paid: "Carte · Payé", action: "Remboursement", confirm: "Rembourser le montant total", cancel: "Retour", warning: "Le montant sera remboursé sur le moyen de paiement d’origine.", refunded: "Remboursé", pending: "Remboursement en cours de vérification. Ne lancez pas un nouveau remboursement.", review: "Vérification nécessaire", check: "Vérifier le remboursement", retry: "Reprendre le même remboursement", error: "Résultat incertain. Vérifiez le même remboursement." },
-    en: { paid: "Card · Paid", action: "Refund", confirm: "Refund full amount", cancel: "Back", warning: "The amount will be refunded to the original payment method.", refunded: "Refunded", pending: "Refund being checked. Do not start a new refund.", review: "Review required", check: "Check refund", retry: "Resume the same refund", error: "Result uncertain. Check the same refund." },
+    de: { action: "Gesamten Betrag erstatten", confirm: "Gesamten Betrag erstatten", cancel: "Zurück", warning: "Der gesamte Betrag wird auf das ursprüngliche Zahlungsmittel zurückerstattet.", pending: "Keine neue Rückerstattung starten. Dieselbe Rückerstattung prüfen.", check: "Rückerstattung prüfen", retry: "Dieselbe Rückerstattung fortsetzen", error: "Ergebnis unklar. Bitte dieselbe Rückerstattung prüfen." },
+    fr: { action: "Rembourser intégralement", confirm: "Rembourser le montant total", cancel: "Retour", warning: "Le montant total sera remboursé sur le moyen de paiement d’origine.", pending: "Ne lancez pas un nouveau remboursement. Vérifiez le même remboursement.", check: "Vérifier le remboursement", retry: "Reprendre le même remboursement", error: "Résultat incertain. Vérifiez le même remboursement." },
+    en: { action: "Refund full amount", confirm: "Refund full amount", cancel: "Back", warning: "The full amount will be refunded to the original payment method.", pending: "Do not start a new refund. Check the same refund.", check: "Check refund", retry: "Resume the same refund", error: "Result uncertain. Check the same refund." },
   }[lang];
   const value = current?.state === "refunded" ? current : refund?.state === "refunded" ? refund : current || refund;
   const locale = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
   const money = (amount: number, code: string) => new Intl.NumberFormat(locale, { style: "currency", currency: code }).format(amount / 100);
-  const balances = {
-    de: { paid: "Karte bezahlt", refunded: "Bereits erstattet", remaining: "Noch erstattbar", unknown: "Zu prüfen", requested: "Anfrage gespeichert · Verarbeitung ausstehend" },
-    fr: { paid: "Montant payé carte", refunded: "Déjà remboursé", remaining: "Encore remboursable", unknown: "À vérifier", requested: "Demande enregistrée · En attente de traitement" },
-    en: { paid: "Card amount paid", refunded: "Already refunded", remaining: "Still refundable", unknown: "Needs verification", requested: "Request recorded · Awaiting processing" },
-  }[lang];
   const cash = (value?.paymentMethod || payment) === "cash";
   const cashText = {
     fr: { paid: "Espèces · Payé", balance: "Montant payé en espèces", warning: "Remettez le montant total en espèces au client une seule fois. Cette confirmation enregistre la restitution dans AfroFood, sans virement automatique." },
     de: { paid: "Barzahlung · Bezahlt", balance: "Bar bezahlter Betrag", warning: "Geben Sie dem Kunden den gesamten Betrag einmalig in bar zurück. Diese Bestätigung erfasst die Rückgabe in AfroFood; es erfolgt keine automatische Auszahlung." },
     en: { paid: "Cash · Paid", balance: "Amount paid in cash", warning: "Return the full amount to the customer in cash once. This confirmation records the cash return in AfroFood; no automatic transfer takes place." },
   }[lang];
-  const refundedCents = value?.state === "refunded" ? value.amountCents : 0;
   async function request(create: boolean) {
     if (inFlight.current || (create && !eligible)) return;
     inFlight.current = true;
@@ -49,26 +44,18 @@ export function RefundAction({ orderId, amountCents, currency, eligible, refund,
     } catch { setError(true);setConfirm(false); }
     finally { inFlight.current = false;setBusy(false); }
   }
-  if (!eligible && !value) return null;
-  return <div className="af-panel" style={{ marginTop: 12, overflowWrap: "anywhere" }}>
-    <p>{orderId}</p>
-    {value ? <RefundStatus refund={value} payment={payment} amountCents={amountCents} currency={currency} lang={lang} /> : null}
-    <dl>
-      <dt>{cash ? cashText.balance : balances.paid}</dt><dd>{money(amountCents, currency)}</dd>
-      <dt>{balances.refunded}</dt><dd>{value?.state === "requires_review" ? balances.unknown : money(refundedCents, currency)}</dd>
-      <dt>{balances.remaining}</dt><dd>{value?.state === "requires_review" ? balances.unknown : money(Math.max(0, amountCents - refundedCents), currency)}</dd>
-    </dl>
+  if (!eligible && !value) return <RefundStatus payment={payment} lang={lang} compact />;
+  return <div className={styles.historyRefund}>
+    <RefundStatus refund={value} payment={payment} lang={lang} compact />
     {value ? <>
-      <p className={`af-message ${value.state === "refunded" ? "af-message-success" : "af-message-warning"}`} role="status">{value.state === "refunded" ? text.refunded : value.state === "requires_review" ? text.review : value.state === "requested" ? balances.requested : text.pending}</p>
-      <p>{money(value.amountCents, value.currency)}{value.refundedAt ? ` · ${new Date(value.refundedAt).toLocaleString(locale)}` : ""}</p>
-      {value.state !== "refunded" ? <button type="button" className="af-link-btn" disabled={busy} onClick={() => void request(false)}>{text.check}</button> : null}
-      {value.state === "requested" && eligible ? <button type="button" className="af-link-btn" disabled={busy} onClick={() => setConfirm(true)}>{text.retry}</button> : null}
-    </> : <>
-      <p>{cash ? cashText.paid : text.paid}</p>
-      <button type="button" className="af-link-btn" disabled={busy} onClick={() => setConfirm(true)}>{text.action}</button>
-    </>}
-    {error ? <p className="af-message af-message-error" role="alert">{text.error} <button type="button" disabled={busy} onClick={() => void request(false)}>{text.check}</button></p> : null}
-    {confirm && eligible ? <section className="af-panel" role="dialog" aria-modal="false" aria-label={text.action} style={{ border: "1px solid var(--af-border)", padding: 16, marginTop: 12 }}>
+      {value.state === "requested" || value.state === "processing" ? <p className={styles.historyHint}>{text.pending}</p> : null}
+      <div className={styles.historyActions}>
+        {value.state !== "refunded" ? <button type="button" className="af-link-btn" disabled={busy} onClick={() => void request(false)}>{text.check}</button> : null}
+        {value.state === "requested" && eligible ? <button type="button" className="af-link-btn" disabled={busy} onClick={() => setConfirm(true)}>{text.retry}</button> : null}
+      </div>
+    </> : <button type="button" className="af-link-btn" disabled={busy} onClick={() => setConfirm(true)}>{text.action}</button>}
+    {error ? <p className="af-message af-message-error" role="alert">{text.error} {!value || value.state === "refunded" ? <button type="button" disabled={busy} onClick={() => void request(false)}>{text.check}</button> : null}</p> : null}
+    {confirm && eligible ? <section className={`af-panel ${styles.historyConfirmation}`} role="dialog" aria-modal="false" aria-label={text.action}>
       <strong>{orderId} · {money(amountCents, currency)}</strong>
       <p>{cash ? cashText.warning : text.warning}</p>
       <button type="button" className="af-danger" disabled={busy} onClick={() => void request(true)}>{text.confirm}</button>

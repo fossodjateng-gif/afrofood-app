@@ -7,6 +7,7 @@ import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import { goBackOr } from "@/lib/client-nav";
+import { StaffPageFrame } from "@/components/StaffPageFrame";
 
 
 const UI_TEXT: Record<
@@ -37,7 +38,7 @@ const UI_TEXT: Record<
     unnamed: "Ohne Name",
   },
   fr: {
-    title: "Commande",
+    title: "Commandes",
     subtitle: "Suivi des commandes en cours",
     back: "Retour",
     refreshing: "Actualisation...",
@@ -70,12 +71,28 @@ function ScreenPageContent() {
   const [justRefreshed, setJustRefreshed] = useState(false);
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
   const [assignedEventId, setAssignedEventId] = useState("");
+  const [eventLabel, setEventLabel] = useState<{ eventId: string; name: string } | null>(null);
   const [eventContextReady, setEventContextReady] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
   const refreshRequestRef = useRef<AbortController | null>(null);
   const t = UI_TEXT[lang];
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
   const backHref = fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine";
+
+  // Display-only event name; this does not gate or filter order loading.
+  useEffect(() => {
+    if (!assignedEventId) return;
+    const controller = new AbortController();
+    void fetch("/api/menu-config", { cache: "no-store", signal: controller.signal })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (controller.signal.aborted) return;
+        const events: Array<{ id: string; name: string }> = Array.isArray(data?.storeConfig?.events) ? data.storeConfig.events : [];
+        const event = events.find(event => event.id === assignedEventId);
+        if (event?.name) setEventLabel({ eventId: assignedEventId, name: event.name });
+      }).catch(() => { /* Keep the assigned event ID as a display fallback. */ });
+    return () => controller.abort();
+  }, [assignedEventId]);
 
   const preparing = orderResult?.eventId === assignedEventId ? orderResult.preparing : [];
   const ready = orderResult?.eventId === assignedEventId ? orderResult.ready : [];
@@ -167,56 +184,15 @@ function ScreenPageContent() {
   }, [refresh]);
 
   return (
-    <main
-      style={{
-        padding: 24,
-        fontFamily: "system-ui",
-        backgroundColor: "#FFF3E6",
-        backgroundImage:
-          "linear-gradient(180deg, rgba(255,243,230,0.82) 0%, rgba(255,243,230,0.9) 100%), url('/logo-afrofood.png')",
-        backgroundRepeat: "no-repeat",
-        backgroundPosition: "center, center",
-        backgroundSize: "cover, min(64vw, 420px)",
-        minHeight: "100vh",
-        color: "#111",
-      }}
+    <StaffPageFrame title={t.title} subtitle={t.subtitle} lang={lang} wide
+      context={{ name: getSession()?.username || "", role: staffRole ? getStaffRoleLabel(staffRole, lang) : "",
+        eventName: eventLabel?.eventId === assignedEventId ? eventLabel.name : assignedEventId,
+        workstationName: getSession()?.workstationName,
+        globalAdministration: staffRole === "admin" && !getSession()?.cashierEventId }}
+      back={<button type="button" onClick={() => goBackOr(backHref)} className="af-link-btn">{t.back}</button>}
+      onLangChange={language => { setLang(language); saveLang(language); }}
     >
-      <div style={{ marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <button
-          type="button"
-          onClick={() => goBackOr(backHref)}
-          className="af-link-btn"
-          style={{
-            padding: "6px 10px",
-            borderRadius: 10,
-            border: "1px solid #111",
-            background: "white",
-            color: "#111",
-            fontWeight: 800,
-            cursor: "pointer",
-          }}
-        >
-          {t.back}
-        </button>
-        {(["de", "fr", "en"] as Lang[]).map((L) => (
-          <button
-            key={L}
-            type="button"
-            onClick={() => {
-              setLang(L);
-              saveLang(L);
-            }}
-            className={`af-lang-btn ${lang === L ? "is-active" : ""}`}
-          >
-            {L.toUpperCase()}
-          </button>
-        ))}
-        {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
-      </div>
-      <h1 style={{ margin: "10px 0 0 0", fontSize: 32, fontWeight: 900 }}>{t.title} · {getSession()?.workstationName || ""}</h1>
-      <p style={{ marginTop: 6, opacity: 0.8 }}>{t.subtitle}</p>
       {accessError ? <p role="alert">{accessError}</p> : null}
-
       <button
         className="af-btn"
         onClick={refresh}
@@ -267,7 +243,7 @@ function ScreenPageContent() {
           </div>
         </section>
       </div>
-    </main>
+    </StaffPageFrame>
   );
 }
 
