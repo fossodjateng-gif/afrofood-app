@@ -86,17 +86,11 @@ export default function StaffAdminPage() {
     {
       title: t.administration,
       cards: [
-        { href: "/staff/admin/users", label: t.users },
-        { href: "/admin/menu?view=event", label: t.events },
+        { href: "/staff/admin/events", label: t.events },
         { href: "/stats", label: t.stats },
       ],
     },
-    {
-      title: t.cashierSpace,
-      cards: [
-        { href: "/staff/caisse", label: t.cashier },
-      ],
-    },
+
   ];
 
   return (

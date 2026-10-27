@@ -297,11 +297,19 @@ for (const [token, username, workstationId, identifier] of [['a', 'cem', station
       if (url === '/api/staff/workstations') return h.api('src/app/api/staff/workstations/route.ts').GET(request);
       throw Error('Unexpected endpoint: ' + url);
     };
-    const page = harness('src/app/staff/admin/users/page.tsx', { lang: 'fr' }, { '@/lib/staff-auth': { staffFetch } });
+    const page = harness('src/app/staff/admin/users/page.tsx', { lang: 'fr' }, { '@/lib/staff-auth': { staffFetch, getSession: () => ({ username: 'admin', role: 'admin' }), getStaffRoleLabel: () => 'Admin' } });
     let tree = page.render();
-    page.effects[0]();
+    const previousWindow = global.window;
+    global.window = { location: { search: '?adminEventId=testmaison' } };
+    try { page.effects[0](); } finally { global.window = previousWindow; }
+    assert.equal(page.state.draft.eventId, 'testmaison');
+    assert.equal(page.state.stationEvent, 'testmaison');
+    assert.equal(calls.filter(call => call.method !== 'GET').length, 0);
     for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve));
     tree = page.render();
+    assert.equal(tree.props.context.eventName, 'testmaison');
+    assert.equal(findAll(tree.props.actions, node => node.type === 'a')[0].props.href, '/staff/admin/events?eventId=testmaison');
+    assert.equal(findAll(tree, node => node.type === 'h3').length, 1);
     const account = findAll(tree, node => node.type === 'li' && node.props.children[0] === username)[0];
     findAll(account, node => node.type === 'button')[0].props.onClick();
     tree = page.render();
@@ -320,6 +328,7 @@ for (const [token, username, workstationId, identifier] of [['a', 'cem', station
     assert.equal(writes[0].method, 'PATCH');
     assert.equal(writes[0].body.id, identifier === 'omitted' ? undefined : user.id);
     assert.equal(page.state.error, '');
+    assert.equal(page.state.draft.eventId, 'testmaison');
     assert.equal(user.workstation_id, workstationId);
     assert.equal(h.sessions.get(hash(token.repeat(64))).revoked, true);
     assert.equal(h.locks.size, 0);

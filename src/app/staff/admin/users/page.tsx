@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { staffFetch } from "@/lib/staff-auth";
+import { getSession, getStaffRoleLabel, staffFetch } from "@/lib/staff-auth";
 import { StaffPageFrame } from "@/components/StaffPageFrame";
 import styles from "@/components/staff-page.module.css";
 import type { WorkstationConfig, WorkstationType } from "@/lib/workstations";
@@ -16,6 +16,9 @@ const TEXT = {
 export default function StaffAdminUsersPage() {
   const [lang, setLang] = useState<Lang>(() => getSavedLang());
   const t = TEXT[lang];
+  const [adminEventId, setAdminEventId] = useState("");
+  const session = getSession();
+  const resetDraft = () => setDraft({ ...empty, eventId: adminEventId });
   const [users, setUsers] = useState<User[]>([]);
   const [events, setEvents] = useState<Array<{ id: string; name: string }>>([]);
   const [workstations, setWorkstations] = useState<Record<string, WorkstationConfig>>({});
@@ -34,7 +37,17 @@ export default function StaffAdminUsersPage() {
     if (signal?.aborted) return;
     setUsers(a.users); setEvents(c.events); setWorkstations(c.workstations); setLoading(false);
   }, []);
-  useEffect(() => { const c = new AbortController(); void load(c.signal).catch(() => { if (!c.signal.aborted) { setError(TEXT.fr.error); setLoading(false); } }); return () => c.abort(); }, [load]);
+  useEffect(() => {
+    const eventId = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("adminEventId") || "" : "";
+    setAdminEventId(eventId);
+    setDraft({ ...empty, eventId });
+    setStationEvent(eventId);
+    const c = new AbortController(); void load(c.signal).catch(() => { if (!c.signal.aborted) { setError(TEXT.fr.error); setLoading(false); } }); return () => c.abort(); }, [load]);
+  useEffect(() => {
+    if (!loading && window.location.hash === "#workstations") {
+      document.getElementById("workstations")?.scrollIntoView();
+    }
+  }, [loading]);
   async function mutate(url: string, method: string, body: object) {
     setBusy(true); setError(""); setMessage("");
     try { const r = await staffFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const d = await r.json(); if (!r.ok || !d.ok) throw new Error(d.error || "Enregistrement refusé"); await load(); setMessage(t.saved); return true; }
@@ -42,9 +55,12 @@ export default function StaffAdminUsersPage() {
   }
   const config = workstations[draft.eventId];
   const choices = !config ? [] : draft.role === "admin" ? [...config.cashier, ...config.kitchen] : config[draft.role];
-  async function saveUser(event: FormEvent) { event.preventDefault(); if (await mutate("/api/staff/users", draft.mode === "edit" ? "PATCH" : "POST", draft)) setDraft(empty); }
-  return <StaffPageFrame title={t.title} actions={<>{(["de", "fr", "en"] as Lang[]).map(l => <button key={l} type="button" className={`af-lang-btn ${lang === l ? "is-active" : ""}`} aria-pressed={lang === l} onClick={() => { setLang(l); saveLang(l); }}>{l.toUpperCase()}</button>)}
-    <a className="af-link-btn" href="/staff/admin">{lang === "de" ? "Zurück" : lang === "en" ? "Back" : "Retour"}</a>
+  async function saveUser(event: FormEvent) { event.preventDefault(); if (await mutate("/api/staff/users", draft.mode === "edit" ? "PATCH" : "POST", draft)) resetDraft(); }
+  const contextEvent = events.find(e => e.id === adminEventId);
+  const contextualEvents = adminEventId ? events.filter(e => e.id === adminEventId) : events;
+  return <StaffPageFrame title={t.title} lang={lang} context={{ name: session?.username || "", role: session ? getStaffRoleLabel(session.role, lang) : "", eventName: contextEvent?.name || adminEventId, globalAdministration: !adminEventId }} actions={<>{(["de", "fr", "en"] as Lang[]).map(l => <button key={l} type="button" className={`af-lang-btn ${lang === l ? "is-active" : ""}`} aria-pressed={lang === l} onClick={() => { setLang(l); saveLang(l); }}>{l.toUpperCase()}</button>)}
+    <a className="af-link-btn" href={adminEventId ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "/staff/admin"}>{lang === "de" ? "Zurück" : lang === "en" ? "Back" : "Retour"}</a>
+    {adminEventId ? <a className="af-link-btn" href="/staff/admin/users">{lang === "de" ? "Alle Benutzer" : lang === "en" ? "All users" : "Tous les utilisateurs"}</a> : null}
     </>}>
     <p>{t.source}</p>
     {error ? <p className="af-message af-message-error" role="alert">{t.error}</p> : null}{message ? <p className="af-message af-message-success" role="status">{t.saved}</p> : null}
@@ -54,13 +70,13 @@ export default function StaffAdminUsersPage() {
       <label>{t.role}<select value={draft.role} onChange={e => setDraft({ ...draft, role: e.target.value as User["role"], workstationId: "" })}><option value="admin">Admin</option><option value="cashier">{t.cashier}</option><option value="kitchen">{t.kitchen}</option></select></label>
       <label>{t.event}<select required={draft.role !== "admin"} value={draft.eventId} onChange={e => setDraft({ ...draft, eventId: e.target.value, workstationId: "" })}><option value="">{t.none}</option>{events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
       <label>{t.station}<select required={draft.role !== "admin" || !!draft.eventId} value={draft.workstationId} onChange={e => setDraft({ ...draft, workstationId: e.target.value })}><option value="">{t.none}</option>{choices.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.name} ({s.type})</option>)}</select></label>
-      <label><input type="checkbox" checked={draft.active} onChange={e => setDraft({ ...draft, active: e.target.checked })} />{t.activeAccount}</label><p>{t.hint}</p><button>{t.save}</button>{draft.mode === "edit" ? <button type="button" onClick={() => setDraft(empty)}>{t.cancel}</button> : null}
+      <label><input type="checkbox" checked={draft.active} onChange={e => setDraft({ ...draft, active: e.target.checked })} />{t.activeAccount}</label><p>{t.hint}</p><button>{t.save}</button>{draft.mode === "edit" ? <button type="button" onClick={() => resetDraft()}>{t.cancel}</button> : null}
     </fieldset></form>
-    <section className="af-panel"><h2>{t.accounts}</h2><ul className={styles.accounts}>{users.map(u => { const c = u.cashier_event_id ? workstations[u.cashier_event_id] : undefined; const s = c && [...c.cashier, ...c.kitchen].find(s => s.id === u.workstation_id); return <li key={u.id}>{u.username} · {u.role} · {events.find(e => e.id === u.cashier_event_id)?.name || "—"} · {s?.name || t.unassigned} · {u.active ? t.active : t.inactive} <button type="button" disabled={busy} onClick={() => setDraft({ mode: "edit", id: u.id, username: u.username, password: "", role: u.role, active: u.active, eventId: u.cashier_event_id || "", workstationId: s?.active ? s.id : "" })}>{t.edit}</button></li>; })}</ul></section>
-    <section className="af-panel"><h2>{t.stations}</h2><form onSubmit={async e => { e.preventDefault(); if (await mutate("/api/staff/workstations", "POST", { eventId: stationEvent, type: stationType, name: stationName, active: true })) setStationName(""); }}><fieldset disabled={busy}><legend>{t.newStation}</legend>
-      <label>{t.event}<select required value={stationEvent} onChange={e => setStationEvent(e.target.value)}><option value="">{t.choose}</option>{events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
+    <section className="af-panel"><h2>{t.accounts}</h2><ul className={styles.accounts}>{users.filter(u => !adminEventId || u.cashier_event_id === adminEventId).map(u => { const c = u.cashier_event_id ? workstations[u.cashier_event_id] : undefined; const s = c && [...c.cashier, ...c.kitchen].find(s => s.id === u.workstation_id); return <li key={u.id}>{u.username} · {u.role} · {events.find(e => e.id === u.cashier_event_id)?.name || "—"} · {s?.name || t.unassigned} · {u.active ? t.active : t.inactive} <button type="button" disabled={busy} onClick={() => setDraft({ mode: "edit", id: u.id, username: u.username, password: "", role: u.role, active: u.active, eventId: u.cashier_event_id || "", workstationId: s?.active ? s.id : "" })}>{t.edit}</button></li>; })}</ul></section>
+    <section id="workstations" className="af-panel"><h2>{t.stations}</h2><form onSubmit={async e => { e.preventDefault(); if (await mutate("/api/staff/workstations", "POST", { eventId: stationEvent, type: stationType, name: stationName, active: true })) setStationName(""); }}><fieldset disabled={busy}><legend>{t.newStation}</legend>
+      <label>{t.event}<select required disabled={!!adminEventId} value={stationEvent} onChange={e => setStationEvent(e.target.value)}><option value="">{t.choose}</option>{events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
       <label>{t.type}<select value={stationType} onChange={e => setStationType(e.target.value as WorkstationType)}><option value="cashier">{t.cashier}</option><option value="kitchen">{t.kitchen}</option></select></label><label>{t.name}<input required maxLength={100} value={stationName} onChange={e => setStationName(e.target.value)} /></label><button>{t.createStation}</button>
-    </fieldset></form>{events.map(e => <div key={e.id}><h3>{e.name}</h3>{[...(workstations[e.id]?.cashier || []), ...(workstations[e.id]?.kitchen || [])].map(s => <form key={`${s.id}:${s.name}:${s.active}`} onSubmit={async event => { event.preventDefault(); const f = new FormData(event.currentTarget); await mutate("/api/staff/workstations", "PATCH", { eventId: e.id, id: s.id, type: s.type, name: f.get("name"), active: f.has("active") }); }}><fieldset disabled={busy}><legend>{s.type} · {s.id}</legend><label>{t.name}<input name="name" required maxLength={100} defaultValue={s.name} /></label><label><input name="active" type="checkbox" defaultChecked={s.active} />{t.active}</label><button>{t.saveStation}</button></fieldset></form>)}</div>)}</section>
+    </fieldset></form>{contextualEvents.map(e => <div key={e.id}><h3>{e.name}</h3>{[...(workstations[e.id]?.cashier || []), ...(workstations[e.id]?.kitchen || [])].map(s => <form key={`${s.id}:${s.name}:${s.active}`} onSubmit={async event => { event.preventDefault(); const f = new FormData(event.currentTarget); await mutate("/api/staff/workstations", "PATCH", { eventId: e.id, id: s.id, type: s.type, name: f.get("name"), active: f.has("active") }); }}><fieldset disabled={busy}><legend>{s.type} · {s.id}</legend><label>{t.name}<input name="name" required maxLength={100} defaultValue={s.name} /></label><label><input name="active" type="checkbox" defaultChecked={s.active} />{t.active}</label><button>{t.saveStation}</button></fieldset></form>)}</div>)}</section>
     </>}
   </StaffPageFrame>;
 }

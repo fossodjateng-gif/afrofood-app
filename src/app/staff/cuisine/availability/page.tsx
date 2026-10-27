@@ -54,6 +54,8 @@ function tomorrowMorningIso() {
 
 function AvailabilityPageContent() {
   const searchParams = useSearchParams();
+  const adminEventId = searchParams.get("adminEventId") || "";
+  const workspaceHref = getSession()?.role === "admin" && adminEventId ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "";
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
   const [lang, setLang] = useState<Lang>("fr");
   const [role, setRole] = useState<StaffRole | null>(null);
@@ -249,7 +251,7 @@ function AvailabilityPageContent() {
             {(["de", "fr", "en"] as Lang[]).map((L) => (
               <button key={L} type="button" onClick={() => { setLang(L); saveLang(L); }} className={`af-lang-btn ${lang === L ? "is-active" : ""}`}>{L.toUpperCase()}</button>
             ))}
-            <button type="button" onClick={() => goBackOr(fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine")} className="af-link-btn" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800 }}>{ui.back}</button>
+            <button type="button" onClick={() => { if (workspaceHref) window.location.href = workspaceHref; else goBackOr(fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine"); }} className="af-link-btn" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800 }}>{ui.back}</button>
             <Link href="/" className="af-link-btn" style={{ textDecoration: "none", padding: "8px 12px", borderRadius: 10, border: "1px solid #111", color: "#111", fontWeight: 800 }}>{ui.home}</Link>
             {!fromCaisse ? <button type="button" className="af-btn" onClick={async () => { await clearSession(); window.location.href = "/team/login"; }} style={{ padding: "8px 12px", borderRadius: 10, border: "none", background: "#111", color: "white", fontWeight: 800 }}>{ui.logout}</button> : null}
           </div>

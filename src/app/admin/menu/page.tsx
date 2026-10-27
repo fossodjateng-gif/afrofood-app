@@ -251,7 +251,8 @@ function AdminMenuPageContent() {
     activeEventName: "",
     events: [],
   });
-  const [pricingEventId, setPricingEventId] = useState("");
+  const adminEventId = searchParams.get("adminEventId") || "";
+  const [pricingEventId, setPricingEventId] = useState(() => searchParams.get("adminEventId") || "");
   const [newEventName, setNewEventName] = useState("");
   const [newItemCategory, setNewItemCategory] = useState<CustomItemCategory>("dish");
   const [newItemScope, setNewItemScope] = useState<CustomItemScope>("event");
@@ -348,13 +349,14 @@ function AdminMenuPageContent() {
   const isEventView = view === "event";
   const isTapView = view === "tap";
   const isKitchenScopedView = staffRoleSession === "kitchen" && (isAddView || isPricingView);
-  const returnHref = fromCaisse
+  const workspaceHref = adminEventId && staffRoleSession === "admin" ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "";
+  const returnHref = workspaceHref || (from === "admin-events" ? "/staff/admin/events" : fromCaisse
     ? isAddView || isPricingView
       ? "/staff/cuisine?from=caisse"
       : "/caisse"
     : staffRoleSession === "kitchen" || staffRoleSession === "cashier"
     ? "/staff/cuisine"
-    : "/staff";
+    : "/staff");
   const isFocusedView = isAddView || isPricingView || isPaymentView || isEventView || isTapView;
   const showPaymentSection = canManageOps && (isPaymentView || (!isFocusedView && !isKitchenScopedView));
   const showEventSection = !fromCaisse && canManageOps && (isEventView || (!isFocusedView && !isKitchenScopedView));
@@ -392,6 +394,7 @@ function AdminMenuPageContent() {
   }, [fromCaisse]);
 
   useEffect(() => {
+    if (adminEventId) return;
     if (storeConfig.events.length === 0) {
       setNewItemScope("all");
       return;
@@ -399,7 +402,7 @@ function AdminMenuPageContent() {
     if (!pricingEventId && newItemScope === "event") {
       setNewItemScope("all");
     }
-  }, [pricingEventId, storeConfig.events.length, newItemScope]);
+  }, [adminEventId, pricingEventId, storeConfig.events.length, newItemScope]);
 
   useEffect(() => {
     if (!isTapView) return;
@@ -1222,11 +1225,12 @@ function AdminMenuPageContent() {
           }}
         >
 	          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-		            <button type="button" onClick={() => goBackOr(returnHref)} className="af-link-btn" style={{ fontWeight: 900, color: "#111", border: "none", background: "transparent", cursor: "pointer" }}>{ui.back}</button>
+		            <button type="button" onClick={() => { if (workspaceHref || from === "admin-events") window.location.href = returnHref; else goBackOr(returnHref); }} className="af-link-btn" style={{ fontWeight: 900, color: "#111", border: "none", background: "transparent", cursor: "pointer" }}>{ui.back}</button>
 	          </div>
 		          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, display: "flex", alignItems: "center", gap: 8 }}>
 	            <img src="/logo-afrofood.png" alt="AfroFood" style={{ width: 30, height: 30, borderRadius: 8, objectFit: "cover", border: "1px solid var(--af-border)" }} />
-	            {isAddView
+	            {workspaceHref ? <span>{storeConfig.events.find(event => event.id === adminEventId)?.name || adminEventId} · </span> : null}
+            {isAddView
               ? ui.addProductTitle
               : isPricingView
               ? ui.pricingTitle
@@ -1301,6 +1305,7 @@ function AdminMenuPageContent() {
                 {lang === "fr" ? "Evenement en edition" : lang === "de" ? "Event in Bearbeitung" : "Editing event"}
               </div>
               <select
+                disabled={!!workspaceHref}
                 value={pricingEventId}
                 onChange={(e) => setPricingEventId(e.target.value)}
                 style={{ width: "100%", minWidth: 0, maxWidth: "min(360px, 100%)", padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}
@@ -1374,6 +1379,7 @@ function AdminMenuPageContent() {
 	        {showEventSection ? (
 	              <div style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12, marginTop: 12 }}>
 	          <div style={{ fontWeight: 900 }}>{ui.eventActive}</div>
+          <a className="af-link-btn" href="/staff/admin/events">{lang === "fr" ? "Espaces événements" : lang === "de" ? "Event-Bereiche" : "Event workspaces"}</a>
 	          <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>
 	            {ui.eventHelp}
 	          </div>
@@ -2038,6 +2044,7 @@ function AdminMenuPageContent() {
                       {lang === "fr" ? "Evenement en edition" : lang === "de" ? "Event in Bearbeitung" : "Editing event"}
                     </div>
                     <select
+                      disabled={!!workspaceHref}
                       value={pricingEventId}
                       onChange={(e) => setPricingEventId(e.target.value)}
                       style={{ width: "100%", minWidth: 0, maxWidth: "min(360px, 100%)", padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd" }}

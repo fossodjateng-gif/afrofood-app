@@ -77,6 +77,8 @@ function ScreenPageContent() {
   const refreshRequestRef = useRef<AbortController | null>(null);
   const t = UI_TEXT[lang];
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
+  const adminEventId = searchParams.get("adminEventId") || "";
+  const workspaceHref = getSession()?.role === "admin" && adminEventId ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "";
   const backHref = fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine";
 
   // Display-only event name; this does not gate or filter order loading.
@@ -189,7 +191,7 @@ function ScreenPageContent() {
         eventName: eventLabel?.eventId === assignedEventId ? eventLabel.name : assignedEventId,
         workstationName: getSession()?.workstationName,
         globalAdministration: staffRole === "admin" && !getSession()?.cashierEventId }}
-      back={<button type="button" onClick={() => goBackOr(backHref)} className="af-link-btn">{t.back}</button>}
+      back={<button type="button" onClick={() => { if (workspaceHref) window.location.href = workspaceHref; else goBackOr(backHref); }} className="af-link-btn">{t.back}</button>}
       onLangChange={language => { setLang(language); saveLang(language); }}
     >
       {accessError ? <p role="alert">{accessError}</p> : null}

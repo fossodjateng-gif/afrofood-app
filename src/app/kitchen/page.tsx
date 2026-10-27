@@ -98,6 +98,8 @@ function KitchenPageContent() {
   const [accessError, setAccessError] = useState<string | null>(null);
   const t = UI_TEXT[lang];
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
+  const adminEventId = searchParams.get("adminEventId") || "";
+  const workspaceHref = getSession()?.role === "admin" && adminEventId ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "";
   const backHref = fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine";
 
   const sortedOrders = useMemo(() => {
@@ -240,7 +242,7 @@ function KitchenPageContent() {
       context={{ name: staffUsername, role: staffRole ? getStaffRoleLabel(staffRole, lang) : "",
         eventName: assignedEventName || assignedEventId, workstationName: getSession()?.workstationName,
         globalAdministration: staffRole === "admin" && !getSession()?.cashierEventId }}
-      back={<button type="button" onClick={() => goBackOr(backHref)} className="af-link-btn">{t.back}</button>}
+      back={<button type="button" onClick={() => { if (workspaceHref) window.location.href = workspaceHref; else goBackOr(backHref); }} className="af-link-btn">{t.back}</button>}
       onLangChange={language => { setLang(language); saveLang(language); }}
     >
       <button
