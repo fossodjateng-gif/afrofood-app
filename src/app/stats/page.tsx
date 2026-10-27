@@ -10,12 +10,19 @@ const STATS_PERIOD_KEY = "af_stats_period";
 const STATS_EVENT_KEY = "af_stats_event";
 const STATS_PIN = process.env.NEXT_PUBLIC_STATS_PIN || process.env.NEXT_PUBLIC_CAISSE_PIN || "1955";
 
+type FinancialAmounts = { cashCents: number; cardCents: number; totalCents: number };
+
 type StatsResponse = {
   ok: boolean;
   generatedAt: string;
   filters: {
     period: "today" | "week" | "month" | "all";
     event: string;
+  };
+  financials: {
+    gross: FinancialAmounts;
+    refunded: FinancialAmounts;
+    net: FinancialAmounts;
   };
   summary: {
     revenueCents: number;
@@ -82,6 +89,11 @@ const UI_TEXT: Record<
     week: string;
     month: string;
     revenue: string;
+    refunds: string;
+    netRevenue: string;
+    cash: string;
+    card: string;
+    total: string;
     transactions: string;
     avgBasket: string;
     topProducts: string;
@@ -122,7 +134,12 @@ const UI_TEXT: Record<
     today: "Heute",
     week: "Diese Woche",
     month: "Dieser Monat",
-    revenue: "Umsatz",
+    revenue: "Umsatz vor Erstattungen",
+    refunds: "Erstattungen",
+    netRevenue: "Umsatz nach Erstattungen",
+    cash: "Bar",
+    card: "Karte",
+    total: "Gesamt",
     transactions: "Transaktionen",
     avgBasket: "Durchschnitt",
     topProducts: "Top Produkte",
@@ -162,7 +179,12 @@ const UI_TEXT: Record<
     today: "Aujourd'hui",
     week: "Cette semaine",
     month: "Ce mois",
-    revenue: "CA",
+    revenue: "CA brut",
+    refunds: "Remboursements",
+    netRevenue: "CA net",
+    cash: "Espèces",
+    card: "Carte",
+    total: "Total",
     transactions: "Transactions",
     avgBasket: "Panier moyen",
     topProducts: "Produits les plus vendus",
@@ -202,7 +224,12 @@ const UI_TEXT: Record<
     today: "Today",
     week: "This week",
     month: "This month",
-    revenue: "Revenue",
+    revenue: "Gross revenue",
+    refunds: "Refunds",
+    netRevenue: "Net revenue",
+    cash: "Cash",
+    card: "Card",
+    total: "Total",
     transactions: "Transactions",
     avgBasket: "Avg basket",
     topProducts: "Top products",
@@ -684,6 +711,37 @@ export default function StatsPage() {
 
         {stats ? (
           <>
+            <section style={{ marginTop: 14, borderRadius: 12, padding: 14, background: "white", border: "1px solid #e5e7eb" }}>
+              <div className="af-stats-table-scroll" role="region" aria-label={t.filteredSummary} tabIndex={0}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <caption style={{ textAlign: "left", fontSize: 18, fontWeight: 900, marginBottom: 10 }}>{t.filteredSummary}</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col" aria-label={t.filteredSummary} />
+                      {[t.cash, t.card, t.total].map((label) => (
+                        <th key={label} scope="col" style={{ textAlign: "right", padding: "6px 8px" }}>{label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {([
+                      ["gross", t.revenue],
+                      ["refunded", t.refunds],
+                      ["net", t.netRevenue],
+                    ] as const).map(([key, label]) => (
+                      <tr key={key}>
+                        <th scope="row" style={{ textAlign: "left", padding: "8px", borderTop: "1px solid #f3f4f6" }}>{label}</th>
+                        {(["cashCents", "cardCents", "totalCents"] as const).map((method) => (
+                          <td key={method} style={{ textAlign: "right", padding: "8px", borderTop: "1px solid #f3f4f6", fontWeight: key === "net" ? 900 : 400 }}>
+                            {formatEur(stats.financials[key][method], lang)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
             <section
               style={{
                 marginTop: 14,

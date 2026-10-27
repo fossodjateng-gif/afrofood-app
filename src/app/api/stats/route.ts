@@ -44,6 +44,16 @@ type CanceledRow = {
   canceled_tx: string | number | null;
 };
 
+type SummaryRow = {
+  cents: string | number | null;
+  tx: string | number | null;
+  gross_cash: string | number | null;
+  gross_card: string | number | null;
+  refunded_cash: string | number | null;
+  refunded_card: string | number | null;
+  refunded_total: string | number | null;
+};
+
 type Period = "today" | "week" | "month" | "all";
 
 function toNumber(value: string | number | null | undefined) {
@@ -84,9 +94,10 @@ export async function GET(req: Request) {
     `) as KpiRow[];
 
     const summaryRows = (await sql`
+      WITH sales AS (
       SELECT
-        COALESCE(SUM(amount_cents), 0) AS cents,
-        COUNT(*) AS tx
+        id, amount_cents,
+        LOWER(COALESCE(NULLIF(payment_provider, ''), NULLIF(payment, ''), 'other')) AS method
       FROM orders
       WHERE UPPER(status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
         AND amount_cents IS NOT NULL
@@ -100,7 +111,19 @@ export async function GET(req: Request) {
           ${eventFilter} = ''
           OR LOWER(COALESCE(NULLIF(TRIM(event_name), ''), '')) = LOWER(${eventFilter})
         )
-    `) as Array<{ cents: string | number | null; tx: string | number | null }>;
+      )
+      SELECT
+        COALESCE(SUM(s.amount_cents), 0) AS cents,
+        COUNT(*) AS tx,
+        COALESCE(SUM(s.amount_cents) FILTER (WHERE s.method = 'cash'), 0) AS gross_cash,
+        COALESCE(SUM(s.amount_cents) FILTER (WHERE s.method IN ('card', 'stripe')), 0) AS gross_card,
+        COALESCE(SUM(r.refund_amount_cents) FILTER (WHERE r.payment_method = 'cash'), 0) AS refunded_cash,
+        COALESCE(SUM(r.refund_amount_cents) FILTER (WHERE r.payment_method IN ('card', 'stripe')), 0) AS refunded_card,
+        COALESCE(SUM(r.refund_amount_cents), 0) AS refunded_total
+      FROM sales s
+      -- One refund row per order (PRIMARY KEY order_id); never join the items.
+      LEFT JOIN order_refunds r ON r.order_id = s.id AND r.refund_state = 'refunded'
+    `) as SummaryRow[];
 
     const topRows = (await sql`
       SELECT
@@ -231,10 +254,20 @@ export async function GET(req: Request) {
     const monthTransactions = toNumber(k.month_tx);
 
     const totalPaymentTx = paymentRows.reduce((sum, row) => sum + toNumber(row.tx), 0);
-    const s = summaryRows[0] || { cents: 0, tx: 0 };
-    const summaryRevenueCents = toNumber(s.cents);
-    const summaryTransactions = toNumber(s.tx);
+    const s = summaryRows[0];
+    const summaryRevenueCents = toNumber(s?.cents);
+    const summaryTransactions = toNumber(s?.tx);
     const canceledTransactions = toNumber(canceledRows[0]?.canceled_tx);
+    const gross = {
+      cashCents: toNumber(s?.gross_cash),
+      cardCents: toNumber(s?.gross_card),
+      totalCents: summaryRevenueCents,
+    };
+    const refunded = {
+      cashCents: toNumber(s?.refunded_cash),
+      cardCents: toNumber(s?.refunded_card),
+      totalCents: toNumber(s?.refunded_total),
+    };
 
     return NextResponse.json({
       ok: true,
@@ -242,6 +275,15 @@ export async function GET(req: Request) {
       filters: {
         period,
         event: eventFilter || "all",
+      },
+      financials: {
+        gross,
+        refunded,
+        net: {
+          cashCents: gross.cashCents - refunded.cashCents,
+          cardCents: gross.cardCents - refunded.cardCents,
+          totalCents: gross.totalCents - refunded.totalCents,
+        },
       },
       summary: {
         revenueCents: summaryRevenueCents,
