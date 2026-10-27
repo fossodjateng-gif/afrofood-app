@@ -1,9 +1,9 @@
 "use client";
-import { refreshStaffSession, type StaffSession } from "@/lib/staff-auth";
+import { refreshCashierSession, blockTemporaryCashierContext, type CashierSession } from "@/lib/temporary-cashier-client";
 import { openCashierLease } from "@/lib/cashier-lease-client";
 type Ref<T> = { current: T };
 export function startCashierLifecycle(options: {
-  session: StaffSession; eventId: string; lockError: string; unknownError: string;
+  session: CashierSession; eventId: string; lockError: string; unknownError: string;
   closingRef: Ref<boolean>; suspendedRef: Ref<boolean>;
   suspendCashierRef: Ref<(() => Promise<void>) | null>;
   cashierLeaseRef: Ref<Awaited<ReturnType<typeof openCashierLease>> | null>;
@@ -46,24 +46,25 @@ export function startCashierLifecycle(options: {
       try {
         await detachCurrent();
         if (!current(epoch)) return;
-        const session = revalidate ? await refreshStaffSession() : initialSession;
+        const session = revalidate ? await refreshCashierSession() : initialSession;
         if (!current(epoch)) return;
         if (!session || (session.role !== "admin" && session.role !== "cashier")) {
           closingRef.current = true;
           window.location.href = session ? "/staff" : "/team/login";
           return;
         }
-        if (session.userId !== initialSession.userId || session.role !== initialSession.role || session.username !== initialSession.username || (session.cashierEventId || "") !== (initialSession.cashierEventId || "") || session.workstationId !== initialSession.workstationId) {
+        if (session.userId !== initialSession.userId || session.role !== initialSession.role || session.username !== initialSession.username || (session.cashierEventId || "") !== (initialSession.cashierEventId || "") || session.workstationId !== initialSession.workstationId || session.temporaryContextId !== initialSession.temporaryContextId) {
           // A different staff context must mount a fresh page, not reuse cached orders.
+          if (initialSession.temporaryContextId) throw new Error("cashier_context_changed");
           closingRef.current = true;
           window.location.href = "/caisse";
           return;
         }
-        const active = await openCashierLease(options.eventId, session.workstationId);
+        const active = await openCashierLease(options.eventId, session.workstationId, session.temporaryInstanceId);
         if (!current(epoch)) { await active.detach(); return; }
         lease = active;
         cashierLeaseRef.current = active;
-        await (!revalidate && active.handedOff ? active.heartbeat() : active.acquire());
+        await (session.temporaryContextId || !revalidate && active.handedOff ? active.heartbeat() : active.acquire());
         if (!current(epoch)) return;
         suspendedRef.current = false;
         setIsUnlocked(true);
@@ -75,6 +76,11 @@ export function startCashierLifecycle(options: {
           void active.heartbeat().catch((error: unknown) => {
             if (current(epoch) && !suspendedRef.current) {
               stopHeartbeat();
+              if (initialSession.temporaryContextId) {
+                blockTemporaryCashierContext(initialSession.temporaryContextId);
+                closingRef.current = true; suspendedRef.current = true;
+                void detachCurrent().catch(() => undefined);
+              }
               setAccessError(`${options.lockError}: ${error instanceof Error ? error.message : options.unknownError}`);
               setIsUnlocked(false);
             }
@@ -82,6 +88,11 @@ export function startCashierLifecycle(options: {
         }, 30000);
       } catch (e: unknown) {
         if (current(epoch)) {
+          if (initialSession.temporaryContextId) {
+            blockTemporaryCashierContext(initialSession.temporaryContextId);
+            closingRef.current = true; suspendedRef.current = true;
+            void detachCurrent().catch(() => undefined);
+          }
           setAccessError(`${options.lockError}: ${e instanceof Error ? e.message : options.unknownError}`);
           setIsUnlocked(false);
         }

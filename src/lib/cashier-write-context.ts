@@ -1,15 +1,19 @@
 import { sql } from "@/lib/db";
 import { cashierLeaseGuard, type CashierLease } from "@/lib/cashier-locks";
-import { cashRegisterActor } from "@/lib/staff-action-server";
-import { staffSessionHash, StaffAuthError } from "@/lib/staff-session-server";
+import { resolveCashierOperationalContext } from "@/lib/cashier-operational-context";
+import { requireStaffOrigin, staffSessionHash, StaffAuthError } from "@/lib/staff-session-server";
 export type CashierWriteContext = CashierLease & { workstationName: string };
 export async function requireCashierWrite(req: Request, eventId?: string, workstationId?: unknown): Promise<CashierWriteContext> {
-  const actor = await cashRegisterActor(req, eventId);
-  const instanceId = req.headers.get("x-cashier-instance-id") || "";
-  if (!actor.cashierEventId || !actor.workstationId || actor.workstationType !== "cashier") throw new StaffAuthError("workstation_assignment_required", 403);
+  requireStaffOrigin(req);
+  const resolved = await resolveCashierOperationalContext(req, { eventId, workstationId });
+  const actor = resolved.actor;
+  const displayedActor = req.headers.get("x-staff-user-id");
+  if (displayedActor && displayedActor !== actor.id) throw new StaffAuthError("cashier_changed", 409);
+  const instanceId = resolved.instanceId || "";
   if (!/^[a-f0-9-]{36}$/.test(instanceId)) throw new StaffAuthError("cashier_lease_required", 423);
-  if ((workstationId !== undefined && workstationId !== actor.workstationId) || (req.headers.has("x-workstation-id") && req.headers.get("x-workstation-id") !== actor.workstationId)) throw new StaffAuthError("workstation_context_mismatch", 403);
-  const context = { eventId: actor.cashierEventId, workstationId: actor.workstationId, workstationName: actor.workstationName || "", userId: actor.id, username: actor.username, sessionHash: staffSessionHash(req), instanceId };
+  const context: CashierWriteContext = { eventId: resolved.eventId, workstationId: resolved.workstation.id,
+    workstationName: resolved.workstation.name, userId: actor.id, username: actor.username,
+    sessionHash: staffSessionHash(req), instanceId, contextId: resolved.contextId };
   try { await cashierLeaseGuard(context); } catch { throw new StaffAuthError("cashier_lease_required", 423); }
   return context;
 }

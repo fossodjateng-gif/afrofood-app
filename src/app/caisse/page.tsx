@@ -12,7 +12,9 @@ import { OrderHistory } from "@/components/pos/OrderHistory";
 import { getCashierLogMessage, getPaymentErrorMessage, paymentPresentation } from "@/components/pos/payment-presentation";
 import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { clearSession, getSession, refreshStaffSession, staffFetch, getStaffRoleLabel, type StaffRole, type StaffSession } from "@/lib/staff-auth";
+import { clearSession, getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
+import { refreshCashierSession as refreshStaffSession, cashierFetch as staffFetch, hasTemporaryCashierContext,
+  quitTemporaryCashier, temporaryCashierWorkspace, readTemporaryCashierContext, forgetTemporaryCashierContext, type CashierSession as StaffSession } from "@/lib/temporary-cashier-client";
 import { goBackOr } from "@/lib/client-nav";
 import { startCashierLifecycle } from "@/lib/cashier-lifecycle";
 import { openCashierLease } from "@/lib/cashier-lease-client";
@@ -259,6 +261,7 @@ function isTodayOrder(order: OrderRow, todayKey: string) {
 export default function CaissePage() {
   const [lang, setLang] = useState<Lang>("de");
   const [clientPlatform, setClientPlatform] = useState<ClientPlatform>("other");
+  const temporary = hasTemporaryCashierContext();
   const [staffSession, setStaffSession] = useState<StaffSession | null>(null);
   const [activeEventName, setActiveEventName] = useState("");
   const [eventReady, setEventReady] = useState(false);
@@ -339,7 +342,7 @@ export default function CaissePage() {
         if (!alive) return;
         setCashierEventId(assignedEventId);
         setSelectedEventId(assignedEventId);
-        localStorage.setItem(CAISSE_EVENT_ID_KEY, assignedEventId);
+        if (!s.temporaryContextId) localStorage.setItem(CAISSE_EVENT_ID_KEY, assignedEventId);
       }
 
       if (!alive) return;
@@ -355,6 +358,7 @@ export default function CaissePage() {
   }, []);
 
   useEffect(() => {
+    if (hasTemporaryCashierContext()) return;
     const saved = localStorage.getItem(CAISSE_EVENT_ID_KEY);
     if (saved?.trim() && !cashierEventId) {
       setSelectedEventId(saved.trim());
@@ -413,6 +417,11 @@ export default function CaissePage() {
     }
   }
 
+  async function quitTemporary() {
+    closingRef.current = true; suspendedRef.current = true; setIsUnlocked(false);
+    try { window.location.href = await quitTemporaryCashier(async () => { await suspendCashierRef.current?.(); }); }
+    catch { setAccessError(txt("Fermeture non confirmée. Réessayez ou reconnectez-vous.", "Schließen nicht bestätigt. Erneut versuchen oder anmelden.", "Closure not confirmed. Retry or sign in again.")); }
+  }
   function leaveViaLink(event: MouseEvent<HTMLElement>) {
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     const link = (event.target as Element).closest("a[href]");
@@ -588,7 +597,7 @@ export default function CaissePage() {
   }
 
   async function markPaymentValidated(order: OrderRow) {
-    if (order.payment === "card") return;
+    if (order.payment === "card" || temporary && order.payment !== "cash") return;
     try {
       pushLog(
         txt(
@@ -643,7 +652,7 @@ export default function CaissePage() {
 
   async function initTapToPay(order: OrderRow) {
     const session = getSession();
-    if (order.payment !== "card" || !eventReady) return;
+    if (temporary || order.payment !== "card" || !eventReady) return;
 
     try {
       pushLog(
@@ -765,7 +774,7 @@ export default function CaissePage() {
           <div style={{ display: "flex", gap: 8 }}>
             <button
               type="button"
-              onClick={() => void leaveCashier(() => goBackOr("/staff"))}
+              onClick={() => temporary ? void quitTemporary() : void leaveCashier(() => goBackOr("/staff"))}
               className="af-link-btn"
               style={{
                 padding: "6px 10px",
@@ -777,7 +786,7 @@ export default function CaissePage() {
                 cursor: "pointer",
               }}
             >
-              {t.back}
+              {temporary ? txt("Quitter la caisse", "Kasse verlassen", "Leave register") : t.back}
             </button>
             {(["de", "fr", "en"] as Lang[]).map((L) => (
               <button
@@ -794,7 +803,8 @@ export default function CaissePage() {
             ))}
           </div>
           <h1 style={{ margin: "10px 0 0 0", fontSize: 24, fontWeight: 900 }}>{accessError ? t.accessBlocked : t.title}</h1>
-          <p role={accessError ? "alert" : "status"} style={{ marginTop: 8, opacity: 0.8 }}>{accessError || t.loading}</p>
+          <p role={accessError ? "alert" : "status"} style={{ marginTop: 8, opacity: 0.8 }}>{accessError ? (temporary ? txt("Caisse temporaire indisponible. Quittez la caisse et ouvrez-la à nouveau depuis Admin.", "Temporäre Kasse nicht verfügbar. Verlassen und über die Administration erneut öffnen.", "Temporary register unavailable. Leave and open it again from Admin.") : accessError) : t.loading}</p>
+          {temporary ? <a className="af-link-btn" href={temporaryCashierWorkspace()}>{txt("Retour Admin", "Zur Administration", "Back to Admin")}</a> : null}
           {actionError || activeTerminalOrderId ? <div role="alert" style={{ marginTop: 8, color: "#fca5a5", fontWeight: 700 }}>{getPaymentErrorMessage(actionError || "", lang)}</div> : null}
         </div>
       </main>
@@ -861,11 +871,11 @@ export default function CaissePage() {
 	            ))}
 			            <button
 			              type="button"
-			              onClick={() => void leaveCashier(() => goBackOr("/staff"))}
+			              onClick={() => temporary ? void quitTemporary() : void leaveCashier(() => goBackOr("/staff"))}
 			              className="af-link-btn"
 			              style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, cursor: "pointer" }}
 			            >
-			              {t.back}
+			              {temporary ? txt("Quitter la caisse", "Kasse verlassen", "Leave register") : t.back}
 			            </button>
 		            <button
 		              className="af-btn"
@@ -877,6 +887,8 @@ export default function CaissePage() {
 		                void cashierLeaseRef.current?.release().catch(() => undefined);
 		                try {
 		                  await clearSession();
+                      const saved = readTemporaryCashierContext();
+                      if (saved) forgetTemporaryCashierContext(saved.contextId);
 		                  window.location.href = "/team/login";
 		                } catch (error) {
 		                  setAccessError(error instanceof Error ? error.message : t.unknownError);
@@ -913,25 +925,26 @@ export default function CaissePage() {
 			            <a className="af-link-btn" href="/caisse/manual" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
 			              Manuelle Kasse
 			            </a>
-			            <a className="af-link-btn" href="/staff/cuisine?from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+			            {!temporary ? <a className="af-link-btn" href="/staff/cuisine?from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
 			              {t.qaKitchenSpace}
-			            </a>
-			            <a className="af-link-btn" href="/admin/menu?view=add&from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+			            </a> : null}
+			            <a className="af-link-btn" href={temporary ? `/admin/menu?view=add&adminEventId=${encodeURIComponent(selectedEventId)}` : "/admin/menu?view=add&from=caisse"} style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
 			              {lang === "fr" ? "Ajouter produit" : lang === "de" ? "Produkt hinzufugen" : "Add product"}
 			            </a>
-			            <a className="af-link-btn" href="/admin/menu?view=pricing&from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+			            <a className="af-link-btn" href={temporary ? `/admin/menu?view=pricing&adminEventId=${encodeURIComponent(selectedEventId)}` : "/admin/menu?view=pricing&from=caisse"} style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
 			              {lang === "fr" ? "Changer prix / visibilite" : lang === "de" ? "Preis / Sichtbarkeit andern" : "Change price / visibility"}
 			            </a>
-			            <a className="af-link-btn" href="/admin/menu?view=payment&from=caisse" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+			            <a className="af-link-btn" href={temporary ? `/admin/menu?view=payment&adminEventId=${encodeURIComponent(selectedEventId)}` : "/admin/menu?view=payment&from=caisse"} style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
 			              {t.qaPayments}
 			            </a>
-                    <a className="af-link-btn" href="/caisse/setup" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
+                    {!temporary ? <a className="af-link-btn" href="/caisse/setup" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800, textDecoration: "none" }}>
                       {txt("Configurer Tap to Pay", "Tap to Pay einrichten", "Configure Tap to Pay")}
-                    </a>
+                    </a> : null}
 			          </div>
 		        </div>
 
-		        {loading ? <p style={{ marginTop: 12 }}>{t.loading}</p> : null}
+		        {temporary ? <p>{txt("Parcours temporaire : espèces. Terminal et remboursements non disponibles ici.", "Temporäre Kasse: Barzahlung. Terminal und Erstattungen sind hier nicht verfügbar.", "Temporary register: cash. Terminal and refunds are unavailable here.")}</p> : null}
+            {loading ? <p style={{ marginTop: 12 }}>{t.loading}</p> : null}
 		        {actionError ? <p style={{ marginTop: 8, color: "#fecaca", fontWeight: 700 }}>{getPaymentErrorMessage(actionError, lang)}</p> : null}
 		        <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-start" }}>
 		          <button
@@ -1083,7 +1096,7 @@ export default function CaissePage() {
                       <>
                         <button
                           onClick={() => void initTapToPay(o)}
-                          disabled={!eventReady || startingTapToPayId === o.id || Boolean(activeTerminalOrderId && activeTerminalOrderId !== o.id)}
+                          disabled={temporary || !eventReady || startingTapToPayId === o.id || Boolean(activeTerminalOrderId && activeTerminalOrderId !== o.id)}
                           className="af-btn"
                           style={{ padding: "16px 22px", borderRadius: 14, border: "none", background: "#1d4ed8", color: "white", fontWeight: 900 }}
                         >
@@ -1094,7 +1107,7 @@ export default function CaissePage() {
                     ) : (
                     <button
                       onClick={() => markPaymentValidated(o)}
-                      disabled={validatingId === o.id}
+                      disabled={validatingId === o.id || temporary && o.payment !== "cash"}
                       style={{
                         padding: "10px 14px",
                         borderRadius: 12,
@@ -1148,7 +1161,7 @@ export default function CaissePage() {
                   <button
                     type="button"
                     onClick={() => cancelOrder(o)}
-                    disabled={cancelingId === o.id}
+                    disabled={cancelingId === o.id || temporary && o.payment !== "cash"}
                     style={{
                       padding: "8px 12px",
                       borderRadius: 10,
@@ -1200,8 +1213,8 @@ export default function CaissePage() {
           );
         })}
       </div>
-        <OrderHistory key={selectedEventId} eventId={selectedEventId} lang={lang}
-          selectedOrderId={historyReceiptOrderId} onSelect={(id) => { setReceiptOrderId(null); setHistoryReceiptOrderId(id); }} />
+        {!temporary ? <OrderHistory key={selectedEventId} eventId={selectedEventId} lang={lang}
+          selectedOrderId={historyReceiptOrderId} onSelect={(id) => { setReceiptOrderId(null); setHistoryReceiptOrderId(id); }} /> : null}
 	      </div>
 	    </main>
 	  );

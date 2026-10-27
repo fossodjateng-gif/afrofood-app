@@ -11,6 +11,7 @@ type LockRow = { username: string; heartbeat_at: string; expires_at: string };
 export type CashierLease = {
   eventId: string; userId: string; username: string; sessionHash: string; instanceId: string;
   workstationId: string;
+  contextId?: string | null;
 };
 export type CashierLockResult =
   | { ok: true; lock: CashierLock }
@@ -22,10 +23,12 @@ const LOCK_TTL_SECONDS = 120;
 // event ID; user_id holds a session/instance-bound owner, never returned.
 export function leaseKeys(input: CashierLease) {
   const instanceHash = createHash("sha256").update(JSON.stringify([input.userId, input.instanceId])).digest("hex");
-  return { event: `v3:${JSON.stringify([input.eventId, input.workstationId])}`, owner: `v2:${input.sessionHash}:${instanceHash}` };
+  return { event: `v3:${JSON.stringify([input.eventId, input.workstationId])}`,
+    owner: input.contextId ? `v2:${input.sessionHash}:ctx:${input.contextId}:${input.instanceId}` : `v2:${input.sessionHash}:${instanceHash}` };
 }
 export function cashierLeaseGuard(input: CashierLease) {
   const keys = leaseKeys(input);
+  if (input.contextId) return sql`SELECT af_assert_cashier_lease(${input.sessionHash}, ${input.userId}, ${input.eventId}, ${input.workstationId}, ${keys.event}, ${keys.owner}, ${input.contextId}, ${input.instanceId}) AS authorized`;
   return sql`SELECT af_assert_cashier_lease(${input.sessionHash}, ${input.userId}, ${input.eventId}, ${input.workstationId}, ${keys.event}, ${keys.owner}) AS authorized`;
 }
 function toLock(row: LockRow, eventId: string): CashierLock {
@@ -40,6 +43,9 @@ async function rejected(input: CashierLease, reason: "locked" | "lease_lost"): P
 }
 
 export async function acquireCashierLock(input: CashierLease): Promise<CashierLockResult> {
+  // Temporary creation/acquisition is atomic in the opening service. Here we
+  // may only resume a still-live owner; never resurrect an expired context.
+  if (input.contextId) return heartbeatCashierLock(input);
   const keys = leaseKeys(input);
   // Session row locks serialize acquisition with logout's revocation/cleanup.
   const rows = await sql`
@@ -68,6 +74,11 @@ export async function acquireCashierLock(input: CashierLease): Promise<CashierLo
 }
 
 export async function heartbeatCashierLock(input: CashierLease): Promise<CashierLockResult> {
+  if (input.contextId) {
+    const rows = await sql`SELECT * FROM af_heartbeat_admin_cashier_context(${input.sessionHash}, ${input.userId},
+      ${input.eventId}, ${input.workstationId}, ${input.contextId}, ${input.instanceId})`;
+    return rows[0] ? { ok: true, lock: toLock(rows[0] as LockRow, input.eventId) } : rejected(input, "lease_lost");
+  }
   const keys = leaseKeys(input);
   const rows = await sql`
     WITH authorized_session AS (
@@ -90,6 +101,10 @@ export async function heartbeatCashierLock(input: CashierLease): Promise<Cashier
 }
 
 export async function releaseCashierLock(input: CashierLease) {
+  if (input.contextId) {
+    await sql`SELECT af_close_admin_cashier_context(${input.sessionHash}, ${input.userId}, ${input.contextId}) AS closed`;
+    return;
+  }
   const keys = leaseKeys(input);
   await sql`DELETE FROM cashier_event_locks WHERE event_name = ${keys.event} AND user_id = ${keys.owner}`;
 }

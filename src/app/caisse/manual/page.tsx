@@ -13,7 +13,8 @@ import { CashPayment } from "@/components/pos/CashPayment";
 import { cashAttemptKey, confirmPosCash, parseReceivedCents, type CashAttempt, type CashReceipt } from "@/lib/pos-cash";
 import { ProductGrid } from "@/components/pos/ProductGrid";
 import { PosCart } from "@/components/pos/PosCart";
-import { getSession, getStaffRoleLabel, type StaffSession } from "@/lib/staff-auth";
+import { getStaffRoleLabel } from "@/lib/staff-auth";
+import { getCashierSession as getSession, cashierFetch, type CashierSession as StaffSession } from "@/lib/temporary-cashier-client";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { addPosProduct, decreasePosProduct, getPosBreakdown, getProductLimit, posCartKey, readPosCart, reconcilePosCart, writePosCart, type PosCartItem, type PosProduct, type PosSection } from "@/lib/pos-cart";
 import styles from "@/components/pos/pos.module.css";
@@ -80,7 +81,7 @@ function ManualCaissePage() {
       const eventId = session.cashierEventId || "";
       if (!session.workstationId || session.workstationType !== "cashier") throw new Error("workstation_assignment_required");
       if (!eventId || !session.userId) throw new Error("Kein Event zugewiesen. Bitte die Event-Zuweisung des Kassenkontos oder die Event-Auswahl der Kasse prüfen.");
-      const response = await fetch(`/api/admin/menu-config?eventId=${encodeURIComponent(eventId)}`, {
+      const response = await cashierFetch(`/api/admin/menu-config?eventId=${encodeURIComponent(eventId)}`, {
         headers: { "x-staff-role": session.role }, cache: "no-store", signal: controller.signal,
       });
       const data = await response.json();
@@ -90,7 +91,7 @@ function ManualCaissePage() {
       if (controller.signal.aborted) return;
       const latestSession = getSession();
       const latestEventId = latestSession?.cashierEventId || "";
-      if (latestSession?.userId !== session.userId || latestSession.role !== session.role || latestEventId !== eventId || latestSession.workstationId !== session.workstationId) {
+      if (latestSession?.userId !== session.userId || latestSession.role !== session.role || latestEventId !== eventId || latestSession.workstationId !== session.workstationId || latestSession.temporaryContextId !== session.temporaryContextId) {
         throw new Error("Der Kassenkontext wurde geändert. Bitte das Menü aktualisieren.");
       }
       const sections = (data.sections as PosSection[]).map((section) => ({ ...section, items: section.items.filter((product) => product.visible) })).filter((section) => section.items.length > 0);
@@ -98,6 +99,7 @@ function ManualCaissePage() {
       const products = new Map(sections.flatMap((section) => section.items.map((product) => [product.id, product] as const)));
       const storedCard = localStorage.getItem(cardAttemptKey(cartKey));
       const storedAttempt = localStorage.getItem(cashAttemptKey(cartKey));
+      if (session.temporaryContextId && storedCard) throw new Error("Une tentative carte existe sur ce poste. Vérifiez-la dans son parcours habituel.");
       if (storedCard && storedAttempt) throw new Error("Zwei gespeicherte Zahlungen: bitte zuerst den Zahlungsstatus prüfen.");
       if (storedCard) {
         const saved = JSON.parse(storedCard) as CardAttempt;
@@ -211,7 +213,7 @@ function ManualCaissePage() {
         if (cents < attempt.amountCents) throw new Error("Der erhaltene Betrag ist zu niedrig.");
         persistAttempt(attempt);
       }
-      const receipt = await confirmPosCash(attempt, cents, persistAttempt);
+      const receipt = await confirmPosCash(attempt, cents, persistAttempt, cashierFetch);
       if (!writePosCart(current.cartKey, [])) throw new Error("Zahlung bestätigt, aber der Warenkorb konnte nicht geleert werden. Dieselbe Zahlung erneut prüfen.");
       localStorage.removeItem(cashAttemptKey(current.cartKey));
       attemptRef.current = null;
@@ -301,6 +303,7 @@ function ManualCaissePage() {
   }
 
   async function startCard() {
+    if (getSession()?.temporaryContextId) return;
     if (cardBusyRef.current || cashOpen || cashBusyRef.current || attemptRef.current || cardRef.current) return;
     cardBusyRef.current = true;
     setCardBusy(true);
@@ -421,9 +424,9 @@ function ManualCaissePage() {
         {(cardReceipt || cashReceipt) && showReceipt ? <OrderReceipt order={(cardReceipt || cashReceipt)!} lang={lang} labels={receiptLabels[lang]} showEvent onPrint={() => window.print()} /> : null}
         {context && !loading && !cashOpen && !cardAttempt && !cardBusy ? <div className={styles.workspace}>
           <ProductGrid lang={lang} sections={context.sections} categoryId={categoryId} quantities={quantities} onCategoryChange={setCategoryId} onAdd={addProduct} />
-          <PosCart onCard={() => void startCard()} cardDisabled={items.length === 0 || storageError || cardBusy || !!cardAttempt || items.some((item) => !products.get(item.id) || item.qty > getProductLimit(products.get(item.id)!))} onCash={() => { if (cardRef.current || cardBusyRef.current || localStorage.getItem(cardAttemptKey(context.cartKey))) { void loadContext(); return; } setCashOpen(true); setCashError(null); setReceived(""); }} cashDisabled={items.length === 0 || storageError || items.some((item) => !products.get(item.id) || item.qty > getProductLimit(products.get(item.id)!))} lang={lang} items={items} products={products} onIncrease={addProduct} onDecrease={(id) => updateCart((current) => decreasePosProduct(current, id))} onRemove={(id) => updateCart((current) => current.filter((item) => item.id !== id))} />
+          <PosCart onCard={() => void startCard()} cardDisabled={!!context.session.temporaryContextId || items.length === 0 || storageError || cardBusy || !!cardAttempt || items.some((item) => !products.get(item.id) || item.qty > getProductLimit(products.get(item.id)!))} onCash={() => { if (cardRef.current || cardBusyRef.current || localStorage.getItem(cardAttemptKey(context.cartKey))) { void loadContext(); return; } setCashOpen(true); setCashError(null); setReceived(""); }} cashDisabled={items.length === 0 || storageError || items.some((item) => !products.get(item.id) || item.qty > getProductLimit(products.get(item.id)!))} lang={lang} items={items} products={products} onIncrease={addProduct} onDecrease={(id) => updateCart((current) => decreasePosProduct(current, id))} onRemove={(id) => updateCart((current) => current.filter((item) => item.id !== id))} />
         </div> : null}
-        {context ? <OrderHistory key={context.eventId} eventId={context.eventId} lang={lang}
+        {context && !context.session.temporaryContextId ? <OrderHistory key={context.eventId} eventId={context.eventId} lang={lang}
           selectedOrderId={historyReceiptOrderId} onSelect={(id) => { setShowReceipt(false); setHistoryReceiptOrderId(id); }} /> : null}
       </div>
     </main>

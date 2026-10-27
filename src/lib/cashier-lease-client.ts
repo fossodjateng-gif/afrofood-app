@@ -1,6 +1,7 @@
 "use client";
 
-import { getSession, staffFetch } from "@/lib/staff-auth";
+import { cashierFetch } from "@/lib/temporary-cashier-client";
+import { getSession } from "@/lib/staff-auth";
 
 const HANDOFF_KEY = "af_cashier_lease_handoff_v1";
 const INSTANCE_ID = /^[a-f0-9-]{36}$/;
@@ -11,7 +12,7 @@ export function createCashierLease(eventId: string, instanceId = crypto.randomUU
   let releasePromise: Promise<void> | null = null;
 
   async function send(action: "acquire" | "heartbeat" | "release") {
-    const response = await staffFetch("/api/cashier-lock", {
+    const response = await cashierFetch("/api/cashier-lock", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, eventId, instanceId, ...(workstationId ? { workstationId } : {}) }), keepalive: action === "release",
     });
@@ -61,12 +62,12 @@ export function takeCashierLeaseHandoff(eventId: string, workstationId?: string)
 
 // Tab-local persistence is only a lease hint. Web Locks prevent a copied
 // sessionStorage (duplicate tab/window) from joining an already active instance.
-export async function openCashierLease(eventId: string, workstationId = getSession?.()?.workstationId) {
+export async function openCashierLease(eventId: string, workstationId = getSession?.()?.workstationId, requiredInstanceId?: string) {
   if (!navigator.locks) throw new Error("cashier_tab_isolation_unavailable");
   const key = workstationId ? `af_cashier_instance_v3:${JSON.stringify([eventId, workstationId])}` : `af_cashier_instance_v1:${eventId}`;
   const handoff = takeCashierLeaseHandoff(eventId, workstationId);
   const saved = sessionStorage.getItem(key);
-  const candidate = handoff || (saved && INSTANCE_ID.test(saved) ? saved : crypto.randomUUID());
+  const candidate = requiredInstanceId || handoff || (saved && INSTANCE_ID.test(saved) ? saved : crypto.randomUUID());
 
   async function claim(instanceId: string) {
     let unlock = () => {};
@@ -82,6 +83,7 @@ export async function openCashierLease(eventId: string, workstationId = getSessi
 
   let instanceId = candidate;
   let detach = await claim(instanceId);
+  if (!detach && requiredInstanceId) throw new Error("cashier_context_instance_conflict");
   if (!detach) {
     instanceId = crypto.randomUUID();
     detach = await claim(instanceId);

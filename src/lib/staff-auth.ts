@@ -18,6 +18,11 @@ export type StaffSession = {
 const SESSION_KEY = "af_staff_session_v1";
 function nowIso() { return new Date().toISOString(); }
 function hasWindow() { return typeof window !== "undefined"; }
+function clearTemporaryCashierHint() {
+  // A confirmed logout/new login ends the previous operational journey.
+  // This removes only a tab-local hint; server session revocation is unchanged.
+  if (hasWindow()) try { sessionStorage.removeItem("af_admin_cashier_context_v1"); } catch { /* Storage can be unavailable. */ }
+}
 
 // Display cache only. Every sensitive API authenticates the HttpOnly cookie.
 let verifiedSession: StaffSession | null = null;
@@ -50,6 +55,7 @@ export async function clearSession() {
   const response = await fetch("/api/staff/session", { method: "DELETE" });
   if (!response.ok) throw new Error("Logout could not be confirmed. Please retry.");
   verifiedSession = null;
+  clearTemporaryCashierHint();
   if (hasWindow()) localStorage.removeItem(SESSION_KEY);
 }
 export function updateSessionCashierEventId(cashierEventId: string) {
@@ -65,6 +71,7 @@ export async function login(username: string, password: string): Promise<{ ok: t
   const data = await response.json();
   if (!response.ok || !data.ok || !data.user) return { ok: false, error: "Invalid credentials or session unavailable" };
   verifiedSession = sessionFromUser(data.user);
+  clearTemporaryCashierHint();
   if (hasWindow()) {
     localStorage.removeItem(SESSION_KEY);
     // Old account records are never accepted as credentials by the server.
