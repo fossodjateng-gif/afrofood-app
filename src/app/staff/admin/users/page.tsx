@@ -4,7 +4,9 @@ import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { getSession, getStaffRoleLabel, staffFetch } from "@/lib/staff-auth";
 import { StaffPageFrame } from "@/components/StaffPageFrame";
 import styles from "@/components/staff-page.module.css";
-import type { WorkstationConfig, WorkstationType } from "@/lib/workstations";
+import cuisine from "@/components/cuisine.module.css";
+import userStyles from "./users.module.css";
+import type { WorkstationConfig } from "@/lib/workstations";
 type User = { id: string; username: string; role: "admin" | "cashier" | "kitchen"; active: boolean; cashier_event_id: string | null; workstation_id: string | null };
 type Draft = { mode: "create" | "edit"; id?: string; username: string; password: string; role: User["role"]; eventId: string; workstationId: string; active: boolean };
 const empty: Draft = { mode: "create", username: "", password: "", role: "cashier", eventId: "", workstationId: "", active: true };
@@ -16,16 +18,17 @@ const TEXT = {
 export default function StaffAdminUsersPage() {
   const [lang, setLang] = useState<Lang>(() => getSavedLang());
   const t = TEXT[lang];
+  const txt = (fr: string, de: string, en: string) => lang === "fr" ? fr : lang === "de" ? de : en;
+  const createdLabel = txt("Utilisateur créé", "Benutzer erstellt", "User created");
+  const [created, setCreated] = useState(false);
   const [adminEventId, setAdminEventId] = useState("");
+  const [returnEventId, setReturnEventId] = useState("");
   const session = getSession();
-  const resetDraft = () => setDraft({ ...empty, eventId: adminEventId });
+  const resetDraft = () => { setDraft({ ...empty, eventId: adminEventId }); setCreated(false); };
   const [users, setUsers] = useState<User[]>([]);
   const [events, setEvents] = useState<Array<{ id: string; name: string }>>([]);
   const [workstations, setWorkstations] = useState<Record<string, WorkstationConfig>>({});
   const [draft, setDraft] = useState<Draft>(empty);
-  const [stationEvent, setStationEvent] = useState("");
-  const [stationType, setStationType] = useState<WorkstationType>("cashier");
-  const [stationName, setStationName] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -38,16 +41,13 @@ export default function StaffAdminUsersPage() {
     setUsers(a.users); setEvents(c.events); setWorkstations(c.workstations); setLoading(false);
   }, []);
   useEffect(() => {
-    const eventId = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("adminEventId") || "" : "";
+    const params = new URLSearchParams(window.location.search);
+    const eventId = params.get("adminEventId") || params.get("returnEventId") || "";
+    if (!eventId) { window.location.replace("/admin/menu?view=event&from=admin-events"); return; }
     setAdminEventId(eventId);
+    setReturnEventId(new URLSearchParams(window.location.search).get("returnEventId") || "");
     setDraft({ ...empty, eventId });
-    setStationEvent(eventId);
     const c = new AbortController(); void load(c.signal).catch(() => { if (!c.signal.aborted) { setError(TEXT.fr.error); setLoading(false); } }); return () => c.abort(); }, [load]);
-  useEffect(() => {
-    if (!loading && window.location.hash === "#workstations") {
-      document.getElementById("workstations")?.scrollIntoView();
-    }
-  }, [loading]);
   async function mutate(url: string, method: string, body: object) {
     setBusy(true); setError(""); setMessage("");
     try { const r = await staffFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const d = await r.json(); if (!r.ok || !d.ok) throw new Error(d.error || "Enregistrement refusé"); await load(); setMessage(t.saved); return true; }
@@ -55,28 +55,60 @@ export default function StaffAdminUsersPage() {
   }
   const config = workstations[draft.eventId];
   const choices = !config ? [] : draft.role === "admin" ? [...config.cashier, ...config.kitchen] : config[draft.role];
-  async function saveUser(event: FormEvent) { event.preventDefault(); if (await mutate("/api/staff/users", draft.mode === "edit" ? "PATCH" : "POST", draft)) resetDraft(); }
+  async function saveUser(event: FormEvent) {
+    event.preventDefault();
+    const creating = draft.mode === "create";
+    setCreated(false);
+    if (await mutate("/api/staff/users", creating ? "POST" : "PATCH", draft)) {
+      resetDraft();
+      if (creating) { setCreated(true); setMessage(createdLabel); }
+    }
+  }
   const contextEvent = events.find(e => e.id === adminEventId);
-  const contextualEvents = adminEventId ? events.filter(e => e.id === adminEventId) : events;
-  return <StaffPageFrame title={t.title} lang={lang} context={{ name: session?.username || "", role: session ? getStaffRoleLabel(session.role, lang) : "", eventName: contextEvent?.name || adminEventId, globalAdministration: !adminEventId }} actions={<>{(["de", "fr", "en"] as Lang[]).map(l => <button key={l} type="button" className={`af-lang-btn ${lang === l ? "is-active" : ""}`} aria-pressed={lang === l} onClick={() => { setLang(l); saveLang(l); }}>{l.toUpperCase()}</button>)}
-    <a className="af-link-btn" href={adminEventId ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "/staff/admin"}>{lang === "de" ? "Zurück" : lang === "en" ? "Back" : "Retour"}</a>
-    {adminEventId ? <a className="af-link-btn" href="/staff/admin/users">{lang === "de" ? "Alle Benutzer" : lang === "en" ? "All users" : "Tous les utilisateurs"}</a> : null}
-    </>}>
+  const backEventId = adminEventId || returnEventId;
+  const backHref = backEventId ? `/staff/admin/events?eventId=${encodeURIComponent(backEventId)}` : "/admin/menu?view=event&from=admin-events";
+  const backLabel = lang === "fr" ? "Retour" : lang === "de" ? "Zurück" : "Back";
+  return <div className={`${cuisine.workspace} ${userStyles.page}`}>
+  <StaffPageFrame title={txt("Utilisateurs", "Benutzer", "Users")} lang={lang}
+    context={{ name: session?.username || "", role: session ? getStaffRoleLabel(session.role, lang) : "", eventName: contextEvent?.name || adminEventId, globalAdministration: !adminEventId }}
+    onLangChange={language => { setLang(language); saveLang(language); }}
+    back={<a className="af-link-btn" href={backHref}>{backLabel} · {backEventId ? (lang === "fr" ? "Événement Admin" : lang === "de" ? "Eventverwaltung" : "Event admin") : "Administration"}</a>}
+  >
     <p>{t.source}</p>
-    {error ? <p className="af-message af-message-error" role="alert">{t.error}</p> : null}{message ? <p className="af-message af-message-success" role="status">{t.saved}</p> : null}
-    {loading ? <p className="af-message" role="status">{t.loading}</p> : <>
-    <form onSubmit={saveUser} className="af-panel"><h2>{draft.mode === "edit" ? `${t.edit} ${draft.username}` : t.create}</h2><fieldset disabled={busy} className={styles.formFields}>
+    {error ? <p className="af-message af-message-error" role="alert">{t.error}</p> : null}{message ? <p className="af-message af-message-success" role="status">{message}</p> : null}
+    {loading ? <p className="af-message" role="status">{t.loading}</p> : !contextEvent ? <p role="alert">{t.error}</p> : <>
+    <form id="user-editor" onSubmit={saveUser} onChangeCapture={() => setCreated(false)} className="af-panel"><h2>{draft.mode === "edit" ? `${t.edit} ${draft.username}` : t.create}</h2><fieldset disabled={busy} className={styles.formFields}>
       {draft.mode === "create" ? <><label>{t.username}<input required maxLength={80} autoComplete="off" value={draft.username} onChange={e => setDraft({ ...draft, username: e.target.value })} /></label><label>{t.password}<input required type="password" minLength={12} maxLength={256} autoComplete="new-password" value={draft.password} onChange={e => setDraft({ ...draft, password: e.target.value })} /></label></> : null}
       <label>{t.role}<select value={draft.role} onChange={e => setDraft({ ...draft, role: e.target.value as User["role"], workstationId: "" })}><option value="admin">Admin</option><option value="cashier">{t.cashier}</option><option value="kitchen">{t.kitchen}</option></select></label>
-      <label>{t.event}<select required={draft.role !== "admin"} value={draft.eventId} onChange={e => setDraft({ ...draft, eventId: e.target.value, workstationId: "" })}><option value="">{t.none}</option>{events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
+      <p>{t.event} : <strong>{contextEvent.name}</strong></p>
       <label>{t.station}<select required={draft.role !== "admin" || !!draft.eventId} value={draft.workstationId} onChange={e => setDraft({ ...draft, workstationId: e.target.value })}><option value="">{t.none}</option>{choices.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.name} ({s.type})</option>)}</select></label>
-      <label><input type="checkbox" checked={draft.active} onChange={e => setDraft({ ...draft, active: e.target.checked })} />{t.activeAccount}</label><p>{t.hint}</p><button>{t.save}</button>{draft.mode === "edit" ? <button type="button" onClick={() => resetDraft()}>{t.cancel}</button> : null}
+      <label><input type="checkbox" checked={draft.active} onChange={e => setDraft({ ...draft, active: e.target.checked })} />{t.activeAccount}</label><p>{txt("Changer le rôle efface la sélection du poste.", "Ein Rollenwechsel setzt den Arbeitsplatz zurück.", "Changing the role clears the workstation selection.")}</p>
+      <button type="submit" className={userStyles.save} data-created={created || undefined}>{created ? createdLabel : draft.mode === "create" ? t.create : t.save}</button>
+      {draft.mode === "edit" ? <button type="button" onClick={() => resetDraft()}>{t.cancel}</button> : null}
     </fieldset></form>
-    <section className="af-panel"><h2>{t.accounts}</h2><ul className={styles.accounts}>{users.filter(u => !adminEventId || u.cashier_event_id === adminEventId).map(u => { const c = u.cashier_event_id ? workstations[u.cashier_event_id] : undefined; const s = c && [...c.cashier, ...c.kitchen].find(s => s.id === u.workstation_id); return <li key={u.id}>{u.username} · {u.role} · {events.find(e => e.id === u.cashier_event_id)?.name || "—"} · {s?.name || t.unassigned} · {u.active ? t.active : t.inactive} <button type="button" disabled={busy} onClick={() => setDraft({ mode: "edit", id: u.id, username: u.username, password: "", role: u.role, active: u.active, eventId: u.cashier_event_id || "", workstationId: s?.active ? s.id : "" })}>{t.edit}</button></li>; })}</ul></section>
-    <section id="workstations" className="af-panel"><h2>{t.stations}</h2><form onSubmit={async e => { e.preventDefault(); if (await mutate("/api/staff/workstations", "POST", { eventId: stationEvent, type: stationType, name: stationName, active: true })) setStationName(""); }}><fieldset disabled={busy}><legend>{t.newStation}</legend>
-      <label>{t.event}<select required disabled={!!adminEventId} value={stationEvent} onChange={e => setStationEvent(e.target.value)}><option value="">{t.choose}</option>{events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
-      <label>{t.type}<select value={stationType} onChange={e => setStationType(e.target.value as WorkstationType)}><option value="cashier">{t.cashier}</option><option value="kitchen">{t.kitchen}</option></select></label><label>{t.name}<input required maxLength={100} value={stationName} onChange={e => setStationName(e.target.value)} /></label><button>{t.createStation}</button>
-    </fieldset></form>{contextualEvents.map(e => <div key={e.id}><h3>{e.name}</h3>{[...(workstations[e.id]?.cashier || []), ...(workstations[e.id]?.kitchen || [])].map(s => <form key={`${s.id}:${s.name}:${s.active}`} onSubmit={async event => { event.preventDefault(); const f = new FormData(event.currentTarget); await mutate("/api/staff/workstations", "PATCH", { eventId: e.id, id: s.id, type: s.type, name: f.get("name"), active: f.has("active") }); }}><fieldset disabled={busy}><legend>{s.type} · {s.id}</legend><label>{t.name}<input name="name" required maxLength={100} defaultValue={s.name} /></label><label><input name="active" type="checkbox" defaultChecked={s.active} />{t.active}</label><button>{t.saveStation}</button></fieldset></form>)}</div>)}</section>
+    <section className="af-panel"><h2>{t.accounts}</h2>
+      <ul className={userStyles.accounts}>{users.filter(u => !adminEventId || u.cashier_event_id === adminEventId).map(u => {
+        const c = u.cashier_event_id ? workstations[u.cashier_event_id] : undefined;
+        const s = c && [...c.cashier, ...c.kitchen].find(s => s.id === u.workstation_id);
+        return <li key={u.id} className={userStyles.account}>
+          <h3>{u.username}</h3>
+          <dl>
+            <div><dt>{t.name}</dt><dd>{u.username}</dd></div>
+            <div><dt>{t.role}</dt><dd>{getStaffRoleLabel(u.role, lang)}</dd></div>
+            <div><dt>{t.event}</dt><dd>{events.find(e => e.id === u.cashier_event_id)?.name || t.unassigned}</dd></div>
+            <div><dt>{t.station}</dt><dd>{s?.name || t.unassigned}</dd></div>
+            <div><dt>{t.activeAccount}</dt><dd>{u.active ? t.active : t.inactive}</dd></div>
+          </dl>
+          <button type="button" className="af-link-btn" disabled={busy} onClick={() => {
+            setCreated(false);
+            setDraft({ mode: "edit", id: u.id, username: u.username, password: "", role: u.role, active: u.active, eventId: u.cashier_event_id || "", workstationId: s?.active ? s.id : "" });
+            document.getElementById("user-editor")?.scrollIntoView({ block: "start" });
+          }}>{t.edit}</button>
+        </li>;
+      })}</ul>
+      <p>{txt("Le changement de mot de passe et la suppression de compte ne sont pas disponibles dans la gestion serveur actuelle.", "Passwortwechsel und Kontolöschung werden von der aktuellen Serververwaltung nicht unterstützt.", "Password changes and account deletion are not supported by the current server management.")}</p>
+    </section>
     </>}
-  </StaffPageFrame>;
+  </StaffPageFrame>
+  </div>;
 }

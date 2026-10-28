@@ -10,7 +10,7 @@ export default function StaffPage() {
       window.location.href = "/team/login";
       return;
     }
-    window.location.href = roleLandingPath(s.role);
+    window.location.href = s.role === "admin" ? "/admin/menu?view=event&from=admin-events" : roleLandingPath(s.role);
   }, []);
 
   return (

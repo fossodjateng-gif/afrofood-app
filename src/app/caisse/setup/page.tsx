@@ -9,7 +9,8 @@ import {
 import { detectClientPlatform, type ClientPlatform } from "@/lib/payment-platform";
 import { getSession, getStaffRoleLabel, type StaffRole, type StaffSession } from "@/lib/staff-auth";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { goBackOr } from "@/lib/client-nav";
+import { StaffPageFrame } from "@/components/StaffPageFrame";
+import cuisine from "@/components/cuisine.module.css";
 import { createCashierLease } from "@/lib/cashier-lease-client";
 
 type TapToPayConfig = {
@@ -621,73 +622,13 @@ export default function CaisseSetupPage() {
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        padding: 24,
-        fontFamily: "system-ui",
-        backgroundColor: BRAND.orangeSoft,
-        backgroundImage:
-          "linear-gradient(180deg, rgba(255,243,230,0.82) 0%, rgba(255,243,230,0.9) 100%), url('/logo-afrofood.png')",
-        backgroundRepeat: "no-repeat",
-        backgroundPosition: "center",
-        backgroundSize: "cover, min(64vw, 420px)",
-        color: BRAND.black,
-      }}
-    >
-      <div style={{ maxWidth: 960, margin: "0 auto" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 8,
-            flexWrap: "wrap",
-            alignItems: "center",
-            padding: "14px 16px",
-            borderRadius: 16,
-            border: `1px solid ${BRAND.border}`,
-            boxShadow: "0 12px 30px rgba(242,140,40,0.18)",
-            background: "white",
-            position: "sticky",
-            top: 12,
-            zIndex: 20,
-          }}
-        >
-          <button type="button" onClick={() => goBackOr("/staff")} className="af-link-btn">
-            {backLabel}
-          </button>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, display: "flex", alignItems: "center", gap: 8 }}>
-            <img src="/logo-afrofood.png" alt="AfroFood" style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${BRAND.border}` }} />
-            {ttpLabel}
-          </h1>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {staffRole ? <span className="af-role-badge">Role: {getStaffRoleLabel(staffRole, lang)}</span> : null}
-            {(["de", "fr", "en"] as Lang[]).map((L) => (
-              <button
-                key={L}
-                type="button"
-                onClick={() => {
-                  setLang(L);
-                  saveLang(L);
-                }}
-                className={`af-lang-btn ${lang === L ? "is-active" : ""}`}
-              >
-                {L.toUpperCase()}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div
-          style={{
-            height: 6,
-            borderRadius: 999,
-            marginTop: 12,
-            background: "repeating-linear-gradient(90deg, #111 0 10px, #F28C28 10px 20px, #111 20px 30px, #fff 30px 40px)",
-            opacity: 0.9,
-          }}
-        />
-
+    <div className={cuisine.workspace}>
+      <StaffPageFrame title={ttpLabel} lang={lang} compactContext
+        context={{ name: session?.username || "", role: staffRole ? getStaffRoleLabel(staffRole, lang) : "",
+          eventName: cashierLockEventId || session?.cashierEventId }}
+        back={<a href="/staff/caisse" className="af-link-btn">{backLabel} / {lang === "fr" ? "Espace Caisse" : lang === "de" ? "Kassenbereich" : "Cashier space"}</a>}
+        onLangChange={language => { setLang(language); saveLang(language); }}
+      >
         <p style={{ opacity: 0.8, marginTop: 10 }}>
           {lang === "de"
             ? "Konfigurieren und bereiten Sie Tap to Pay auf dem iPhone vor, bevor Sie die Kasse offnen."
@@ -1173,7 +1114,7 @@ export default function CaisseSetupPage() {
             </section>
           </>
         ) : null}
-      </div>
-    </main>
+      </StaffPageFrame>
+    </div>
   );
 }

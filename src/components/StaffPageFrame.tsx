@@ -19,10 +19,10 @@ const CONTEXT_TEXT = {
   en: { name: "Name", role: "Role", event: "Event", workstation: "Workstation", context: "Context", global: "Global administration", languages: "Language", navigation: "Navigation" },
 };
 
-export function StaffPageFrame({ title, subtitle, actions, back, home, context, lang = "fr", onLangChange, wide = false, sticky = false, children }: {
+export function StaffPageFrame({ title, subtitle, actions, back, home, context, lang = "fr", onLangChange, wide = false, sticky = false, compactContext = false, children }: {
   title: string; subtitle?: string; actions?: ReactNode; back?: ReactNode; home?: ReactNode;
   context?: StaffPageContext; lang?: Lang; onLangChange?: (lang: Lang) => void;
-  wide?: boolean; sticky?: boolean; children: ReactNode;
+  wide?: boolean; sticky?: boolean; compactContext?: boolean; children: ReactNode;
 }) {
   const t = CONTEXT_TEXT[lang];
   const hasToolbar = !!(back || home || onLangChange);
@@ -43,10 +43,10 @@ export function StaffPageFrame({ title, subtitle, actions, back, home, context, 
           {title}
         </h1>
         {context ? <dl className={styles.identity}>
-          <div><dt>{t.name}</dt><dd>{context.name || "—"}</dd></div>
-          <div><dt>{t.role}</dt><dd>{context.role || "—"}</dd></div>
+          {!compactContext ? <div><dt>{t.name}</dt><dd>{context.name || "—"}</dd></div> : null}
+          {!compactContext ? <div><dt>{t.role}</dt><dd>{context.role || "—"}</dd></div> : null}
           <div><dt>{context.globalAdministration ? t.context : t.event}</dt><dd>{context.globalAdministration ? t.global : context.eventName || "—"}</dd></div>
-          {context.workstationName ? <div><dt>{t.workstation}</dt><dd>{context.workstationName}</dd></div> : null}
+          {!compactContext && context.workstationName ? <div><dt>{t.workstation}</dt><dd>{context.workstationName}</dd></div> : null}
         </dl> : null}
         {subtitle ? <p className={styles.subtitle}>{subtitle}</p> : null}
         {!hasToolbar && actions ? <nav className={pos.headerActions}>{actions}</nav> : null}

@@ -1,5 +1,6 @@
 import { requireStaffWorkstation, requireStaffOrigin, StaffAuthError } from "@/lib/staff-session-server";
 import { canAccessStaffEvent } from "@/lib/staff-permissions";
+import { validateAdminKitchenEvent } from "@/lib/admin-kitchen-context";
 import { NextResponse } from "next/server";
 import { getCatalogItemIds } from "@/lib/menu-catalog";
 import {
@@ -22,14 +23,16 @@ export async function GET(req: Request) {
   try {
     const actor = await requireStaffWorkstation(req);
     const { searchParams } = new URL(req.url);
-    const eventId = String(searchParams.get("eventId") || actor.cashierEventId || "").trim();
+    const adminKitchenEvent = searchParams.has("adminEventId") ? await validateAdminKitchenEvent(actor, searchParams.get("adminEventId")) : null;
+    if (adminKitchenEvent && searchParams.has("eventId") && searchParams.get("eventId") !== adminKitchenEvent.id) throw new StaffAuthError("staff_event_forbidden", 403);
+    const eventId = adminKitchenEvent?.id || String(searchParams.get("eventId") || actor.cashierEventId || "").trim();
     if (actor.role !== "admin" && !canAccessStaffEvent(actor, eventId)) throw new StaffAuthError("staff_event_forbidden", 403);
     const sections = await getResolvedMenuSections(eventId || undefined);
     const availability = await getItemAvailabilityMap(eventId || undefined);
     const paymentConfig = await getPaymentConfig(eventId || undefined);
     const storeConfig = await getStoreConfig();
     const tapToPayConfig = await getTapToPayConfig();
-    return NextResponse.json({ ok: true, sections, availability, paymentConfig, storeConfig, tapToPayConfig });
+    return NextResponse.json({ ok: true, sections, availability, paymentConfig, storeConfig, tapToPayConfig, adminKitchenEvent });
   } catch (e: unknown) {
     if (e instanceof StaffAuthError) return NextResponse.json({ ok: false, error: e.code }, { status: e.status });
     const error = e instanceof Error ? e.message : "Server error";
@@ -46,6 +49,10 @@ export async function PATCH(req: Request) {
     const isPinAuth = false;
     const body = await req.json().catch(() => ({}));
     const setting = String(body?.setting || "").trim();
+    if ((setting === "item_availability" && actor.role === "admin") || body.adminEventId !== undefined) {
+      const event = await validateAdminKitchenEvent(actor, body.adminEventId);
+      if (setting !== "item_availability" || body.eventId !== event.id) throw new StaffAuthError("staff_event_forbidden", 403);
+    }
     if (actor.role !== "admin") {
       const eventId = body.eventId === undefined ? actor.cashierEventId : String(body.eventId);
       if (!canAccessStaffEvent(actor, eventId || "")) throw new StaffAuthError("staff_event_forbidden", 403);

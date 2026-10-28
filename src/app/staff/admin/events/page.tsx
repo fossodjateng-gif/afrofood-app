@@ -7,6 +7,10 @@ import { openCashierLease } from "@/lib/cashier-lease-client";
 import { openTemporaryCashierContext, quitTemporaryCashier } from "@/lib/temporary-cashier-client";
 import type { WorkstationConfig } from "@/lib/workstations";
 import { StaffPageFrame } from "@/components/StaffPageFrame";
+import { StaffNavigationCard } from "@/components/StaffNavigationCard";
+import cuisine from "@/components/cuisine.module.css";
+import shared from "@/components/cashier-pages.module.css";
+import styles from "@/components/event-workspace.module.css";
 import { getSession, getStaffRoleLabel, staffFetch } from "@/lib/staff-auth";
 import { getSavedLang, saveLang } from "@/lib/translations";
 
@@ -19,6 +23,7 @@ const TEXT = {
 function EventsContent() {
   const params = useSearchParams();
   const eventId = params.get("eventId") || "";
+  const space = params.get("space") === "caisse" ? "caisse" : params.get("space") === "cuisine" ? "cuisine" : "";
   const [lang, setLang] = useState(getSavedLang);
   const [events, setEvents] = useState<Array<{ id: string; name: string }> | null>(null);
   const [workstations, setWorkstations] = useState<Record<string, WorkstationConfig>>({});
@@ -28,10 +33,12 @@ function EventsContent() {
   const [error, setError] = useState(false);
   const session = getSession();
   const t = TEXT[lang];
+  const txt = (fr: string, de: string, en: string) => lang === "fr" ? fr : lang === "de" ? de : en;
   useEffect(() => {
     const session = getSession();
     if (!session) { window.location.href = "/team/login"; return; }
     if (session.role !== "admin") { window.location.href = "/staff"; return; }
+    if (!eventId) { window.location.replace("/admin/menu?view=event&from=admin-events"); return; }
     const controller = new AbortController();
     void staffFetch("/api/staff/workstations", { cache: "no-store", signal: controller.signal }).then(async response => {
       if (!response.ok) throw new Error("Events unavailable");
@@ -39,7 +46,7 @@ function EventsContent() {
       if (!controller.signal.aborted) { setEvents(data.events); setWorkstations(data.workstations || {}); }
     }).catch(() => { if (!controller.signal.aborted) setError(true); });
     return () => controller.abort();
-  }, []);
+  }, [eventId]);
   const event = events?.find(event => event.id === eventId);
   const registers = (workstations[eventId]?.cashier || []).filter(station => station.active && station.type === "cashier");
   const selected = choice.eventId === eventId ? registers.find(station => station.id === choice.id) : undefined;
@@ -68,52 +75,40 @@ function EventsContent() {
     }
   }
   const query = `adminEventId=${encodeURIComponent(eventId)}`;
-  const operational = !!event && session?.cashierEventId === event.id && !!session?.workstationId;
-  const sections = event ? [
-    { title: t.management, cards: [
-      { label: t.users, href: `/staff/admin/users?${query}` },
-      { label: t.stations, href: `/staff/admin/users?${query}#workstations` },
-      { label: t.configuration, href: `/admin/menu?view=event&${query}` },
-    ] },
-    { title: t.cashier, cards: [
-      { label: t.products, href: `/admin/menu?view=pricing&${query}` },
-      { label: t.payments, href: `/admin/menu?view=payment&${query}` },
-      { label: t.add, href: `/admin/menu?view=add&${query}` },
-    ] },
-    { title: t.kitchen, cards: [
-      { label: t.kitchen, href: `/kitchen?${query}` },
-      { label: t.ready, href: `/screen?${query}` },
-      { label: t.availability, href: `/staff/cuisine/availability?${query}` },
-    ] },
-  ] : [];
-  return <StaffPageFrame title={event?.name || t.events} lang={lang} sticky
+  return <div className={cuisine.workspace}>
+  <StaffPageFrame title={space === "caisse" ? `${t.cashier} · ${event?.name || eventId}` : event ? `Administration ${event.name}` : t.events} lang={lang} sticky={!eventId}
     context={{ name: session?.username || "", role: session ? getStaffRoleLabel(session.role, lang) : "", eventName: event?.name || eventId, globalAdministration: !eventId }}
     onLangChange={language => { setLang(language); saveLang(language); }}
-    back={<Link className="af-link-btn" href={eventId ? "/staff/admin/events" : "/staff/admin"}>{t.back}</Link>}>
+    back={<Link className="af-link-btn" href={space === "caisse" ? `/staff/admin/events?eventId=${encodeURIComponent(eventId)}` : "/admin/menu?view=event&from=admin-events"}>{t.back} · {space === "caisse" ? `Administration ${event?.name || eventId}` : t.events}</Link>}>
     {error ? <p role="alert">{t.error}</p> : events === null ? <p role="status">{t.loading}</p> : eventId && !event ? <p role="alert">{t.missing}</p> : event ? <>
-      <section className="af-panel"><h2>{temporaryText.title}</h2><p>{temporaryText.hint}</p>
-        {registers.length ? <form onSubmit={e => { e.preventDefault(); void openRegister(); }}>
-          <label>{temporaryText.station}<select required disabled={opening} value={selected?.id || ""} onChange={e => setChoice({ eventId, id: e.target.value })}>
-            <option value="">{temporaryText.choose}</option>{registers.map(station => <option key={station.id} value={station.id}>{station.name}</option>)}
-          </select></label>
-          <button type="submit" className="af-btn af-primary" disabled={opening || !selected}>{opening ? temporaryText.busy : temporaryText.open}</button>
-        </form> : <p>{temporaryText.none}</p>}
-        {openingError ? <p role="alert">{openingError}</p> : null}
-      </section>
-      {sections.map(section => <section className="af-panel" key={section.title}><h2>{section.title}</h2>
-        <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
-          {section.cards.map(card => section.title === t.kitchen && !operational
-            ? <span className="af-link-btn" aria-disabled="true" key={card.href}>{card.label}</span>
-            : <Link className="af-link-btn" key={card.href} href={card.href}>{card.label}</Link>)}
-        </div>{section.title === t.kitchen && !operational ? <p>{t.limitation}</p> : null}
-        {section.title === t.management ? <p>{t.public}</p> : null}
-      </section>)}
-    </> : <section className="af-panel"><h2>{t.events}</h2>
-      <div style={{ display: "grid", gap: 10 }}>{events.map(event => <Link className="af-link-btn" key={event.id} href={`/staff/admin/events?eventId=${encodeURIComponent(event.id)}`}>{event.name}</Link>)}</div>
-      {events.length === 0 ? <p>{t.empty}</p> : null}
-      <p><Link className="af-link-btn" href="/admin/menu?view=event&from=admin-events">{t.manage}</Link></p>
-    </section>}
-  </StaffPageFrame>;
+      {space === "caisse" ? <section className={shared.section} aria-labelledby="event-operations">
+        <h2 id="event-operations">{txt("Opérations", "Betrieb", "Operations")}</h2>
+        <div className={`${cuisine.cards} ${styles.operations}`}>
+          <div className={styles.register}>
+            <div className={styles.registerHeading}><span className={cuisine.cardIcon} aria-hidden="true">€</span><h3>{temporaryText.title}</h3></div>
+            <p>{temporaryText.hint}</p>
+            {registers.length ? <form onSubmit={e => { e.preventDefault(); void openRegister(); }}>
+              <label>{temporaryText.station}<select required disabled={opening} value={selected?.id || ""} onChange={e => setChoice({ eventId, id: e.target.value })}>
+                <option value="">{temporaryText.choose}</option>{registers.map(station => <option key={station.id} value={station.id}>{station.name}</option>)}
+              </select></label>
+              <button type="submit" className="af-btn af-primary" disabled={opening || !selected}>{opening ? temporaryText.busy : temporaryText.open}</button>
+            </form> : <p>{temporaryText.none}</p>}
+            {openingError ? <p role="alert">{openingError}</p> : null}
+          </div>
+        </div>
+      </section> : <section className={shared.section} aria-label={`Administration ${event.name}`}>
+        <div className={cuisine.cards}>
+          <StaffNavigationCard href={`/staff/admin/users?${query}`} icon="♙" title={t.users}
+            description={txt(`Gérer les utilisateurs et les postes de ${event.name}.`, `Benutzer und Arbeitsplätze für ${event.name} verwalten.`, `Manage users and workstations for ${event.name}.`)} navigation="client" />
+          <StaffNavigationCard href={`/staff/admin/events?eventId=${encodeURIComponent(eventId)}&space=caisse`} icon="€" title={t.cashier}
+            description={temporaryText.title} navigation="client" />
+          <StaffNavigationCard href={`/staff/cuisine?${query}`} icon="♨" title={t.kitchen}
+            description={txt("Préparation, commandes prêtes et disponibilité pour cet événement.", "Zubereitung, abholbereite Bestellungen und Verfügbarkeit für dieses Event.", "Preparation, ready orders and availability for this event.")} />
+        </div>
+      </section>}
+    </> : null}
+  </StaffPageFrame>
+  </div>;
 }
 
 export default function AdminEventsPage() {

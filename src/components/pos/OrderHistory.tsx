@@ -6,6 +6,7 @@ import type { ReceiptLabels } from "@/components/OrderReceipt";
 import type { OrderRow } from "@/lib/schema";
 import type { Lang } from "@/lib/translations";
 import styles from "./pos.module.css";
+import dayStyles from "./order-history.module.css";
 import { RefundAction } from "@/components/pos/RefundAction";
 
 const PAGE_SIZE = 50;
@@ -73,13 +74,51 @@ export function OrderHistory({ eventId, lang, selectedOrderId, onSelect }: {
     return `${date.toLocaleDateString(locale, { day: "2-digit", month: "2-digit" })} · ${date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}`;
   };
   const money = (value: number, currency: string) => new Intl.NumberFormat(locale, { style: "currency", currency }).format(value / 100);
+  const dayText = {
+    fr: { today: "Aujourd’hui", yesterday: "Hier", sale: "vente", sales: "ventes", unknown: "Date indisponible", totals: "Totaux des ventes affichées sur cette page, avant remboursements." },
+    de: { today: "Heute", yesterday: "Gestern", sale: "Verkauf", sales: "Verkäufe", unknown: "Datum nicht verfügbar", totals: "Summen der auf dieser Seite angezeigten Verkäufe vor Erstattungen." },
+    en: { today: "Today", yesterday: "Yesterday", sale: "sale", sales: "sales", unknown: "Date unavailable", totals: "Totals for sales shown on this page, before refunds." },
+  }[lang];
+  const timeZone = "Europe/Berlin";
+  const dayFormatter = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+  const dayKey = (date: Date) => {
+    if (Number.isNaN(date.getTime())) return "";
+    const parts = dayFormatter.formatToParts(date);
+    return ["year", "month", "day"].map(type => parts.find(part => part.type === type)?.value).join("-");
+  };
+  const todayKey = dayKey(new Date());
+  const yesterday = new Date(`${todayKey}T12:00:00Z`);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const yesterdayKey = dayKey(yesterday);
+  const days = new Map<string, OrderRow[]>();
+  // Keep the API's order and group only the current pagination page.
+  for (const order of current?.orders || []) {
+    const key = dayKey(new Date(order.paid_at || order.created_at));
+    const orders = days.get(key);
+    if (orders) orders.push(order);
+    else days.set(key, [order]);
+  }
+  const dayHeading = (key: string, orders: OrderRow[]) => {
+    const date = key ? key.split("-").reverse().join(".") : dayText.unknown;
+    const relative = key === todayKey ? `${dayText.today} · ` : key === yesterdayKey ? `${dayText.yesterday} · ` : "";
+    const count = `${orders.length} ${orders.length === 1 ? dayText.sale : dayText.sales}`;
+    const currency = (orders[0].currency || "eur").toUpperCase();
+    const total = orders.reduce((sum, order) => sum + Number(order.amount_cents), 0);
+    const canTotal = orders.every(order => Number.isSafeInteger(order.amount_cents) && (order.currency || "eur").toUpperCase() === currency)
+      && Number.isSafeInteger(total) && /^[A-Z]{3}$/.test(currency);
+    return `${relative}${date} · ${count}${canTotal ? ` · ${money(total, currency)}` : ""}`;
+  };
   return <section className={styles.history} aria-label={text.title}>
     <h2>{text.title}</h2>
     <button type="button" className="af-link-btn" onClick={() => setRefreshKey((key) => key + 1)}>{text.refresh}</button>
     {error ? <p role="alert">{error}</p> : null}
     {!current && !error ? <p role="status">{text.loading}</p> : null}
     {current?.orders.length === 0 ? <p>{text.empty}</p> : null}
-    {current?.orders.map((order) => <article key={order.id} className={styles.historyCard}>
+    {days.size > 0 ? <p className={dayStyles.note}>{dayText.totals}</p> : null}
+    <div className={dayStyles.days}>
+    {Array.from(days, ([key, orders]) => <section key={key} className={dayStyles.day} aria-label={dayHeading(key, orders)}>
+      <h3 className={dayStyles.heading}>{dayHeading(key, orders)}</h3>
+      {orders.map((order) => <article key={order.id} className={styles.historyCard}>
       <header className={styles.historyHeading}>
         <strong>{order.id}</strong>
         <time dateTime={order.paid_at || order.created_at} title={new Date(order.paid_at || order.created_at).toLocaleString(locale)}>{shortDate(order.paid_at || order.created_at)}</time>
@@ -111,6 +150,8 @@ export function OrderHistory({ eventId, lang, selectedOrderId, onSelect }: {
         </dl>
       </details>
     </article>)}
+    </section>)}
+    </div>
     <div className={styles.historyActions}>
       <button type="button" disabled={offset === 0} onClick={() => { onSelect(null); setOffset(Math.max(0, offset - PAGE_SIZE)); }}>{text.previous}</button>
       <button type="button" disabled={!current?.hasMore} onClick={() => { onSelect(null); setOffset(offset + PAGE_SIZE); }}>{text.next}</button>

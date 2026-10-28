@@ -1,14 +1,17 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState, type ComponentProps } from "react";
+import { StaffPageFrame } from "@/components/StaffPageFrame";
+import cuisine from "@/components/cuisine.module.css";
 import { useSearchParams } from "next/navigation";
 import type { Lang } from "@/lib/translations";
 import { getSavedLang, saveLang } from "@/lib/translations";
 import { detectClientPlatform, type ClientPlatform } from "@/lib/payment-platform";
-import { getSession, getStaffRoleLabel } from "@/lib/staff-auth";
+import { clearSession, getSession, getStaffRoleLabel } from "@/lib/staff-auth";
 import Link from "next/link";
 import { ProductPresentation } from "@/components/pos/ProductPresentation";
 import productStyles from "@/components/pos/product-presentation.module.css";
+import pos from "@/components/pos/pos.module.css";
 import {
   APPLE_TTP_ASSET_PATHS,
   getHeroBannerAssetPath,
@@ -221,6 +224,10 @@ function getTapToPayGuide(lang: Lang, platform: ClientPlatform) {
   };
 }
 
+function MenuLayout({ active, ...props }: ComponentProps<typeof StaffPageFrame> & { active: boolean }) {
+  return active ? <StaffPageFrame {...props} /> : <>{props.children}</>;
+}
+
 function AdminMenuPageContent() {
   const searchParams = useSearchParams();
   const [lang, setLang] = useState<Lang>("fr");
@@ -233,6 +240,10 @@ function AdminMenuPageContent() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [sections, setSections] = useState<AdminSection[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedItems, setSavedItems] = useState<Record<string, string>>({});
+  const [savedPayment, setSavedPayment] = useState<string | null>(null);
+  const [productSearch, setProductSearch] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({
     cashEnabled: true,
     cardEnabled: true,
@@ -251,6 +262,8 @@ function AdminMenuPageContent() {
     return getSession()?.cashierEventId?.trim() || adminContext;
   });
   const [newEventName, setNewEventName] = useState("");
+  const [confirmedEventIds, setConfirmedEventIds] = useState<string[]>([]);
+  const [createdStoreSnapshot, setCreatedStoreSnapshot] = useState<string | null>(null);
   const [newItemCategory, setNewItemCategory] = useState<CustomItemCategory>("dish");
   const [newItemScope, setNewItemScope] = useState<CustomItemScope>("event");
   const [newItemName, setNewItemName] = useState("");
@@ -322,6 +335,10 @@ function AdminMenuPageContent() {
       ),
     [sections]
   );
+  const normalizeSearch = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase(lang).trim();
+  const displayedItems = allItems.filter(item => (!categoryId || item.sectionId === categoryId) && normalizeSearch(item.name[lang]).includes(normalizeSearch(productSearch)));
+  const savedLabel = lang === "fr" ? "Enregistré" : lang === "de" ? "Gespeichert" : "Saved";
+  const paymentSaved = savedPayment === JSON.stringify([pricingEventId, paymentConfig]);
   const guide = getTapToPayGuide(lang, clientPlatform);
   const heroCopy = getMarketingHeroCopy(lang);
   const pushCopy = getMarketingPushCopy(lang);
@@ -340,20 +357,22 @@ function AdminMenuPageContent() {
   const view = String(searchParams.get("view") || "").toLowerCase();
   const from = String(searchParams.get("from") || "").toLowerCase();
   const fromCaisse = from === "caisse";
+  const cashierOrigin = fromCaisse || searchParams.get("returnTo") === "caisse";
   const isAddView = view === "add";
   const isPricingView = view === "pricing";
   const isPaymentView = view === "payment";
   const isEventView = view === "event";
+  const isEventSelectionView = isEventView && (from === "admin-events" || from === "administration");
+  const eventCreated = createdStoreSnapshot === JSON.stringify(storeConfig);
+  const eventCreatedLabel = lang === "fr" ? "Événement créé" : lang === "de" ? "Event erstellt" : "Event created";
   const isTapView = view === "tap";
   const isKitchenScopedView = staffRoleSession === "kitchen" && (isAddView || isPricingView);
   const workspaceHref = adminEventId && staffRoleSession === "admin" ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "";
-  const returnHref = workspaceHref || (from === "admin-events" ? "/staff/admin/events" : fromCaisse
-    ? "/caisse"
-    : staffRoleSession === "kitchen" || staffRoleSession === "cashier"
+  const returnHref = cashierOrigin ? "/staff/caisse" : from === "administration" ? "/staff/admin/administration" : workspaceHref || (from === "admin-events" ? "/staff/admin/events" : staffRoleSession === "kitchen" || staffRoleSession === "cashier"
     ? "/staff/cuisine"
     : "/staff/admin");
-  // Returning to the register keeps the full document navigation used by V3.
-  const BackLink = returnHref === "/caisse" ? "a" : Link;
+  // Caisse navigation keeps the full document navigation used by V3.
+  const BackLink = returnHref === "/caisse" || returnHref === "/staff/caisse" ? "a" : Link;
   const isFocusedView = isAddView || isPricingView || isPaymentView || isEventView || isTapView;
   const showPaymentSection = canManageOps && (isPaymentView || (!isFocusedView && !isKitchenScopedView));
   const showEventSection = !fromCaisse && canManageOps && (isEventView || (!isFocusedView && !isKitchenScopedView));
@@ -651,6 +670,7 @@ function AdminMenuPageContent() {
       cashlessEnabled: incoming?.cashlessEnabled !== false,
     });
     const incomingStore = data.storeConfig as Partial<StoreConfig> | undefined;
+    setConfirmedEventIds(Array.isArray(incomingStore?.events) ? incomingStore.events.map(event => String(event.id)) : []);
     setStoreConfig({
       activeEventId: String(incomingStore?.activeEventId || ""),
       activeEventName: String(incomingStore?.activeEventName || ""),
@@ -664,7 +684,7 @@ function AdminMenuPageContent() {
             .filter((event) => event.id && event.name)
         : [],
     });
-    if (!pricingEventId) {
+    if (!pricingEventId && !isEventSelectionView) {
       const nextPricingEventId = String(incomingStore?.activeEventId || "");
       if (nextPricingEventId) {
         setPricingEventId(nextPricingEventId);
@@ -686,7 +706,10 @@ function AdminMenuPageContent() {
   }
 
   async function saveItem(item: AdminItem) {
+    const key = `${pricingEventId}:${item.id}`;
+    const signature = JSON.stringify([item.price, item.visible]);
     try {
+      setSavedItems(previous => ({ ...previous, [key]: "" }));
       setSaveError(null);
       setSavingId(item.id);
       const res = await fetch("/api/admin/menu-config", {
@@ -706,6 +729,9 @@ function AdminMenuPageContent() {
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error || "Save failed");
       }
+      setSavedItems(previous => ({ ...previous, [key]: signature }));
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : "Save failed");
     } finally {
       setSavingId(null);
     }
@@ -713,6 +739,7 @@ function AdminMenuPageContent() {
 
   async function savePaymentConfig() {
     try {
+      setSavedPayment(null);
       setSaveError(null);
       setSavingId("payment-config");
       const res = await fetch("/api/admin/menu-config", {
@@ -733,6 +760,7 @@ function AdminMenuPageContent() {
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error || "Save failed");
       }
+      setSavedPayment(JSON.stringify([pricingEventId, paymentConfig]));
     } catch (e: unknown) {
       setSaveError(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -741,6 +769,9 @@ function AdminMenuPageContent() {
   }
 
   async function saveStoreConfig() {
+    const createsEvent = storeConfig.events.some(event => !confirmedEventIds.includes(event.id));
+    const snapshot = JSON.stringify(storeConfig);
+    setCreatedStoreSnapshot(null);
     try {
       setSaveError(null);
       setSavingId("store-config");
@@ -761,6 +792,8 @@ function AdminMenuPageContent() {
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error || "Save failed");
       }
+      setConfirmedEventIds(storeConfig.events.map(event => event.id));
+      if (createsEvent) setCreatedStoreSnapshot(snapshot);
     } catch (e: unknown) {
       setSaveError(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -821,7 +854,7 @@ function AdminMenuPageContent() {
       activeEventId: prev.activeEventId || nextId,
       activeEventName: prev.activeEventName || trimmed,
     }));
-    if (!pricingEventId) {
+    if (!pricingEventId && !isEventSelectionView) {
       setPricingEventId(nextId);
     }
     setNewEventName("");
@@ -837,7 +870,7 @@ function AdminMenuPageContent() {
       activeEventId: nextActive?.id || "",
       activeEventName: nextActive?.name || "",
     }));
-    if (pricingEventId === eventId) {
+    if (pricingEventId === eventId && !isEventSelectionView) {
       setPricingEventId(nextActive?.id || "");
     }
   }
@@ -1054,7 +1087,7 @@ function AdminMenuPageContent() {
 	                cursor: "pointer",
 	              }}
 	            >
-	              {ui.back}
+	              {ui.back}{cashierOrigin ? " / Caisse" : workspaceHref ? (lang === "fr" ? " / Événement Admin" : lang === "de" ? " / Eventverwaltung" : " / Event admin") : ""}
 	            </BackLink>
             {(["de", "fr", "en"] as Lang[]).map((L) => (
               <button
@@ -1119,9 +1152,12 @@ function AdminMenuPageContent() {
     );
   }
 
+  const contextualLayout = cashierOrigin || !!workspaceHref || from === "administration" || isEventSelectionView;
+  const MenuSurface = contextualLayout ? "div" : "main";
+  const menuTitle = isEventSelectionView ? (lang === "fr" ? "Événements" : "Events") : isAddView ? ui.addProductTitle : isPricingView ? ui.pricingTitle : isPaymentView ? ui.paymentAllowed : isEventView ? ui.eventActive : isTapView ? "Tap to Pay on iPhone" : ui.menuTitle;
   return (
-    <main
-      style={{
+    <MenuSurface className={contextualLayout ? cuisine.workspace : undefined}
+      style={contextualLayout ? undefined : {
         minHeight: "100vh",
         padding: 24,
         fontFamily: "system-ui",
@@ -1134,7 +1170,16 @@ function AdminMenuPageContent() {
         color: "#111",
       }}
     >
+      <MenuLayout active={contextualLayout} title={menuTitle} lang={lang}
+        context={{ name: getSession()?.username || "", role: staffRoleSession ? getStaffRoleLabel(staffRoleSession, lang) : "",
+          eventName: storeConfig.events.find(event => event.id === (adminEventId || pricingEventId))?.name || adminEventId || pricingEventId,
+          workstationName: isPaymentView ? getSession()?.workstationName : undefined, globalAdministration: isEventSelectionView }}
+        back={isEventSelectionView ? undefined : <a href={returnHref} className="af-link-btn">{ui.back} / {cashierOrigin ? (lang === "fr" ? "Espace Caisse" : lang === "de" ? "Kassenbereich" : "Cashier space") : from === "administration" ? "Administration" : (lang === "fr" ? "Événement Admin" : lang === "de" ? "Eventverwaltung" : "Event admin")}</a>}
+        actions={isEventSelectionView ? <button type="button" className="af-btn af-primary" onClick={async () => { await clearSession(); window.location.href = "/team/login"; }}>{lang === "fr" ? "Se déconnecter" : lang === "de" ? "Abmelden" : "Logout"}</button> : undefined}
+        onLangChange={language => { setLang(language); saveLang(language); }}
+      >
 	      <div style={{ maxWidth: 960, margin: "0 auto" }}>
+        {!contextualLayout ? <>
 	        <div
           style={{
             display: "flex",
@@ -1197,6 +1242,7 @@ function AdminMenuPageContent() {
             opacity: 0.9,
           }}
         />
+        </> : null}
         <p style={{ opacity: 0.8, marginTop: 10 }}>
           {isAddView
             ? ui.addProductSub
@@ -1291,9 +1337,9 @@ function AdminMenuPageContent() {
               type="button"
               onClick={savePaymentConfig}
               disabled={savingId === "payment-config"}
-              style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "#111", color: "white", fontWeight: 800 }}
+              style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: paymentSaved ? "#166534" : "#111", color: "white", fontWeight: 800 }}
             >
-                  {savingId === "payment-config" ? ui.saving : ui.save}
+                  {savingId === "payment-config" ? ui.saving : paymentSaved ? savedLabel : ui.save}
                 </button>
               </div>
               {!paymentConfig.cashEnabled && !paymentConfig.cardEnabled && !paymentConfig.cashlessEnabled ? (
@@ -1307,7 +1353,9 @@ function AdminMenuPageContent() {
 	        {showEventSection ? (
 	              <div style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12, marginTop: 12 }}>
 	          <div style={{ fontWeight: 900 }}>{ui.eventActive}</div>
-          <Link className="af-link-btn" href="/staff/admin/events">{lang === "fr" ? "Espaces événements" : lang === "de" ? "Event-Bereiche" : "Event workspaces"}</Link>
+          <div style={{ display: "flex", gap: 12, margin: "20px 0", flexWrap: "wrap" }}>
+            <Link className="af-link-btn" href="/stats">{lang === "fr" ? "Statistiques" : lang === "de" ? "Statistiken" : "Statistics"}</Link>
+          </div>
 	          <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>
 	            {ui.eventHelp}
 	          </div>
@@ -1381,6 +1429,9 @@ function AdminMenuPageContent() {
                       />
                       <span>{ui.preorderToggle}</span>
                     </label>
+                    {isEventSelectionView && confirmedEventIds.includes(event.id) ? <Link className="af-link-btn" href={`/staff/admin/events?eventId=${encodeURIComponent(event.id)}`}>
+                      {lang === "fr" ? "Choisir cet événement" : lang === "de" ? "Dieses Event auswählen" : "Choose this event"}
+                    </Link> : null}
                     <button
                       className="af-btn"
                       type="button"
@@ -1398,9 +1449,9 @@ function AdminMenuPageContent() {
 		              type="button"
               onClick={saveStoreConfig}
               disabled={savingId === "store-config"}
-              style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "#111", color: "white", fontWeight: 800 }}
+              style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: eventCreated ? "#166534" : "#111", color: "white", fontWeight: 800 }}
             >
-	              {savingId === "store-config" ? ui.saving : ui.save}
+	              {savingId === "store-config" ? ui.saving : eventCreated ? eventCreatedLabel : ui.save}
 		            </button>
 		          </div>
 		        </div>
@@ -1761,37 +1812,6 @@ function AdminMenuPageContent() {
               <option value="drink">{ui.categoryDrink}</option>
               <option value="dip">{ui.categoryDip}</option>
             </select>
-            {storeConfig.events.length > 0 ? (
-              <select
-                value={newItemScope}
-                onChange={(e) => setNewItemScope(e.target.value as CustomItemScope)}
-                style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", maxWidth: 320 }}
-              >
-                <option value="event" disabled={!pricingEventId}>
-                  {lang === "fr"
-                    ? `Seulement pour l'evenement en cours${pricingEventId ? "" : " (selectionner un evenement)"}`
-                    : lang === "de"
-                    ? `Nur fur das aktuelle Event${pricingEventId ? "" : " (Event auswahlen)"}`
-                    : `Only for the current event${pricingEventId ? "" : " (select an event)"}`}
-                </option>
-                <option value="all">
-                  {lang === "fr"
-                    ? "Disponible sur tous les evenements"
-                    : lang === "de"
-                    ? "Fur alle Events verfugbar"
-                    : "Available on all events"}
-                </option>
-              </select>
-            ) : null}
-            {newItemScope === "event" && pricingEventId ? (
-              <div style={{ fontSize: 13, opacity: 0.8 }}>
-                {lang === "fr"
-                  ? "Ce produit sera cree cache par defaut ailleurs et visible seulement sur l'evenement en edition."
-                  : lang === "de"
-                  ? "Dieses Produkt wird andernorts standardmassig verborgen und nur fur das bearbeitete Event sichtbar erstellt."
-                  : "This product will be hidden by default elsewhere and created as visible only for the event being edited."}
-              </div>
-            ) : null}
             <input
               type="text"
               value={newItemName}
@@ -1854,8 +1874,21 @@ function AdminMenuPageContent() {
                 ) : null}
 	            </div>
 	          ) : null}
+          <label style={{ display: "grid", gap: 8, fontWeight: 800 }}>
+            {lang === "fr" ? "Rechercher un produit" : lang === "de" ? "Produkt suchen" : "Search products"}
+            <input type="search" value={productSearch} onChange={event => setProductSearch(event.target.value)}
+              style={{ width: "100%", padding: "12px 16px", border: "1px solid #F1D7C8", borderRadius: 12, background: "white", color: "#111" }} />
+          </label>
+          <div className={pos.categoryBar} role="group" aria-label={lang === "fr" ? "Catégories de produits" : lang === "de" ? "Produktkategorien" : "Product categories"}>
+            <button className="af-btn" type="button" aria-pressed={!categoryId} onClick={() => setCategoryId("")}>
+              {lang === "fr" ? "Tous les produits" : lang === "de" ? "Alle Produkte" : "All products"}
+            </button>
+            {sections.filter(section => section.items.length > 0).map(section => <button key={section.id} className="af-btn" type="button"
+              aria-pressed={categoryId === section.id} onClick={() => setCategoryId(section.id)}>{section.title[lang]}</button>)}
+          </div>
+          {displayedItems.length === 0 ? <p className={pos.empty} role="status">{lang === "fr" ? "Aucun produit trouvé." : lang === "de" ? "Keine Produkte gefunden." : "No products found."}</p> : null}
           <div className={productStyles.grid}>
-          {allItems.map((item) => (
+          {displayedItems.map((item) => (
             <ProductPresentation key={item.id} id={item.id} imagePath={item.imagePath} name={item.name[lang]}
               category={sections.find(section => section.id === item.sectionId)?.title[lang]}>
               <div className={productStyles.controls}>
@@ -1899,9 +1932,9 @@ function AdminMenuPageContent() {
                   type="button"
                   onClick={() => saveItem(item)}
                   disabled={savingId === item.id}
-                  style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "#111", color: "white", fontWeight: 800 }}
+                  style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: savedItems[`${pricingEventId}:${item.id}`] === JSON.stringify([item.price, item.visible]) ? "#166534" : "#111", color: "white", fontWeight: 800 }}
                 >
-                  {savingId === item.id ? ui.saveItemBusy : ui.saveItem}
+                  {savingId === item.id ? ui.saveItemBusy : savedItems[`${pricingEventId}:${item.id}`] === JSON.stringify([item.price, item.visible]) ? savedLabel : ui.saveItem}
                 </button>
                 {item.isCustom && staffRoleSession === "admin" ? (
                   <button
@@ -1921,7 +1954,8 @@ function AdminMenuPageContent() {
         </div>
         ) : null}
       </div>
-    </main>
+      </MenuLayout>
+    </MenuSurface>
   );
 }
 

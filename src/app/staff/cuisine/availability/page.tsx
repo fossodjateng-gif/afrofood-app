@@ -1,12 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import cuisine from "@/components/cuisine.module.css";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { clearSession, getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
+import { StaffPageFrame } from "@/components/StaffPageFrame";
 import { ProductPresentation } from "@/components/pos/ProductPresentation";
 import productStyles from "@/components/pos/product-presentation.module.css";
+import pos from "@/components/pos/pos.module.css";
+import styles from "./availability.module.css";
+import { loadAdminKitchenEvent } from "@/lib/admin-kitchen-client";
 
 type AdminItem = {
   id: string;
@@ -54,7 +59,6 @@ function tomorrowMorningIso() {
 function AvailabilityPageContent() {
   const searchParams = useSearchParams();
   const adminEventId = searchParams.get("adminEventId") || "";
-  const workspaceHref = getSession()?.role === "admin" && adminEventId ? `/staff/admin/events?eventId=${encodeURIComponent(adminEventId)}` : "";
   const fromCaisse = String(searchParams.get("from") || "").toLowerCase() === "caisse";
   const [lang, setLang] = useState<Lang>("fr");
   const [role, setRole] = useState<StaffRole | null>(null);
@@ -63,9 +67,13 @@ function AvailabilityPageContent() {
   const [sections, setSections] = useState<AdminSection[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const savingRef = useRef(false);
+  const cuisineHref = fromCaisse ? "/staff/cuisine?from=caisse" : adminEventId ? `/staff/cuisine?adminEventId=${encodeURIComponent(adminEventId)}` : "/staff/cuisine";
 
   const ui = {
-    title: lang === "fr" ? "Disponibilite cuisine" : lang === "de" ? "Kuchen-Verfugbarkeit" : "Kitchen availability",
+    title: lang === "fr" ? "Disponibilité produits" : lang === "de" ? "Kuchen-Verfugbarkeit" : "Kitchen availability",
     subtitle:
       lang === "fr"
         ? "Bloquer volontairement un produit ou suivre les quantites indicatives, sans limite de vente."
@@ -77,6 +85,12 @@ function AvailabilityPageContent() {
     logout: lang === "fr" ? "Se deconnecter" : lang === "de" ? "Abmelden" : "Logout",
     assignedEvent: lang === "fr" ? "Evenement cuisine" : lang === "de" ? "Kuchen-Event" : "Kitchen event",
     available: lang === "fr" ? "Disponible" : lang === "de" ? "Verfugbar" : "Available",
+    unavailable: lang === "fr" ? "Indisponible" : lang === "de" ? "Nicht verfügbar" : "Unavailable",
+    search: lang === "fr" ? "Rechercher un produit" : lang === "de" ? "Produkt suchen" : "Search products",
+    all: lang === "fr" ? "Tous les produits" : lang === "de" ? "Alle Produkte" : "All products",
+    categories: lang === "fr" ? "Catégories de produits" : lang === "de" ? "Produktkategorien" : "Product categories",
+    empty: lang === "fr" ? "Aucun produit trouvé." : lang === "de" ? "Keine Produkte gefunden." : "No products found.",
+    details: lang === "fr" ? "Quantités et reprise" : lang === "de" ? "Mengen und Wiederaufnahme" : "Quantities and resumption",
     limited: lang === "fr" ? "Reste X portions" : lang === "de" ? "Noch X Portionen" : "Only X portions left",
     blocked: lang === "fr" ? "Indisponible jusqu'a" : lang === "de" ? "Nicht verfugbar bis" : "Unavailable until",
     portions: lang === "fr" ? "Portions restantes" : lang === "de" ? "Verbleibende Portionen" : "Remaining portions",
@@ -107,6 +121,15 @@ function AvailabilityPageContent() {
         return;
       }
       setRole(session.role);
+      if (session.role === "admin" && !fromCaisse) {
+        setEventId(""); setSections([]);
+        try {
+          const event = await loadAdminKitchenEvent(adminEventId);
+          if (!alive) return;
+          setEventId(event.id); setEventName(event.name); setError(null);
+        } catch (error) { if (alive) setError(error instanceof Error ? error.message : ui.noEvent); }
+        return;
+      }
 
       let nextEventId = String(session.cashierEventId || "").trim();
       if (session.role === "admin" && fromCaisse) {
@@ -133,13 +156,13 @@ function AvailabilityPageContent() {
     return () => {
       alive = false;
     };
-  }, [fromCaisse, ui.noEvent]);
+  }, [adminEventId, fromCaisse, ui.noEvent]);
 
   useEffect(() => {
     if (!eventId) return;
     let alive = true;
     async function loadData() {
-      const res = await fetch(`/api/admin/menu-config?eventId=${encodeURIComponent(eventId)}`, {
+      const res = await fetch(`/api/admin/menu-config?${role === "admin" ? "adminEventId" : "eventId"}=${encodeURIComponent(eventId)}`, {
         headers: role ? { "x-staff-role": role } : undefined,
         cache: "no-store",
       });
@@ -157,6 +180,9 @@ function AvailabilityPageContent() {
     };
   }, [eventId, role]);
 
+  const categories = useMemo(() => sections.filter(section => section.items.some(item => item.visible)), [sections]);
+  const normalizeSearch = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase(lang).trim();
+  const query = normalizeSearch(search);
   const items = useMemo(
     () =>
       sections
@@ -177,6 +203,10 @@ function AvailabilityPageContent() {
           return a.name[lang].localeCompare(b.name[lang]);
         }),
     [lang, sections]
+  );
+  const categoryByItem = new Map(sections.flatMap(section => section.items.map(item => [item.id, section] as const)));
+  const displayedItems = items.filter(item =>
+    (!categoryId || categoryByItem.get(item.id)?.id === categoryId) && normalizeSearch(item.name[lang]).includes(query)
   );
 
   function patchAvailability(itemId: string, patch: { status?: "available" | "limited" | "blocked"; remainingQty?: number | null; resumeAt?: string | null }) {
@@ -202,6 +232,9 @@ function AvailabilityPageContent() {
   }
 
   async function saveAvailability(item: AdminItem) {
+    if (role === "admin" && !fromCaisse && eventId !== adminEventId) return;
+    if (savingRef.current) return;
+    savingRef.current = true;
     try {
       setError(null);
       setSavingId(item.id);
@@ -217,6 +250,7 @@ function AvailabilityPageContent() {
           expectedRevision: availability.revision || "null",
           itemId: item.id,
           eventId,
+          ...(role === "admin" ? { adminEventId: eventId } : {}),
           status: availability.status || "available",
           remainingQty: availability.remainingQty ?? null,
           resumeAt: availability.resumeAt || null,
@@ -226,47 +260,57 @@ function AvailabilityPageContent() {
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error || "Save failed");
       }
-      setSections((previous) => previous.map((section) => ({ ...section, items: section.items.map((entry) => entry.id === item.id ? { ...entry, availability: { ...entry.availability, revision: data.revision } } : entry) })));
+      setSections((previous) => previous.map((section) => ({ ...section, items: section.items.map((entry) => entry.id === item.id ? { ...entry, availability: { ...item.availability, revision: data.revision } } : entry) })));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Save failed");
     } finally {
+      savingRef.current = false;
       setSavingId(null);
     }
   }
 
   return (
-    <main style={{ minHeight: "100vh", padding: 24, fontFamily: "system-ui", backgroundColor: "#FFF3E6", backgroundImage: "linear-gradient(180deg, rgba(255,243,230,0.82) 0%, rgba(255,243,230,0.9) 100%), url('/logo-afrofood.png')", backgroundRepeat: "no-repeat", backgroundPosition: "center, center", backgroundSize: "cover, min(64vw, 420px)" }}>
-      <div style={{ maxWidth: 980, margin: "0 auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap", background: "white", border: "1px solid #F1D7C8", borderRadius: 12, padding: 12, boxShadow: "0 12px 30px rgba(242,140,40,0.18)" }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>{ui.title}</h1>
-            <div style={{ marginTop: 4, opacity: 0.8 }}>{ui.subtitle}</div>
-            <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              {role ? <span className="af-role-badge">Role: {getStaffRoleLabel(role, lang)}</span> : null}
-              {eventName ? <span className="af-role-badge">{ui.assignedEvent}: {eventName}</span> : null}
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            {(["de", "fr", "en"] as Lang[]).map((L) => (
-              <button key={L} type="button" onClick={() => { setLang(L); saveLang(L); }} className={`af-lang-btn ${lang === L ? "is-active" : ""}`}>{L.toUpperCase()}</button>
-            ))}
-            <Link href={workspaceHref || (fromCaisse ? "/staff/cuisine?from=caisse" : "/staff/cuisine")} className="af-link-btn" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #111", background: "white", color: "#111", fontWeight: 800 }}>{ui.back}</Link>
-            <Link href="/" className="af-link-btn" style={{ textDecoration: "none", padding: "8px 12px", borderRadius: 10, border: "1px solid #111", color: "#111", fontWeight: 800 }}>{ui.home}</Link>
-            {!fromCaisse ? <button type="button" className="af-btn" onClick={async () => { await clearSession(); window.location.href = "/team/login"; }} style={{ padding: "8px 12px", borderRadius: 10, border: "none", background: "#111", color: "white", fontWeight: 800 }}>{ui.logout}</button> : null}
-          </div>
+    <div className={cuisine.workspace}>
+    <StaffPageFrame title={ui.title} subtitle={ui.subtitle} lang={lang} compactContext
+      context={{ name: "", role: role ? getStaffRoleLabel(role, lang) : "", eventName: eventName || eventId }}
+      back={<Link href={cuisineHref} className="af-link-btn">{ui.back} · {lang === "fr" ? "Cuisine" : lang === "de" ? "Küche" : "Kitchen"}</Link>}
+      onLangChange={language => { setLang(language); saveLang(language); }}
+      home={<Link href="/" className="af-link-btn">{ui.home}</Link>}
+      actions={!fromCaisse ? <button type="button" className="af-btn af-primary" onClick={async () => { await clearSession(); window.location.href = "/team/login"; }}>{ui.logout}</button> : null}
+    >
+        {error ? <div role="alert" style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "#fee2e2", color: "#991b1b", fontWeight: 700 }}>{error}</div> : null}
+
+        <section aria-label={ui.title}>
+        <div className={styles.search}>
+          <label htmlFor="product-search">{ui.search}</label>
+          <input id="product-search" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder={ui.search} />
         </div>
-
-        {error ? <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "#fee2e2", color: "#991b1b", fontWeight: 700 }}>{error}</div> : null}
-
+        <div className={pos.categoryBar} role="group" aria-label={ui.categories}>
+          <button className="af-btn" type="button" aria-pressed={!categoryId} onClick={() => setCategoryId("")}>{ui.all}</button>
+          {categories.map(category => <button key={category.id} className="af-btn" type="button" aria-pressed={categoryId === category.id} onClick={() => setCategoryId(category.id)}>{category.title[lang]}</button>)}
+        </div>
         <div className={productStyles.grid}>
-          {items.map((item) => {
+          {displayedItems.map((item) => {
             const availability = item.availability || { status: "available" as const, remainingQty: null, resumeAt: null };
             const isBlocked = availability.status === "blocked";
             const isZeroLimited = availability.status === "limited" && Number(availability.remainingQty ?? 0) <= 0;
             return (
               <ProductPresentation key={item.id} id={item.id} imagePath={item.imagePath} name={item.name[lang]}
-                category={sections.find(section => section.items.some(product => product.id === item.id))?.title[lang]}
+                category={categoryByItem.get(item.id)?.title[lang]}
                 tone={isBlocked ? "blocked" : isZeroLimited ? "warning" : "normal"}>
+                <p className={`${styles.status} ${isBlocked ? styles.unavailable : styles.available}`}>
+                  {isBlocked ? ui.unavailable : ui.available}
+                  {availability.status === "limited" ? ` · ${ui.portions} : ${availability.remainingQty ?? 0}` : ""}
+                </p>
+                <div className={styles.stateButtons} role="group" aria-label={`${item.name[lang]} — ${ui.title}`}>
+                  {(["available", "blocked"] as const).map(status => <button key={status} type="button"
+                    aria-pressed={status === "blocked" ? isBlocked : !isBlocked}
+                    disabled={savingId !== null}
+                    onClick={() => void saveAvailability({ ...item, availability: { ...availability, status, remainingQty: null, resumeAt: status === "available" ? null : availability.resumeAt ?? null } })}>
+                    {status === "available" ? ui.available : ui.unavailable}
+                  </button>)}
+                </div>
+                {savingId === item.id ? <p role="status">{ui.saving}</p> : null}
                 {isBlocked ? (
                   <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "#ffe4e6", color: "#be123c", fontWeight: 900 }}>
                     {lang === "fr" ? "Produit actuellement bloque" : lang === "de" ? "Produkt aktuell gesperrt" : "Product currently blocked"}
@@ -277,8 +321,11 @@ function AvailabilityPageContent() {
                     {lang === "fr" ? "0 portion restante" : lang === "de" ? "0 Portionen ubrig" : "0 portions left"}
                   </div>
                 ) : null}
-                <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                <details className={styles.details}>
+                <summary>{ui.details}</summary>
+                <fieldset disabled={savingId !== null} className={styles.fields}>
                   <select
+                    aria-label={`${item.name[lang]} — ${ui.title}`}
                     value={availability.status || "available"}
                     onChange={(e) => {
                       const status = e.target.value as "available" | "limited" | "blocked";
@@ -319,6 +366,7 @@ function AvailabilityPageContent() {
                         ))}
                       </div>
                       <input
+                        aria-label={`${item.name[lang]} — ${ui.portions}`}
                         type="number"
                         min={0}
                         value={availability.remainingQty ?? 0}
@@ -348,6 +396,7 @@ function AvailabilityPageContent() {
                   {(availability.status === "limited" || availability.status === "blocked") ? (
                     <div style={{ display: "grid", gap: 8 }}>
                       <input
+                        aria-label={`${item.name[lang]} — ${ui.resumeAt}`}
                         type="datetime-local"
                         value={toLocalDateTimeValue(availability.resumeAt)}
                         onChange={(e) => {
@@ -380,13 +429,16 @@ function AvailabilityPageContent() {
                   <button type="button" className="af-btn" onClick={() => saveAvailability(item)} disabled={savingId === item.id} style={{ width: "fit-content", padding: "10px 14px", borderRadius: 10, border: "none", background: "#111", color: "white", fontWeight: 800 }}>
                     {savingId === item.id ? ui.saving : ui.save}
                   </button>
-                </div>
+                </fieldset>
+                </details>
               </ProductPresentation>
             );
           })}
         </div>
-      </div>
-    </main>
+        {displayedItems.length === 0 ? <p className={pos.empty} role="status">{ui.empty}</p> : null}
+        </section>
+    </StaffPageFrame>
+    </div>
   );
 }
 

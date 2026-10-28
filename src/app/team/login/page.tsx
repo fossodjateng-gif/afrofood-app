@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { login, roleLandingPath } from "@/lib/staff-auth";
-import { goBackOr } from "@/lib/client-nav";
 
 const UI_TEXT: Record<
   Lang,
@@ -66,9 +66,9 @@ export default function TeamLoginPage() {
     >
       <div style={{ width: "100%", maxWidth: 380, background: "rgba(17,24,39,0.88)", borderRadius: 14, padding: 16, color: "white", border: "1px solid #334155" }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" onClick={() => goBackOr("/")} className="af-link-btn" style={{ padding: "6px 10px", borderRadius: 10, border: "none", background: "white", color: "#111", fontWeight: 800, cursor: "pointer" }}>
+          <Link href="/" className="af-link-btn" style={{ padding: "6px 10px", borderRadius: 10, border: "none", background: "white", color: "#111", fontWeight: 800, cursor: "pointer" }}>
             {t.back}
-          </button>
+          </Link>
           {(["de", "fr", "en"] as Lang[]).map((L) => (
             <button
               key={L}
@@ -112,7 +112,7 @@ export default function TeamLoginPage() {
               return;
             }
             setError(null);
-            window.location.href = roleLandingPath(out.session.role);
+            window.location.href = out.session.role === "admin" ? "/admin/menu?view=event&from=admin-events" : roleLandingPath(out.session.role);
           }}
           style={{ width: "100%", marginTop: 12, padding: "10px 14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#ff7a00,#ff3c00)", color: "white", fontWeight: 900, cursor: "pointer" }}
         >

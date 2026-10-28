@@ -1,0 +1,30 @@
+.workspace { color: #111; }
+.workspace :where(button, a, input, select) { touch-action: manipulation; }
+.workspace button, .workspace input, .workspace select, .workspace :global(.af-link-btn) { min-height: 48px; min-width: 48px; font-size: 16px; }
+.workspace :where(input, select) { box-sizing: border-box; }
+.workspace :where(button, a, input, select):focus-visible { outline: 3px solid #9a3412; outline-offset: 3px; }
+.workspace button:disabled { cursor: wait; opacity: .65; }
+.workspace header dl { margin-bottom: 0; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
+.workspace .card { display: flex; align-items: center; gap: 16px; min-height: 132px; padding: 20px; border: 1px solid #F1D7C8; border-radius: 16px; background: white; color: inherit; text-decoration: none; }
+.card:hover { border-color: #F28C28; }
+.cardIcon { display: grid; place-items: center; flex: 0 0 48px; height: 48px; border-radius: 12px; background: #FFF3E6; color: #9a3412; font-size: 26px; }
+.cardBody { display: grid; gap: 8px; flex: 1; min-width: 0; }
+.cardBody strong { font-size: 20px; line-height: 1.3; }
+.cardBody > span { color: #5f5f5f; font-size: 15px; line-height: 1.5; }
+.workspace .refresh { padding: 12px 20px; border: 1px solid #F1D7C8; border-radius: 12px; background: white; color: #111; font-weight: 800; }
+.workspace .refresh[data-refreshing] { background: #FFF3E6; }
+.workspace .refresh[data-refreshed] { background: #dcfce7; border-color: #15803d; }
+.order { overflow-wrap: anywhere; }
+.orderHeading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.orderHeading > div { flex: 1; min-width: min(100%, 180px); }
+.orderHeading button { flex-shrink: 0; }
+.statusGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; margin-top: 16px; }
+.statusGrid h2 { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.count { display: inline-grid; place-items: center; min-width: 36px; min-height: 36px; padding: 4px 10px; border-radius: 999px; background: white; font-size: 18px; }
+@media (max-width: 480px) {
+  .workspace main { padding: 12px; }
+  .workspace header h1 { font-size: 22px; }
+  .workspace .card { min-height: 112px; padding: 16px; gap: 12px; }
+  .orderHeading button { width: 100%; }
+}

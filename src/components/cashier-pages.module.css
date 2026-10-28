@@ -1,0 +1,6 @@
+.section { margin-top: 28px; }
+.section h2 { font-size: 20px; margin: 0 0 12px; }
+.kitchen { margin-top: 32px; padding-top: 24px; border-top: 2px solid #F1D7C8; }
+.kitchen h2 { color: #9a3412; font-size: 18px; margin: 0 0 12px; }
+.history { scroll-margin-top: 16px; }
+.status { padding: 16px; background: white; border: 1px solid #F1D7C8; border-radius: 12px; line-height: 1.5; }

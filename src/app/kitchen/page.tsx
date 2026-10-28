@@ -7,7 +7,9 @@ import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { getSession, staffFetch, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import Link from "next/link";
+import cuisine from "@/components/cuisine.module.css";
 import { StaffPageFrame } from "@/components/StaffPageFrame";
+import { loadAdminKitchenEvent } from "@/lib/admin-kitchen-client";
 
 const UI_TEXT: Record<
   Lang,
@@ -32,7 +34,7 @@ const UI_TEXT: Record<
   de: {
     title: "Kuche - Bestellungen",
     subtitle: "Orange: in Vorbereitung, Grun: abholbereit",
-    back: "Zuruck",
+    back: "Zurück",
     refreshing: "Aktualisierung...",
     refreshed: "Aktualisiert",
     refresh: "Aktualisieren",
@@ -47,8 +49,8 @@ const UI_TEXT: Record<
     noItems: "Keine Artikeldetails",
   },
   fr: {
-    title: "Cuisine - Commandes",
-    subtitle: "Orange: en preparation, Vert: pret a retirer",
+    title: "Commandes à préparer",
+    subtitle: "Orange : en préparation · Vert : prêt à retirer",
     back: "Retour",
     refreshing: "Actualisation...",
     refreshed: "Actualise",
@@ -115,7 +117,8 @@ function KitchenPageContent() {
 
   const refresh = useCallback(async () => {
     if (!eventContextReady || staffRole === null) return;
-    if (!assignedEventId && (staffRole !== "admin" || fromCaisse)) return;
+    if (!assignedEventId) return;
+    if (staffRole === "admin" && !fromCaisse && assignedEventId !== adminEventId) return;
 
     refreshRequestRef.current?.abort();
     const controller = new AbortController();
@@ -124,7 +127,7 @@ function KitchenPageContent() {
       setIsRefreshing(true);
       setAccessError(null);
 
-      const eventFilter = assignedEventId ? `&eventId=${encodeURIComponent(assignedEventId)}` : "";
+      const eventFilter = `&eventId=${encodeURIComponent(assignedEventId)}${staffRole === "admin" ? `&adminEventId=${encodeURIComponent(assignedEventId)}` : ""}`;
 
       const [newRes, readyRes] = await Promise.all([
         staffFetch(`/api/staff/orders?status=NEW${eventFilter}`, { cache: "no-store", signal: controller.signal }),
@@ -154,7 +157,7 @@ function KitchenPageContent() {
         setLoading(false);
       }
     }
-  }, [assignedEventId, eventContextReady, staffRole, fromCaisse]);
+  }, [adminEventId, assignedEventId, eventContextReady, staffRole, fromCaisse]);
 
   useEffect(() => {
     let alive = true;
@@ -173,7 +176,12 @@ function KitchenPageContent() {
 	      setStaffRole(s.role);
 	      setStaffUsername(String(s.username || ""));
 
-      if (s.role === "admin" && !fromCaisse && !s.cashierEventId) return;
+      if (s.role === "admin" && !fromCaisse) {
+        const event = await loadAdminKitchenEvent(adminEventId);
+        if (!alive) return;
+        setAssignedEventId(event.id); setAssignedEventName(event.name);
+        return;
+      }
 
       let nextEventId = String(s.cashierEventId || "").trim();
       let nextEventName = "";
@@ -210,7 +218,7 @@ function KitchenPageContent() {
     return () => {
       alive = false;
     };
-  }, [t.noEventAssigned, fromCaisse]);
+  }, [adminEventId, t.noEventAssigned, fromCaisse]);
 
   useEffect(() => {
     void refresh();
@@ -230,41 +238,35 @@ function KitchenPageContent() {
   }, [refresh]);
 
   async function updateStatus(id: string, status: "READY" | "DONE") {
-    await staffFetch(`/api/orders/${id}/status`, {
+    if (staffRole === "admin" && !fromCaisse && assignedEventId !== adminEventId) return;
+    const response = await staffFetch(`/api/orders/${id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, ...(staffRole === "admin" ? { adminEventId: fromCaisse ? assignedEventId : adminEventId } : {}) }),
     });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      setAccessError(data?.error || "staff_orders_unavailable");
+      return;
+    }
     refresh();
   }
 
   return (
-    <StaffPageFrame title={t.title} subtitle={t.subtitle} lang={lang} wide
+    <div className={cuisine.workspace}>
+    <StaffPageFrame title={t.title} subtitle={t.subtitle} lang={lang} compactContext
       context={{ name: staffUsername, role: staffRole ? getStaffRoleLabel(staffRole, lang) : "",
         eventName: assignedEventName || assignedEventId, workstationName: displaySession?.workstationName,
-        globalAdministration: staffRole === "admin" && !displaySession?.cashierEventId }}
-      back={<Link href={workspaceHref || backHref} className="af-link-btn">{t.back}</Link>}
+        globalAdministration: staffRole === "admin" && !adminEventId && !displaySession?.cashierEventId }}
+      back={<Link href={workspaceHref || backHref} className="af-link-btn">{t.back} · {workspaceHref ? (lang === "fr" ? "Événement Admin" : lang === "de" ? "Eventverwaltung" : "Event admin") : (lang === "fr" ? "Cuisine" : lang === "de" ? "Küche" : "Kitchen")}</Link>}
       onLangChange={language => { setLang(language); saveLang(language); }}
     >
       <button
-        className="af-btn"
+        className={`af-btn ${cuisine.refresh}`}
         onClick={refresh}
         disabled={isRefreshing}
-        style={{
-          marginTop: 10,
-          padding: "10px 14px",
-          borderRadius: 12,
-          border: "none",
-          background: isRefreshing
-            ? "linear-gradient(135deg,#f59e0b,#d97706)"
-            : justRefreshed
-            ? "linear-gradient(135deg,#16a34a,#15803d)"
-            : "linear-gradient(135deg,#2563eb,#1d4ed8)",
-          color: "white",
-          fontWeight: 900,
-          cursor: isRefreshing ? "not-allowed" : "pointer",
-          opacity: isRefreshing ? 0.85 : 1,
-        }}
+        data-refreshing={isRefreshing || undefined}
+        data-refreshed={justRefreshed || undefined}
       >
         {isRefreshing ? t.refreshing : justRefreshed ? t.refreshed : t.refresh}
       </button>
@@ -280,7 +282,7 @@ function KitchenPageContent() {
           return (
             <div
               key={o.id}
-              className="af-order-card"
+              className={`af-order-card ${cuisine.order}`}
               style={{
                 background: isPreparing ? "rgba(249,115,22,0.22)" : "rgba(22,163,74,0.22)",
                 borderRadius: 16,
@@ -288,7 +290,7 @@ function KitchenPageContent() {
                 border: isPreparing ? "1px solid #fb923c" : "1px solid #22c55e",
               }}
             >
-              <div className="af-order-heading" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+              <div className={`af-order-heading ${cuisine.orderHeading}`}>
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 900 }}>{o.id}</div>
                   <div style={{ opacity: 0.9, marginTop: 2 }}>
@@ -298,6 +300,7 @@ function KitchenPageContent() {
 
                 {isPreparing ? (
                   <button
+                    className="af-btn"
                     onClick={() => updateStatus(o.id, "READY")}
                     style={{
                       padding: "10px 14px",
@@ -313,6 +316,7 @@ function KitchenPageContent() {
                   </button>
                 ) : (
                   <button
+                    className="af-btn"
                     onClick={() => updateStatus(o.id, "DONE")}
                     style={{
                       padding: "10px 14px",
@@ -346,6 +350,7 @@ function KitchenPageContent() {
         })}
       </div>
     </StaffPageFrame>
+    </div>
   );
 }
 

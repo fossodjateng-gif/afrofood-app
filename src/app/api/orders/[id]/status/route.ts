@@ -8,6 +8,7 @@ import { recordCashRegisterRequest } from "@/lib/staff-action-server";
 import { sql } from "@/lib/db";
 import { publishOrderEvent } from "@/lib/order-events";
 import { finalizeSale } from "@/lib/finalize-sale";
+import { validateAdminKitchenEvent } from "@/lib/admin-kitchen-context";
 
 type OrderStatus = "PENDING_PAYMENT" | "NEW" | "IN_PROGRESS" | "READY" | "DONE" | "CANCELED";
 
@@ -39,6 +40,9 @@ export async function PATCH(
 
     requireStaffOrigin(req);
     const actor = await requireStaffWorkstation(req);
+    const adminKitchenEvent = body.adminEventId !== undefined || actor.role === "admin" && (status === "READY" || status === "DONE")
+      ? await validateAdminKitchenEvent(actor, body.adminEventId) : null;
+    if (adminKitchenEvent && (!["READY", "DONE"].includes(status) || body.cashReceivedCents !== undefined)) throw new StaffAuthError("invalid_kitchen_operation", 403);
     const displayedActor = req.headers.get("x-staff-user-id");
     if (displayedActor && displayedActor !== actor.id) throw new StaffAuthError("cashier_changed", 409);
     await ensureOrdersSchema();
@@ -65,6 +69,7 @@ export async function PATCH(
       event_id?: string | null;
       items?: Array<{ id?: string; qty?: number }>;
     };
+    if (adminKitchenEvent && previousRow.event_id !== adminKitchenEvent.id) throw new StaffAuthError("staff_event_forbidden", 403);
     const paymentContext = status === "NEW" || status === "CANCELED" ? await requireCashierWrite(req, previousRow.event_id || "", body.workstationId) : undefined;
     const previousStatus = String(previousRow.status || "");
     const payment = String(previousRow.payment || "").toLowerCase();
@@ -131,6 +136,7 @@ export async function PATCH(
       UPDATE orders
       SET status = ${status}
       WHERE id = ${id} AND UPPER(status) = ${previousStatus}
+        AND (${!adminKitchenEvent} OR event_id = ${adminKitchenEvent?.id || ""})
       RETURNING id, created_at, customer_name, payment, UPPER(status) AS status, items
     `], { isolationLevel: "ReadCommitted" });
     const rows = transition[1];

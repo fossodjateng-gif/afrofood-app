@@ -7,7 +7,9 @@ import { subscribeOrderSync } from "@/lib/order-sync";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
 import Link from "next/link";
+import cuisine from "@/components/cuisine.module.css";
 import { StaffPageFrame } from "@/components/StaffPageFrame";
+import { loadAdminKitchenEvent } from "@/lib/admin-kitchen-client";
 
 
 const UI_TEXT: Record<
@@ -26,9 +28,9 @@ const UI_TEXT: Record<
   }
 > = {
   de: {
-    title: "Bestellungen",
+    title: "Abholbereite Bestellungen",
     subtitle: "Live-Status der laufenden Bestellungen",
-    back: "Zuruck",
+    back: "Zurück",
     refreshing: "Aktualisierung...",
     refreshed: "Aktualisiert",
     refresh: "Aktualisieren",
@@ -38,7 +40,7 @@ const UI_TEXT: Record<
     unnamed: "Ohne Name",
   },
   fr: {
-    title: "Commandes",
+    title: "Commandes prêtes",
     subtitle: "Suivi des commandes en cours",
     back: "Retour",
     refreshing: "Actualisation...",
@@ -50,7 +52,7 @@ const UI_TEXT: Record<
     unnamed: "Sans nom",
   },
   en: {
-    title: "Orders",
+    title: "Ready orders",
     subtitle: "Live order tracking",
     back: "Back",
     refreshing: "Refreshing...",
@@ -102,14 +104,15 @@ function ScreenPageContent() {
 
   const refresh = useCallback(async () => {
     if (!eventContextReady || staffRole === null) return;
-    if (!assignedEventId && (staffRole !== "admin" || fromCaisse)) return;
+    if (!assignedEventId) return;
+    if (staffRole === "admin" && !fromCaisse && assignedEventId !== adminEventId) return;
 
     refreshRequestRef.current?.abort();
     const controller = new AbortController();
     refreshRequestRef.current = controller;
     try {
       setIsRefreshing(true);
-      const eventFilter = assignedEventId ? `&eventId=${encodeURIComponent(assignedEventId)}` : "";
+      const eventFilter = `&eventId=${encodeURIComponent(assignedEventId)}${staffRole === "admin" ? `&adminEventId=${encodeURIComponent(assignedEventId)}` : ""}`;
       const [preparingRes, readyRes] = await Promise.all([
         fetch(`/api/staff/orders?status=NEW${eventFilter}`, { cache: "no-store", signal: controller.signal }),
         fetch(`/api/staff/orders?status=READY${eventFilter}`, { cache: "no-store", signal: controller.signal }),
@@ -134,7 +137,7 @@ function ScreenPageContent() {
         setIsRefreshing(false);
       }
     }
-  }, [assignedEventId, eventContextReady, staffRole, fromCaisse]);
+  }, [adminEventId, assignedEventId, eventContextReady, staffRole, fromCaisse]);
 
   useEffect(() => {
     let alive = true;
@@ -152,7 +155,12 @@ function ScreenPageContent() {
       setStaffRole(s.role);
       setLang(getSavedLang());
 
-      if (s.role === "admin" && !fromCaisse && !s.cashierEventId) return;
+      if (s.role === "admin" && !fromCaisse) {
+        const event = await loadAdminKitchenEvent(adminEventId);
+        if (!alive) return;
+        setAssignedEventId(event.id); setEventLabel({ eventId: event.id, name: event.name });
+        return;
+      }
 
       const nextEventId = String(s.cashierEventId || "").trim();
       if (!nextEventId || !s.workstationId) throw new Error("workstation_assignment_required");
@@ -167,7 +175,7 @@ function ScreenPageContent() {
     return () => {
       alive = false;
     };
-  }, [fromCaisse]);
+  }, [adminEventId, fromCaisse]);
 
   useEffect(() => {
     void refresh();
@@ -187,41 +195,29 @@ function ScreenPageContent() {
   }, [refresh]);
 
   return (
-    <StaffPageFrame title={t.title} subtitle={t.subtitle} lang={lang} wide
+    <div className={cuisine.workspace}>
+    <StaffPageFrame title={t.title} subtitle={t.subtitle} lang={lang} compactContext
       context={{ name: displaySession?.username || "", role: staffRole ? getStaffRoleLabel(staffRole, lang) : "",
         eventName: eventLabel?.eventId === assignedEventId ? eventLabel.name : assignedEventId,
         workstationName: displaySession?.workstationName,
-        globalAdministration: staffRole === "admin" && !displaySession?.cashierEventId }}
-      back={<Link href={workspaceHref || backHref} className="af-link-btn">{t.back}</Link>}
+        globalAdministration: staffRole === "admin" && !adminEventId && !displaySession?.cashierEventId }}
+      back={<Link href={workspaceHref || backHref} className="af-link-btn">{t.back} · {workspaceHref ? (lang === "fr" ? "Événement Admin" : lang === "de" ? "Eventverwaltung" : "Event admin") : (lang === "fr" ? "Cuisine" : lang === "de" ? "Küche" : "Kitchen")}</Link>}
       onLangChange={language => { setLang(language); saveLang(language); }}
     >
       {accessError ? <p role="alert">{accessError}</p> : null}
       <button
-        className="af-btn"
+        className={`af-btn ${cuisine.refresh}`}
         onClick={refresh}
         disabled={isRefreshing}
-        style={{
-          marginTop: 10,
-          padding: "10px 14px",
-          borderRadius: 12,
-          border: "none",
-          background: isRefreshing
-            ? "linear-gradient(135deg,#f59e0b,#d97706)"
-            : justRefreshed
-            ? "linear-gradient(135deg,#16a34a,#15803d)"
-            : "linear-gradient(135deg,#2563eb,#1d4ed8)",
-          color: "white",
-          fontWeight: 900,
-          cursor: isRefreshing ? "not-allowed" : "pointer",
-          opacity: isRefreshing ? 0.85 : 1,
-        }}
+        data-refreshing={isRefreshing || undefined}
+        data-refreshed={justRefreshed || undefined}
       >
         {isRefreshing ? t.refreshing : justRefreshed ? t.refreshed : t.refresh}
       </button>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, marginTop: 16 }}>
+      <div className={cuisine.statusGrid}>
         <section style={{ borderRadius: 14, border: "1px solid #fb923c", background: "rgba(249,115,22,0.16)", padding: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: "#9a3412" }}>{t.preparing}</h2>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: "#9a3412" }}>{t.preparing} <span className={cuisine.count}>{preparing.length}</span></h2>
           <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
             {preparing.length === 0 ? <div style={{ opacity: 0.75 }}>{t.none}</div> : null}
             {preparing.map((o) => (
@@ -234,7 +230,7 @@ function ScreenPageContent() {
         </section>
 
         <section style={{ borderRadius: 14, border: "1px solid #22c55e", background: "rgba(22,163,74,0.16)", padding: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: "#166534" }}>{t.ready}</h2>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: "#166534" }}>{t.ready} <span className={cuisine.count}>{ready.length}</span></h2>
           <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
             {ready.length === 0 ? <div style={{ opacity: 0.75 }}>{t.none}</div> : null}
             {ready.map((o) => (
@@ -247,6 +243,7 @@ function ScreenPageContent() {
         </section>
       </div>
     </StaffPageFrame>
+    </div>
   );
 }
 
