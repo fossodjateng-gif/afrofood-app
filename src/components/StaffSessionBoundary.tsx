@@ -4,6 +4,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { refreshStaffSession, type StaffSession } from "@/lib/staff-auth";
 import { StaffAccessState } from "@/components/StaffAccessState";
+import { TemporaryCashierWorkspace } from "@/components/TemporaryCashierWorkspace";
+import { hasTemporaryCashierContext } from "@/lib/temporary-cashier-client";
 
 export function StaffSessionBoundary({ children }: { children: ReactNode }) {
   const path = usePathname();
@@ -29,5 +31,9 @@ export function StaffSessionBoundary({ children }: { children: ReactNode }) {
   }, [path, staffPath]);
   if (!staffPath) return children;
   if (!snapshot || snapshot.path !== path) return <StaffAccessState kind="session" error={failed ? "session_unavailable" : null} absent={absent} />;
-  return <div key={`${snapshot.session.userId}:${snapshot.session.role}:${snapshot.session.cashierEventId || ""}:${snapshot.session.workstationId || ""}`}>{children}</div>;
+  const temporaryTools = hasTemporaryCashierContext() &&
+    (path === "/staff/caisse" || path === "/admin/menu" || /^\/staff\/cuisine(\/|$)/.test(path) || path === "/kitchen" || path === "/screen");
+  return <div key={`${snapshot.session.userId}:${snapshot.session.role}:${snapshot.session.cashierEventId || ""}:${snapshot.session.workstationId || ""}`}>
+    {temporaryTools ? <TemporaryCashierWorkspace key={path}>{children}</TemporaryCashierWorkspace> : children}
+  </div>;
 }

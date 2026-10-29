@@ -37,6 +37,8 @@ function harness(file, seed = {}, mocks = {}) {
     useState: initial => { const name = names[cursor++] || 'requestedOrderId';if (!(name in state)) state[name] = typeof initial === 'function' ? initial() : initial;return [state[name], next => { state[name] = typeof next === 'function' ? next(state[name]) : next; }]; },
     useRef: initial => { const index = refCursor++;return refs[index] ||= { current: initial }; },
     useEffect: fn => { effects.push(fn); }, useCallback: fn => fn, useMemo: fn => fn(),
+    // The harness inspects component output without mounting a React renderer.
+    useContext: context => context._currentValue,
   };
   const component = load(file, { react: hooks, ...mocks });
   // Exercise the manual cashier inside its unchanged assignment wrapper.

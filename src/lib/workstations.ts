@@ -1,5 +1,5 @@
 export type WorkstationType = "cashier" | "kitchen";
-export type Workstation = { id: string; name: string; type: WorkstationType; active: boolean };
+export type Workstation = { id: string; name: string; type: WorkstationType; active: boolean; ownerUserId?: string };
 export type WorkstationConfig = { cashier: Workstation[]; kitchen: Workstation[] };
 export const WORKSTATION_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export function parseWorkstations(value: unknown): WorkstationConfig {

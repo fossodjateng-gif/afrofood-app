@@ -32,6 +32,23 @@ function fixture() {
   }
   async function execute(q, v) {
     queries.push(q);
+    if (q.includes('WITH plans AS MATERIALIZED')) {
+      const plans = JSON.parse(v[0]), create = v[1], username = v[2], id = v[4], previous = JSON.parse(v[5]);
+      const projection = u => u && Object.fromEntries(['id', 'username', 'role', 'active', 'cashier_event_id', 'workstation_id'].map(k => [k, u[k]]));
+      const current = [...users.values()].find(u => u.id === id);
+      if (create ? [...users.values()].some(u => u.username === username) : JSON.stringify(projection(current)) !== JSON.stringify(previous)) return [];
+      if (plans.some(p => JSON.stringify(settings.get(p.key) ?? null) !== JSON.stringify(p.expected))) return [];
+      const save = v.find(value => value?.q && /INSERT INTO staff_users|UPDATE staff_users/.test(value.q)), x = save.values;
+      const user = create ? { id: x[0], username: x[1], password_hash: x[2], role: x[3], active: x[4], cashier_event_id: x[5], workstation_id: x[6] } : current;
+      if (!create) Object.assign(user, { role: x[0], active: x[1], cashier_event_id: x[2], workstation_id: x[3] });
+      else users.set(user.id, user);
+      for (const p of plans) settings.set(p.key, structuredClone(p.next));
+      if (!create) {
+        for (const session of sessions.values()) if (session.user.id === id) session.revoked = true;
+        for (const [key, row] of locks) if (sessions.get(row.user_id.split(':')[1])?.user.id === id) locks.delete(key);
+      }
+      return [{ id: user.id }];
+    }
     if (q.includes('INSERT INTO orders')) {
       if (q.includes('pos_cash_key') || q.includes('pos_card_key')) {
         const card = q.includes('pos_card_key');
@@ -133,15 +150,16 @@ for (const token of ['a', 'd']) test(`spoofed admin headers cannot administer us
     assert.equal(response.status, 403);
   }
 });
-for (const patch of [{ workstationId: kitchen1 }, { eventId: 'event-b', workstationId: station1 }, { workstationId: station2, inactive: true }]) test(`admin rejects incompatible assignment ${JSON.stringify(patch)}`, async () => {
+for (const patch of [{ workstationId: kitchen1 }, { eventId: 'event-b', workstationId: station1 }, { workstationId: station2, inactive: true }]) test(`manual workstation hints cannot bypass a shared assignment conflict ${JSON.stringify(patch)}`, async () => {
   const h = fixture(); if (patch.inactive) h.settings.get('workstations:event-a').cashier[1].active = false;
   const response = await h.api('src/app/api/staff/users/route.ts').PATCH(h.req('c', { id: 'cem', role: 'cashier', active: true, eventId: 'event-a', workstationId: station1, ...patch }));
-  assert.equal(response.status, 400); assert.equal(h.users.get('a').workstation_id, station1);
+  assert.equal(response.status, 409); assert.equal((await response.json()).error, 'workstation_shared_assignment'); assert.equal(h.users.get('a').workstation_id, station1);
 });
 test('admin reassignment revokes old sessions and releases only the affected leases', async () => {
-  const h = fixture(); await h.lease('a'); await h.lease('b');
-  const response = await h.api('src/app/api/staff/users/route.ts').PATCH(h.req('c', { id: 'cem', role: 'cashier', active: true, eventId: 'event-a', workstationId: station2 }));
-  assert.equal(response.status, 200); assert.equal(h.users.get('a').workstation_id, station2);
+  const h = fixture(); h.users.delete('f'); await h.lease('a'); await h.lease('b');
+  const response = await h.api('src/app/api/staff/users/route.ts').PATCH(h.req('c', { id: 'cem', role: 'kitchen', active: true, eventId: 'event-a' }));
+  assert.equal(response.status, 200); assert.notEqual(h.users.get('a').workstation_id, station1);
+  assert.equal(h.settings.get('workstations:event-a').kitchen.find(s => s.ownerUserId === 'cem').id, h.users.get('a').workstation_id);
   assert.equal((await h.lease('a', 'heartbeat')).status, 401); assert.equal(h.locks.size, 1);
   assert.equal((await h.lease('b', 'heartbeat')).status, 200);
 });
@@ -172,7 +190,7 @@ test('sensitive POS authorization requires a live owner-bound lease, not a role 
   await assert.rejects(guard.requireCashierWrite(h.req('a'), 'event-a'), /cashier_lease_required/);
   await h.lease('a'); const context = await guard.requireCashierWrite(h.req('a'), 'event-a');
   assert.equal(context.userId, 'cem'); assert.equal(context.workstationId, station1);
-  await assert.rejects(guard.requireCashierWrite(h.req('a'), 'event-b'), /forbidden/);
+  await assert.rejects(guard.requireCashierWrite(h.req('a'), 'event-b'), /cashier_event_context_mismatch/);
   await assert.rejects(guard.requireCashierWrite(h.req('a'), 'event-a', station2), /workstation_context_mismatch/);
   await assert.rejects(guard.requireCashierWrite(h.req('f'), 'event-a'), /cashier_lease_required/);
   h.advance(120001); await assert.rejects(guard.requireCashierWrite(h.req('a'), 'event-a'), /cashier_lease_required/);
@@ -303,23 +321,21 @@ for (const [token, username, workstationId, identifier] of [['a', 'cem', station
     global.window = { location: { search: '?adminEventId=testmaison' } };
     try { page.effects[0](); } finally { global.window = previousWindow; }
     assert.equal(page.state.draft.eventId, 'testmaison');
-    assert.equal(page.state.stationEvent, 'testmaison');
     assert.equal(calls.filter(call => call.method !== 'GET').length, 0);
     for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve));
     tree = page.render();
-    assert.equal(tree.props.context.eventName, 'testmaison');
-    assert.equal(findAll(tree.props.actions, node => node.type === 'a')[0].props.href, '/staff/admin/events?eventId=testmaison');
-    assert.equal(findAll(tree, node => node.type === 'h3').length, 1);
-    const account = findAll(tree, node => node.type === 'li' && node.props.children[0] === username)[0];
-    findAll(account, node => node.type === 'button')[0].props.onClick();
+    assert.equal(tree.props.children.props.context.eventName, 'testmaison');
+    assert.equal(tree.props.children.props.back.props.href, '/staff/admin/events?eventId=testmaison');
+    const account = findAll(tree, node => node.type === 'li' && findAll(node, child => child.type === 'h3' && child.props.children === username).length)[0];
+    const previousDocument = global.document;
+    global.document = { getElementById: () => null };
+    try { findAll(account, node => node.type === 'button')[0].props.onClick(); } finally { global.document = previousDocument; }
     tree = page.render();
     let form = findAll(tree, node => node.type === 'form')[0];
     assert.equal(findAll(form, node => node.type === 'h2')[0].props.children, `Modifier ${username}`);
     assert.equal(findAll(form, node => node.type === 'input' && node.props.type === 'password').length, 0);
     findAll(form, node => node.type === 'select')[1].props.onChange({ target: { value: 'testmaison' } });
-    tree = page.render();
-    form = findAll(tree, node => node.type === 'form')[0];
-    findAll(form, node => node.type === 'select')[2].props.onChange({ target: { value: workstationId } });
+    assert.equal(findAll(form, node => node.type === 'select').length, 2, 'No manual workstation selector');
     tree = page.render();
     form = findAll(tree, node => node.type === 'form')[0];
     await form.props.onSubmit({ preventDefault() {} });
@@ -329,7 +345,9 @@ for (const [token, username, workstationId, identifier] of [['a', 'cem', station
     assert.equal(writes[0].body.id, identifier === 'omitted' ? undefined : user.id);
     assert.equal(page.state.error, '');
     assert.equal(page.state.draft.eventId, 'testmaison');
-    assert.equal(user.workstation_id, workstationId);
+    assert.notEqual(user.workstation_id, workstationId);
+    assert.equal(h.settings.get('workstations:testmaison').cashier.find(s => s.ownerUserId === user.id).id, user.workstation_id);
+    assert.equal('workstationId' in writes[0].body, false);
     assert.equal(h.sessions.get(hash(token.repeat(64))).revoked, true);
     assert.equal(h.locks.size, 0);
     assert.equal(h.queries.some(q => q.includes('INSERT INTO staff_users')), false);

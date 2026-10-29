@@ -9,6 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { getSession, clearSession, getStaffRoleLabel } from "@/lib/staff-auth";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { loadAdminKitchenEvent } from "@/lib/admin-kitchen-client";
+import { useTemporaryCashierWorkspace } from "@/components/TemporaryCashierWorkspace";
 
 const UI_TEXT: Record<
   Lang,
@@ -76,6 +77,7 @@ const UI_TEXT: Record<
 	};
 
 function StaffCuisinePageContent() {
+  const temporaryWorkspace = useTemporaryCashierWorkspace();
   const searchParams = useSearchParams();
   const displaySession = getSession();
   const username = displaySession?.username || "";
@@ -131,7 +133,7 @@ function StaffCuisinePageContent() {
       context={{ name: username, role: role ? getStaffRoleLabel(role, lang) : "",
         eventName: eventName || adminEventId || displaySession?.cashierEventId,
         globalAdministration: role === "admin" && !adminEventId && !displaySession?.cashierEventId }}
-      back={<Link href={fromCaisse ? "/caisse" : workspaceHref || (role === "admin" ? "/staff/admin" : "/staff")} className="af-link-btn">{t.back} · {fromCaisse ? "Caisse" : workspaceHref ? (lang === "fr" ? "Événement Admin" : lang === "de" ? "Eventverwaltung" : "Event admin") : role === "admin" ? "Admin" : (lang === "fr" ? "Espace équipe" : lang === "de" ? "Teambereich" : "Team space")}</Link>}
+      back={temporaryWorkspace ? <a href="/staff/caisse" className="af-link-btn">{t.back} · {lang === "fr" ? "Espace Caisse" : lang === "de" ? "Kassenbereich" : "Cashier space"}</a> : <Link href={fromCaisse ? "/caisse" : workspaceHref || (role === "admin" ? "/staff/admin" : "/staff")} className="af-link-btn">{t.back} · {fromCaisse ? "Caisse" : workspaceHref ? (lang === "fr" ? "Événement Admin" : lang === "de" ? "Eventverwaltung" : "Event admin") : role === "admin" ? "Admin" : (lang === "fr" ? "Espace équipe" : lang === "de" ? "Teambereich" : "Team space")}</Link>}
       onLangChange={language => { setLang(language); saveLang(language); }}
       home={<Link href="/" className="af-link-btn">{t.home}</Link>}
       actions={!fromCaisse ? <button className="af-btn af-primary" type="button" onClick={async () => {

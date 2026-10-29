@@ -10,6 +10,7 @@ import Link from "next/link";
 import cuisine from "@/components/cuisine.module.css";
 import { StaffPageFrame } from "@/components/StaffPageFrame";
 import { loadAdminKitchenEvent } from "@/lib/admin-kitchen-client";
+import { useTemporaryCashierWorkspace } from "@/components/TemporaryCashierWorkspace";
 
 const UI_TEXT: Record<
   Lang,
@@ -85,6 +86,7 @@ const UI_TEXT: Record<
 };
 
 function KitchenPageContent() {
+  const temporaryWorkspace = useTemporaryCashierWorkspace();
   const searchParams = useSearchParams();
   const [lang, setLang] = useState<Lang>("de");
   const [orderResult, setOrderResult] = useState<{ eventId: string; rows: OrderRow[] } | null>(null);
@@ -258,7 +260,7 @@ function KitchenPageContent() {
       context={{ name: staffUsername, role: staffRole ? getStaffRoleLabel(staffRole, lang) : "",
         eventName: assignedEventName || assignedEventId, workstationName: displaySession?.workstationName,
         globalAdministration: staffRole === "admin" && !adminEventId && !displaySession?.cashierEventId }}
-      back={<Link href={workspaceHref || backHref} className="af-link-btn">{t.back} · {workspaceHref ? (lang === "fr" ? "Événement Admin" : lang === "de" ? "Eventverwaltung" : "Event admin") : (lang === "fr" ? "Cuisine" : lang === "de" ? "Küche" : "Kitchen")}</Link>}
+      back={temporaryWorkspace ? <a href="/staff/caisse" className="af-link-btn">{t.back} · {lang === "fr" ? "Espace Caisse" : lang === "de" ? "Kassenbereich" : "Cashier space"}</a> : <Link href={workspaceHref || backHref} className="af-link-btn">{t.back} · {workspaceHref ? (lang === "fr" ? "Événement Admin" : lang === "de" ? "Eventverwaltung" : "Event admin") : (lang === "fr" ? "Cuisine" : lang === "de" ? "Küche" : "Kitchen")}</Link>}
       onLangChange={language => { setLang(language); saveLang(language); }}
     >
       <button

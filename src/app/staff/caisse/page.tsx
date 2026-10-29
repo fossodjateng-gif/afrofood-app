@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { refreshCashierSession, hasTemporaryCashierContext, temporaryCashierWorkspace, type CashierSession } from "@/lib/temporary-cashier-client";
+import { refreshCashierSession, hasTemporaryCashierContext, type CashierSession } from "@/lib/temporary-cashier-client";
+import { useTemporaryCashierWorkspace } from "@/components/TemporaryCashierWorkspace";
 import { getStaffRoleLabel } from "@/lib/staff-auth";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
 import { StaffPageFrame } from "@/components/StaffPageFrame";
@@ -13,6 +14,7 @@ export default function StaffCaissePage() {
   const [lang, setLang] = useState<Lang>(() => getSavedLang());
   const [eventLabel, setEventLabel] = useState<{ id: string; name: string } | null>(null);
   const temporary = hasTemporaryCashierContext();
+  const temporaryWorkspace = useTemporaryCashierWorkspace();
   const txt = (fr: string, de: string, en: string) => lang === "fr" ? fr : lang === "de" ? de : en;
   useEffect(() => {
     void (async () => {
@@ -44,8 +46,10 @@ export default function StaffCaissePage() {
   return <div className={cuisine.workspace}>
     <StaffPageFrame title={txt("Espace Caisse", "Kassenbereich", "Cashier space")} lang={lang}
       context={session ? { name: session.username, role: getStaffRoleLabel(session.role, lang),
-        eventName: eventLabel && eventLabel.id === session.cashierEventId ? eventLabel.name : session.cashierEventId } : undefined}
-      back={<a href={temporary ? temporaryCashierWorkspace() : "/staff"} className="af-link-btn">{txt("Retour", "Zurück", "Back")} · {temporary ? "Admin" : txt("Espace équipe", "Teambereich", "Team space")}</a>}
+        eventName: eventLabel && eventLabel.id === session.cashierEventId ? eventLabel.name : session.cashierEventId,
+        workstationName: session.workstationName } : undefined}
+      back={temporary ? <button type="button" className="af-link-btn" disabled={!temporaryWorkspace} onClick={() => void temporaryWorkspace?.quit()}>{txt("Quitter la caisse / Admin", "Kasse verlassen / Admin", "Leave register / Admin")}</button>
+        : <a href="/staff" className="af-link-btn">{txt("Retour", "Zurück", "Back")} · {txt("Espace équipe", "Teambereich", "Team space")}</a>}
       onLangChange={language => { setLang(language); saveLang(language); }}
     >
       {blocked || !session ? <p className={styles.status} role={blocked ? "alert" : "status"}>{blocked
@@ -57,13 +61,13 @@ export default function StaffCaissePage() {
           <div className={cuisine.cards}>
             <StaffNavigationCard href="/caisse/manual" icon="＋" title={txt("Caisse manuelle", "Manuelle Kasse", "Manual register")} description={txt("Composer une commande et encaisser.", "Eine Bestellung zusammenstellen und kassieren.", "Create an order and collect payment.")} />
             <StaffNavigationCard href="/caisse" icon="€" title={txt("Commandes et encaissements", "Bestellungen und Zahlungen", "Orders and payments")} description={txt("Traiter les commandes et leurs encaissements.", "Bestellungen und Zahlungen bearbeiten.", "Process orders and their payments.")} />
-            {!temporary ? <StaffNavigationCard href="/caisse?view=history" icon="≡" title={txt("Historique des ventes", "Verkaufshistorie", "Sales history")} description={txt("Consulter les ventes validées et leurs reçus.", "Bestätigte Verkäufe und Belege ansehen.", "View confirmed sales and their receipts.")} /> : null}
+            <StaffNavigationCard href="/caisse?view=history" disabled={temporary} icon="≡" title={txt("Historique des ventes", "Verkaufshistorie", "Sales history")} description={temporary ? txt("Indisponible dans le contexte Admin temporaire actuel.", "Im temporären Admin-Kontext nicht verfügbar.", "Unavailable in the current temporary Admin context.") : txt("Consulter les ventes validées et leurs reçus.", "Bestätigte Verkäufe und Belege ansehen.", "View confirmed sales and their receipts.")} />
           </div>
         </section>
-        {!temporary ? <section className={styles.kitchen} aria-labelledby="cashier-kitchen">
+        <section className={styles.kitchen} aria-labelledby="cashier-kitchen">
           <h2 id="cashier-kitchen">{txt("Cuisine", "Küche", "Kitchen")}</h2>
-          <div className={cuisine.cards}><StaffNavigationCard href="/staff/cuisine?from=caisse" icon="♨" title={txt("Cuisine", "Küche", "Kitchen")} description={txt("Préparation, commandes prêtes et disponibilité produits.", "Zubereitung, abholbereite Bestellungen und Produktverfügbarkeit.", "Preparation, ready orders and product availability.")} /></div>
-        </section> : null}
+          <div className={cuisine.cards}><StaffNavigationCard href={temporary ? `/staff/cuisine?adminEventId=${encodeURIComponent(session.cashierEventId || "")}` : "/staff/cuisine?from=caisse"} icon="♨" title={txt("Cuisine", "Küche", "Kitchen")} description={txt("Préparation, commandes prêtes et disponibilité produits.", "Zubereitung, abholbereite Bestellungen und Produktverfügbarkeit.", "Preparation, ready orders and product availability.")} /></div>
+        </section>
         <section className={styles.kitchen} aria-labelledby="cashier-config">
           <h2 id="cashier-config">{txt("Catalogue et configuration", "Katalog und Einstellungen", "Catalog and settings")}</h2>
           <div className={cuisine.cards}>

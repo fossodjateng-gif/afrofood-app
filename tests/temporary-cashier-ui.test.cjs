@@ -37,7 +37,7 @@ function workspace(t, occupied = false) {
     lang: 'fr', events: [{ id: 'testmaison', name: 'TestMaison' }], choice: { eventId: 'testmaison', id: station },
     workstations: { testmaison: { cashier: [{ id: station, name: 'Valide', active: true, type: 'cashier' }, { id: 'inactive', name: 'Inactive', active: false, type: 'cashier' }, { id: 'kitchen', name: 'Cuisine', active: true, type: 'kitchen' }], kitchen: [] }, other: { cashier: [{ id: 'foreign', name: 'Autre', active: true, type: 'cashier' }] } },
   }, {
-    'next/link': () => null, 'next/navigation': { useSearchParams: () => new URLSearchParams('eventId=testmaison') },
+    'next/link': () => null, 'next/navigation': { useSearchParams: () => new URLSearchParams('eventId=testmaison&space=caisse') },
     '@/lib/staff-auth': { getSession: () => identity, getStaffRoleLabel: () => 'Admin' },
     '@/lib/cashier-lease-client': { openCashierLease: async () => ({ instanceId: instance, handoff() {}, detach: async () => {} }) },
     '@/lib/temporary-cashier-client': { openTemporaryCashierContext: async (...args) => { opened.push(args); if (occupied) throw Error('cashier_locked'); return { contextId: id }; } },
@@ -48,12 +48,12 @@ function workspace(t, occupied = false) {
 test('workspace offers only active cashier workstations of the selected event', t => {
   const f = workspace(t), tree = f.render();
   assert.deepEqual(findAll(tree, node => node.type === 'option').map(node => node.props.value), ['', station]);
-  assert.equal(tree.props.context.role, 'Admin'); assert.equal(tree.props.context.eventName, 'TestMaison');
+  assert.equal(tree.props.children.props.context.role, 'Admin'); assert.equal(tree.props.children.props.context.eventName, 'TestMaison');
 });
 test('successful workspace opening hands off V3 and navigates only after server success', async t => {
   const f = workspace(t), before = structuredClone(f.identity);
   findAll(f.render(), node => node.type === 'form')[0].props.onSubmit({ preventDefault() {} });
-  await settle(); assert.deepEqual(f.opened, [['testmaison', station, instance]]); assert.deepEqual(f.navigated, ['/caisse']); assert.deepEqual(f.identity, before);
+  await settle(); assert.deepEqual(f.opened, [['testmaison', station, instance]]); assert.deepEqual(f.navigated, ['/staff/caisse']); assert.deepEqual(f.identity, before);
 });
 test('occupied register stays in workspace and displays a readable refusal', async t => {
   const f = workspace(t, true); findAll(f.render(), node => node.type === 'form')[0].props.onSubmit({ preventDefault() {} });
@@ -203,6 +203,96 @@ test('permanent cashier lifecycle still acquires normally and keeps the 30-secon
     closingRef: { current: false }, suspendedRef: { current: false }, suspendCashierRef: { current: null }, cashierLeaseRef: { current: null },
     setIsUnlocked: value => { unlocked = value; }, setAccessError() {} });
   await settle(); assert.equal(acquired, 1); assert.equal(unlocked, true); interval(); await settle(); assert.equal(heartbeat, 1); running.dispose();
+});
+
+async function toolsWorkspace(t, { invalid = false, mismatch = false } = {}) {
+  const f = clientFixture(t);
+  f.server.expiresAt = new Date(Date.now() + 600000).toISOString();
+  await f.client.openTemporaryCashierContext('testmaison', station, instance);
+  if (invalid) f.invalidate();
+  const navigated = [], listeners = {}, before = structuredClone(f.identity);
+  let now = Date.now(), deadline = now + 120000, beat, acquired = 0, heartbeats = 0, lost = false, detached = 0;
+  global.window = { location: { search: mismatch ? '?adminEventId=other' : '', assign: href => navigated.push(href) },
+    setInterval: (fn, ms) => { assert.equal(ms, 30000); beat = fn; return 1; }, clearInterval() {},
+    addEventListener: (name, fn) => { listeners[name] = fn; }, removeEventListener() {} };
+  const h = harness('src/components/TemporaryCashierWorkspace.tsx', {}, {
+    '@/lib/temporary-cashier-client': f.client,
+    '@/lib/cashier-lease-client': { openCashierLease: async (event, selected, required) => {
+      assert.deepEqual([event, selected, required], ['testmaison', station, instance]);
+      return { detach: async () => { detached++; }, acquire: async () => { acquired++; }, heartbeat: async () => {
+        heartbeats++; if (lost || now >= deadline) throw Error('cashier_lease_required'); deadline = now + 120000;
+      } };
+    } },
+  });
+  const render = () => h.render(h.component.TemporaryCashierWorkspace, { children: 'protected-tools' });
+  render(); const bootCleanup = h.effects[0](); await settle();
+  render(); const lifecycleCleanup = h.effects[1](); await settle();
+  const activeWindow = global.window;
+  t.after(() => {
+    const restoredWindow = global.window; global.window = activeWindow;
+    try { lifecycleCleanup?.(); bootCleanup(); } finally { global.window = restoredWindow; }
+  });
+  return { f, h, render, navigated, before, lose: () => { lost = true; },
+    tick: async () => { now += 30000; beat(); await settle(); },
+    get now() { return now; }, get deadline() { return deadline; }, get acquired() { return acquired; }, get heartbeats() { return heartbeats; }, get detached() { return detached; },
+  };
+}
+
+test('Espace Caisse/tools keep the same temporary V3 instance alive beyond 120 seconds without acquire', async t => {
+  const f = await toolsWorkspace(t);
+  assert.equal(f.render().props.children, 'protected-tools');
+  for (let i = 0; i < 6; i++) await f.tick();
+  assert.ok(f.deadline > f.now); assert.equal(f.heartbeats, 7); assert.equal(f.acquired, 0);
+  assert.deepEqual(f.f.identity, f.before); assert.equal(f.f.identity.cashierEventId, undefined);
+});
+
+test('Espace Caisse/tools hide all children after lease loss and never reacquire', async t => {
+  const f = await toolsWorkspace(t); f.lose(); await f.tick();
+  const tree = f.render(); assert.notEqual(tree.props.children, 'protected-tools');
+  assert.equal(findAll(tree, n => n.props?.role === 'alert').length, 1);
+  assert.equal(f.acquired, 0); assert.ok(f.detached > 0);
+  await assert.rejects(f.f.client.cashierFetch('/api/orders'));
+});
+
+for (const options of [{ invalid: true }, { mismatch: true }]) test(`tools entry fails closed before mounting children: ${JSON.stringify(options)}`, async t => {
+  const f = await toolsWorkspace(t, options); const tree = f.render();
+  assert.notEqual(tree.props.children, 'protected-tools'); assert.equal(f.heartbeats, 0); assert.equal(f.acquired, 0);
+});
+
+test('Quitter la caisse/Admin suspends lifecycle, closes captured context, clears storage and returns to its event', async t => {
+  const f = await toolsWorkspace(t);
+  await f.render().props.value.quit();
+  assert.ok(f.detached > 0); assert.deepEqual(f.navigated, ['/staff/admin/events?eventId=testmaison']);
+  const request = f.f.requests.at(-1); assert.equal(request.method, 'DELETE'); assert.equal(JSON.parse(request.body).contextId, id);
+  assert.equal(f.f.storage.has(storageKey), false); assert.deepEqual(f.f.identity, f.before);
+});
+
+test('Espace Caisse shows all sections, preserves allowed routes and keeps history restricted', () => {
+  const session = { userId: 'admin', username: 'anaclet', role: 'admin', cashierEventId: 'testmaison', workstationId: station, workstationName: 'Caisse papa', workstationType: 'cashier', temporaryContextId: id };
+  const h = harness('src/app/staff/caisse/page.tsx', { session, lang: 'fr' }, {
+    '@/lib/temporary-cashier-client': { hasTemporaryCashierContext: () => true },
+    '@/components/TemporaryCashierWorkspace': { useTemporaryCashierWorkspace: () => ({ quit: async () => {} }) },
+  });
+  const tree = h.render(), cards = findAll(tree, n => n.type.name === 'StaffNavigationCard');
+  assert.equal(cards.length, 7);
+  assert.equal(cards.find(n => n.props.title === 'Historique des ventes').props.disabled, true);
+  assert.equal(cards.find(n => n.props.title === 'Cuisine').props.href, '/staff/cuisine?adminEventId=testmaison');
+  assert.equal(cards.find(n => n.props.title === 'Ajouter un produit').props.href, '/admin/menu?view=add&adminEventId=testmaison&returnTo=caisse');
+  assert.equal(tree.props.children.props.back.type, 'button');
+  assert.equal(tree.props.children.props.context.workstationName, 'Caisse papa');
+});
+
+test('session boundary covers landing and allowed tools but never duplicates the POS lifecycle', () => {
+  const session = { userId: 'admin', role: 'admin', cashierEventId: null, workstationId: null };
+  for (const path of ['/staff/caisse', '/admin/menu', '/staff/cuisine', '/staff/cuisine/availability', '/kitchen', '/screen', '/caisse', '/caisse/manual', '/staff/admin/events']) {
+    const h = harness('src/components/StaffSessionBoundary.tsx', { snapshot: { path, session } }, {
+      'next/navigation': { usePathname: () => path },
+      '@/lib/temporary-cashier-client': { hasTemporaryCashierContext: () => true },
+    });
+    const tree = h.render(h.component.StaffSessionBoundary, { children: 'tools' });
+    const protectedTools = !['/caisse', '/caisse/manual', '/staff/admin/events'].includes(path);
+    assert.equal(tree.props.children?.type?.name === 'TemporaryCashierWorkspace', protectedTools, path);
+  }
 });
 test('confirmed login/logout clears the previous tab hint without changing session authorization', async t => {
   const f = clientFixture(t), previousLocalStorage = global.localStorage;

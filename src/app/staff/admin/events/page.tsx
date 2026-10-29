@@ -66,7 +66,7 @@ function EventsContent() {
       opened = true;
       lease.handoff();
       await lease.detach();
-      window.location.assign("/caisse");
+      window.location.assign("/staff/caisse");
     } catch (reason) {
       if (opened) await quitTemporaryCashier(async () => { await lease?.detach(); }).catch(() => undefined);
       else await lease?.detach();
