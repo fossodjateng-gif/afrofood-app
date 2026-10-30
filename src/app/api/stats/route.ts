@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
-import { ensureOrdersSchema } from "@/lib/orders-schema";
+import { CONFIRMED_SALE_STATUSES, salesHistoryEvents } from "@/lib/sales-history-server";
 import { requireStaffAdmin } from "@/lib/staff-admin-server";
 import { StaffAuthError } from "@/lib/staff-session-server";
 
@@ -36,10 +36,6 @@ type EventRow = {
   cents: string | number | null;
 };
 
-type DistinctEventRow = {
-  event_name: string | null;
-};
-
 type CanceledRow = {
   canceled_tx: string | number | null;
 };
@@ -70,27 +66,26 @@ function parsePeriod(input: string | null): Period {
 export async function GET(req: Request) {
   try {
     await requireStaffAdmin(req);
-    await ensureOrdersSchema();
     const { searchParams } = new URL(req.url);
     const period = parsePeriod(searchParams.get("period"));
-    const eventFilterRaw = String(searchParams.get("event") || "").trim();
-    const eventFilter = !eventFilterRaw || eventFilterRaw.toLowerCase() === "all" ? "" : eventFilterRaw;
+    const events = await salesHistoryEvents();
+    if (searchParams.get("catalog") === "1") return NextResponse.json({ ok: true, events }, { headers: { "Cache-Control": "no-store" } });
+    const eventId = (searchParams.get("eventId") || "").trim();
+    if (!eventId || !events.some(event => event.id === eventId)) throw new StaffAuthError("invalid_staff_event", 400);
+
 
     const kpiRows = (await sql`
       SELECT
-        COALESCE(SUM(CASE WHEN created_at >= date_trunc('day', now()) THEN amount_cents END), 0) AS today_cents,
-        COALESCE(COUNT(*) FILTER (WHERE created_at >= date_trunc('day', now())), 0) AS today_tx,
-        COALESCE(SUM(CASE WHEN created_at >= date_trunc('week', now()) THEN amount_cents END), 0) AS week_cents,
-        COALESCE(COUNT(*) FILTER (WHERE created_at >= date_trunc('week', now())), 0) AS week_tx,
-        COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', now()) THEN amount_cents END), 0) AS month_cents,
-        COALESCE(COUNT(*) FILTER (WHERE created_at >= date_trunc('month', now())), 0) AS month_tx
+        COALESCE(SUM(CASE WHEN (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('day', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin' THEN amount_cents END), 0) AS today_cents,
+        COALESCE(COUNT(*) FILTER (WHERE (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('day', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin'), 0) AS today_tx,
+        COALESCE(SUM(CASE WHEN (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('week', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin' THEN amount_cents END), 0) AS week_cents,
+        COALESCE(COUNT(*) FILTER (WHERE (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('week', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin'), 0) AS week_tx,
+        COALESCE(SUM(CASE WHEN (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('month', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin' THEN amount_cents END), 0) AS month_cents,
+        COALESCE(COUNT(*) FILTER (WHERE (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('month', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin'), 0) AS month_tx
       FROM orders
-      WHERE UPPER(status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
+      WHERE UPPER(status) = ANY(${CONFIRMED_SALE_STATUSES}::text[])
         AND amount_cents IS NOT NULL
-        AND (
-          ${eventFilter} = ''
-          OR LOWER(COALESCE(NULLIF(TRIM(event_name), ''), '')) = LOWER(${eventFilter})
-        )
+        AND event_id = ${eventId}
     `) as KpiRow[];
 
     const summaryRows = (await sql`
@@ -99,18 +94,15 @@ export async function GET(req: Request) {
         id, amount_cents,
         LOWER(COALESCE(NULLIF(payment_provider, ''), NULLIF(payment, ''), 'other')) AS method
       FROM orders
-      WHERE UPPER(status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
+      WHERE UPPER(status) = ANY(${CONFIRMED_SALE_STATUSES}::text[])
         AND amount_cents IS NOT NULL
         AND (
           ${period} = 'all'
-          OR (${period} = 'today' AND created_at >= date_trunc('day', now()))
-          OR (${period} = 'week' AND created_at >= date_trunc('week', now()))
-          OR (${period} = 'month' AND created_at >= date_trunc('month', now()))
+          OR (${period} = 'today' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('day', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
+          OR (${period} = 'week' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('week', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
+          OR (${period} = 'month' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('month', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
         )
-        AND (
-          ${eventFilter} = ''
-          OR LOWER(COALESCE(NULLIF(TRIM(event_name), ''), '')) = LOWER(${eventFilter})
-        )
+        AND event_id = ${eventId}
       )
       SELECT
         COALESCE(SUM(s.amount_cents), 0) AS cents,
@@ -131,18 +123,15 @@ export async function GET(req: Request) {
         COALESCE(SUM(GREATEST(COALESCE((item->>'qty')::int, 0), 0)), 0) AS qty
       FROM orders o
       CROSS JOIN LATERAL jsonb_array_elements(o.items) AS item
-      WHERE UPPER(o.status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
+      WHERE UPPER(o.status) = ANY(${CONFIRMED_SALE_STATUSES}::text[])
         AND o.amount_cents IS NOT NULL
         AND (
           ${period} = 'all'
-          OR (${period} = 'today' AND o.created_at >= date_trunc('day', now()))
-          OR (${period} = 'week' AND o.created_at >= date_trunc('week', now()))
-          OR (${period} = 'month' AND o.created_at >= date_trunc('month', now()))
+          OR (${period} = 'today' AND (COALESCE(o.paid_at, o.created_at) AT TIME ZONE 'UTC') >= date_trunc('day', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
+          OR (${period} = 'week' AND (COALESCE(o.paid_at, o.created_at) AT TIME ZONE 'UTC') >= date_trunc('week', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
+          OR (${period} = 'month' AND (COALESCE(o.paid_at, o.created_at) AT TIME ZONE 'UTC') >= date_trunc('month', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
         )
-        AND (
-          ${eventFilter} = ''
-          OR LOWER(COALESCE(NULLIF(TRIM(o.event_name), ''), '')) = LOWER(${eventFilter})
-        )
+        AND o.event_id = ${eventId}
       GROUP BY 1
       HAVING NULLIF(TRIM(item->>'name'), '') IS NOT NULL
       ORDER BY qty DESC, name ASC
@@ -151,22 +140,19 @@ export async function GET(req: Request) {
 
     const hourRows = (await sql`
       SELECT
-        EXTRACT(HOUR FROM created_at)::int AS hour,
+        EXTRACT(HOUR FROM (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Berlin')::int AS hour,
         COUNT(*) AS tx,
         COALESCE(SUM(amount_cents), 0) AS cents
       FROM orders
-      WHERE UPPER(status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
+      WHERE UPPER(status) = ANY(${CONFIRMED_SALE_STATUSES}::text[])
         AND amount_cents IS NOT NULL
         AND (
           ${period} = 'all'
-          OR (${period} = 'today' AND created_at >= date_trunc('day', now()))
-          OR (${period} = 'week' AND created_at >= date_trunc('week', now()))
-          OR (${period} = 'month' AND created_at >= date_trunc('month', now()))
+          OR (${period} = 'today' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('day', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
+          OR (${period} = 'week' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('week', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
+          OR (${period} = 'month' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('month', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
         )
-        AND (
-          ${eventFilter} = ''
-          OR LOWER(COALESCE(NULLIF(TRIM(event_name), ''), '')) = LOWER(${eventFilter})
-        )
+        AND event_id = ${eventId}
       GROUP BY 1
       ORDER BY 1 ASC
     `) as HourRow[];
@@ -177,18 +163,15 @@ export async function GET(req: Request) {
         COUNT(*) AS tx,
         COALESCE(SUM(amount_cents), 0) AS cents
       FROM orders
-      WHERE UPPER(status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
+      WHERE UPPER(status) = ANY(${CONFIRMED_SALE_STATUSES}::text[])
         AND amount_cents IS NOT NULL
         AND (
           ${period} = 'all'
-          OR (${period} = 'today' AND created_at >= date_trunc('day', now()))
-          OR (${period} = 'week' AND created_at >= date_trunc('week', now()))
-          OR (${period} = 'month' AND created_at >= date_trunc('month', now()))
+          OR (${period} = 'today' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('day', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
+          OR (${period} = 'week' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('week', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
+          OR (${period} = 'month' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('month', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
         )
-        AND (
-          ${eventFilter} = ''
-          OR LOWER(COALESCE(NULLIF(TRIM(event_name), ''), '')) = LOWER(${eventFilter})
-        )
+        AND event_id = ${eventId}
       GROUP BY 1
       ORDER BY tx DESC, method ASC
     `) as PaymentRow[];
@@ -199,33 +182,20 @@ export async function GET(req: Request) {
         COUNT(*) AS tx,
         COALESCE(SUM(amount_cents), 0) AS cents
       FROM orders
-      WHERE UPPER(status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
+      WHERE UPPER(status) = ANY(${CONFIRMED_SALE_STATUSES}::text[])
         AND amount_cents IS NOT NULL
         AND (
           ${period} = 'all'
-          OR (${period} = 'today' AND created_at >= date_trunc('day', now()))
-          OR (${period} = 'week' AND created_at >= date_trunc('week', now()))
-          OR (${period} = 'month' AND created_at >= date_trunc('month', now()))
+          OR (${period} = 'today' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('day', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
+          OR (${period} = 'week' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('week', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
+          OR (${period} = 'month' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('month', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
         )
         AND NULLIF(TRIM(event_name), '') IS NOT NULL
-        AND (
-          ${eventFilter} = ''
-          OR LOWER(COALESCE(NULLIF(TRIM(event_name), ''), '')) = LOWER(${eventFilter})
-        )
+        AND event_id = ${eventId}
       GROUP BY event_name
       ORDER BY cents DESC, event_name ASC
       LIMIT 12
     `) as EventRow[];
-
-    const eventOptionsRows = (await sql`
-      SELECT DISTINCT event_name
-      FROM orders
-      WHERE UPPER(status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
-        AND amount_cents IS NOT NULL
-        AND NULLIF(TRIM(event_name), '') IS NOT NULL
-      ORDER BY event_name ASC
-      LIMIT 50
-    `) as DistinctEventRow[];
 
     const canceledRows = (await sql`
       SELECT
@@ -234,14 +204,11 @@ export async function GET(req: Request) {
       WHERE UPPER(status) = 'CANCELED'
         AND (
           ${period} = 'all'
-          OR (${period} = 'today' AND created_at >= date_trunc('day', now()))
-          OR (${period} = 'week' AND created_at >= date_trunc('week', now()))
-          OR (${period} = 'month' AND created_at >= date_trunc('month', now()))
+          OR (${period} = 'today' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('day', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
+          OR (${period} = 'week' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('week', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
+          OR (${period} = 'month' AND (COALESCE(paid_at, created_at) AT TIME ZONE 'UTC') >= date_trunc('month', now() AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'Europe/Berlin')
         )
-        AND (
-          ${eventFilter} = ''
-          OR LOWER(COALESCE(NULLIF(TRIM(event_name), ''), '')) = LOWER(${eventFilter})
-        )
+        AND event_id = ${eventId}
     `) as CanceledRow[];
 
     const k = kpiRows[0] || ({} as KpiRow);
@@ -274,7 +241,7 @@ export async function GET(req: Request) {
       generatedAt: new Date().toISOString(),
       filters: {
         period,
-        event: eventFilter || "all",
+        eventId,
       },
       financials: {
         gross,
@@ -335,10 +302,9 @@ export async function GET(req: Request) {
         transactions: toNumber(row.tx),
         revenueCents: toNumber(row.cents),
       })),
-      availableEvents: eventOptionsRows
-        .map((row) => String(row.event_name || "").trim())
-        .filter(Boolean),
-    });
+      availableEvents: events,
+
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch (error: unknown) {
     return NextResponse.json({ ok: false, error: error instanceof StaffAuthError ? error.code : "stats_unavailable" }, { status: error instanceof StaffAuthError ? error.status : 503 });
   }

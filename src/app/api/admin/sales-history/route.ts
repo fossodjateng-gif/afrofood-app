@@ -3,7 +3,7 @@ import { sql } from "@/lib/db";
 import { requireStaffSession, StaffAuthError } from "@/lib/staff-session-server";
 import { getWorkstations } from "@/lib/workstations-server";
 import { WORKSTATION_ID } from "@/lib/workstations";
-import { salesHistoryEvents, salesHistoryQuery } from "@/lib/sales-history-server";
+import { CONFIRMED_SALE_STATUSES, salesHistoryEvents, salesHistoryQuery } from "@/lib/sales-history-server";
 
 // Reporting uses the real ADMIN session only. No temporary context, lease,
 // operational assignment, DDL, payment reconciliation or refund authorization.
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
           CASE WHEN COUNT(amount_cents) = COUNT(*) THEN SUM(amount_cents) ELSE NULL END AS total_cents
         FROM orders WHERE event_id = ${eventId}
           AND (${workstationId}::text IS NULL OR paid_register_id = ${workstationId})
-          AND UPPER(status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
+          AND UPPER(status) = ANY(${CONFIRMED_SALE_STATUSES}::text[])
         GROUP BY 1, 2 ORDER BY 1 DESC, 2`,
     ], { readOnly: true, isolationLevel: "RepeatableRead" });
     return NextResponse.json({ eventId, workstationId, readOnly: true, hasMore: rows.length > limit,

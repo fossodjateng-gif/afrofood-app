@@ -21,6 +21,22 @@ export async function listStaff(req: Request) {
   await requireStaffAdmin(req);
   return sql`SELECT id, username, role, active, cashier_event_id, workstation_id FROM staff_users ORDER BY username`;
 }
+export async function changeStaffPassword(req: Request, body: Record<string, unknown>) {
+  const admin = await requireStaffAdmin(req, true);
+  const id = typeof body.id === "string" ? body.id : "";
+  if (!id || typeof body.password !== "string" || body.password.length < 12 || body.password.length > 256
+    || body.password !== body.confirmation) throw new StaffAuthError("invalid_staff_credentials", 400);
+  const passwordHash = await hashStaffPassword(body.password);
+  const results = await retryStaffTransaction(() => sql.transaction([
+    adminGuard(req, admin.id),
+    sql`UPDATE staff_users SET password_hash = ${passwordHash}, updated_at = NOW() WHERE id = ${id} RETURNING id`,
+    sql`UPDATE staff_sessions SET revoked_at = COALESCE(revoked_at, NOW()) WHERE user_id = ${id}`,
+    sql`DELETE FROM cashier_event_locks WHERE split_part(user_id, ':', 2) IN
+      (SELECT token_hash FROM staff_sessions WHERE user_id = ${id})`,
+  ], { isolationLevel: "Serializable" }));
+  if (!results[1].length) throw new StaffAuthError("invalid_staff_id", 404);
+}
+
 export async function saveStaff(req: Request, body: Record<string, unknown>, create: boolean) {
   const admin = await requireStaffAdmin(req, true);
   const role = String(body.role || "");

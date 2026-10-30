@@ -1,14 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSavedLang, saveLang, type Lang } from "@/lib/translations";
-import { getSession, getStaffRoleLabel, type StaffRole } from "@/lib/staff-auth";
+import { getSession, getStaffRoleLabel, staffFetch, type StaffRole } from "@/lib/staff-auth";
 import Link from "next/link";
+import { AdminReportingLinks } from "@/components/AdminReportingLinks";
 
 const STATS_PERIOD_KEY = "af_stats_period";
 const STATS_EVENT_KEY = "af_stats_event";
-const STATS_PIN = process.env.NEXT_PUBLIC_STATS_PIN || process.env.NEXT_PUBLIC_CAISSE_PIN || "1955";
 
 type FinancialAmounts = { cashCents: number; cardCents: number; totalCents: number };
 
@@ -17,7 +17,7 @@ type StatsResponse = {
   generatedAt: string;
   filters: {
     period: "today" | "week" | "month" | "all";
-    event: string;
+    eventId: string;
   };
   financials: {
     gross: FinancialAmounts;
@@ -48,7 +48,7 @@ type StatsResponse = {
     transactions: number;
     revenueCents: number;
   }>;
-  availableEvents: string[];
+  availableEvents: Array<{ id: string; name: string }>;
 };
 
 type EventSummarySection = {
@@ -135,7 +135,7 @@ const UI_TEXT: Record<
     week: "Diese Woche",
     month: "Dieser Monat",
     revenue: "Umsatz vor Erstattungen",
-    refunds: "Erstattungen",
+    refunds: "Bestätigte Erstattungen",
     netRevenue: "Umsatz nach Erstattungen",
     cash: "Bar",
     card: "Karte",
@@ -180,12 +180,12 @@ const UI_TEXT: Record<
     week: "Cette semaine",
     month: "Ce mois",
     revenue: "CA brut",
-    refunds: "Remboursements",
+    refunds: "Remboursements confirmés",
     netRevenue: "CA net",
     cash: "Espèces",
     card: "Carte",
     total: "Total",
-    transactions: "Transactions",
+    transactions: "Nombre de ventes",
     avgBasket: "Panier moyen",
     topProducts: "Produits les plus vendus",
     product: "Produit",
@@ -225,7 +225,7 @@ const UI_TEXT: Record<
     week: "This week",
     month: "This month",
     revenue: "Gross revenue",
-    refunds: "Refunds",
+    refunds: "Confirmed refunds",
     netRevenue: "Net revenue",
     cash: "Cash",
     card: "Card",
@@ -286,10 +286,9 @@ export default function StatsPage() {
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [period, setPeriod] = useState<Period>("all");
-  const [eventFilter, setEventFilter] = useState("all");
-  const [pin, setPin] = useState("");
+  const [eventFilter, setEventFilter] = useState("");
+  const statsRequest = useRef<AbortController | null>(null);
   const [isUnlocked, setIsUnlocked] = useState(false);
-  const [pinError, setPinError] = useState<string | null>(null);
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
   const [eventSummaries, setEventSummaries] = useState<EventSummary[]>([]);
   const [storeEvents, setStoreEvents] = useState<Array<{ id: string; name: string }>>([]);
@@ -311,10 +310,7 @@ export default function StatsPage() {
     if (savedPeriod === "today" || savedPeriod === "week" || savedPeriod === "month" || savedPeriod === "all") {
       setPeriod(savedPeriod);
     }
-    const savedEvent = localStorage.getItem(STATS_EVENT_KEY);
-    if (savedEvent && savedEvent.trim()) {
-      setEventFilter(savedEvent);
-    }
+    if (!s) window.location.href = "/team/login";
   }, []);
 
   useEffect(() => {
@@ -322,7 +318,7 @@ export default function StatsPage() {
   }, [period]);
 
   useEffect(() => {
-    localStorage.setItem(STATS_EVENT_KEY, eventFilter);
+    if (eventFilter) localStorage.setItem(STATS_EVENT_KEY, eventFilter);
   }, [eventFilter]);
 
   const t = UI_TEXT[lang];
@@ -346,28 +342,40 @@ export default function StatsPage() {
     }));
   }, [storeEvents, users]);
 
+  useEffect(() => {
+    if (!isUnlocked) return;
+    const controller = new AbortController();
+    const initial = new URLSearchParams(window.location.search).get("eventId") || localStorage.getItem(STATS_EVENT_KEY) || "";
+    void staffFetch("/api/stats?catalog=1", { cache: "no-store", signal: controller.signal }).then(async response => {
+      const data = await response.json();
+      if (!response.ok || !data.ok || !Array.isArray(data.events)) throw new Error("stats_failed");
+      if (controller.signal.aborted) return;
+      setStoreEvents(data.events);
+      setEventFilter(data.events.some((event: { id: string }) => event.id === initial) ? initial : data.events[0]?.id || "");
+      if (!data.events.length) setLoading(false);
+    }).catch(() => { if (!controller.signal.aborted) { setError(UI_TEXT.fr.failed); setLoading(false); } });
+    return () => controller.abort();
+  }, [isUnlocked]);
+
   const fetchStats = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    if (!isUnlocked || !eventFilter) return;
+    statsRequest.current?.abort();
+    const controller = new AbortController();
+    statsRequest.current = controller;
+    setLoading(true); setError(null); setStats(null);
     try {
-      const params = new URLSearchParams();
-      params.set("period", period);
-      params.set("event", eventFilter);
-      const res = await fetch(`/api/stats?${params.toString()}`, { cache: "no-store" });
+      const params = new URLSearchParams({ period, eventId: eventFilter });
+      const res = await staffFetch(`/api/stats?${params}`, { cache: "no-store", signal: controller.signal });
       const data = (await res.json()) as StatsResponse;
-      if (!res.ok || !data?.ok) {
-        throw new Error("stats_failed");
-      }
-      setStats(data);
-    } catch {
-      setError(t.failed);
-    } finally {
-      setLoading(false);
-    }
-  }, [eventFilter, period, t.failed]);
+      if (!res.ok || !data.ok || data.filters.eventId !== eventFilter || data.filters.period !== period) throw new Error("stats_failed");
+      if (!controller.signal.aborted) setStats(data);
+    } catch { if (!controller.signal.aborted) setError(t.failed); }
+    finally { if (!controller.signal.aborted) setLoading(false); }
+  }, [eventFilter, period, t.failed, isUnlocked]);
 
   useEffect(() => {
     void fetchStats();
+    return () => statsRequest.current?.abort();
   }, [fetchStats]);
 
   useEffect(() => {
@@ -433,113 +441,7 @@ export default function StatsPage() {
     return Math.max(...stats.salesByHour.map((x) => x.transactions), 1);
   }, [stats]);
 
-  if (!isUnlocked) {
-    return (
-      <main
-        style={{
-          minHeight: "100vh",
-          padding: 24,
-          display: "grid",
-          placeItems: "center",
-          fontFamily: "system-ui",
-          backgroundColor: "#FFF3E6",
-          backgroundImage:
-          "linear-gradient(180deg, rgba(255,243,230,0.82) 0%, rgba(255,243,230,0.9) 100%), url('/logo-afrofood.png')",
-          backgroundRepeat: "no-repeat",
-          backgroundPosition: "center, center",
-          backgroundSize: "cover, min(64vw, 420px)",
-          color: "#111",
-        }}
-      >
-        <div
-          style={{
-            width: "100%",
-            maxWidth: 380,
-            background: "rgba(17,24,39,0.85)",
-            border: "1px solid #334155",
-            borderRadius: 14,
-            padding: 16,
-            color: "white",
-          }}
-        >
-          <div style={{ display: "flex", gap: 8 }}>
-	            <Link href="/staff/admin"
-	              className="af-link-btn"
-	              style={{
-	                padding: "6px 10px",
-	                borderRadius: 10,
-	                border: "1px solid #334155",
-	                background: "white",
-	                color: "#111",
-	                fontWeight: 800,
-	                cursor: "pointer",
-	              }}
-		          >
-		            {t.back}
-		          </Link>
-            {(["de", "fr", "en"] as Lang[]).map((L) => (
-              <button
-                key={L}
-                type="button"
-                onClick={() => {
-                  setLang(L);
-                  saveLang(L);
-                }}
-                className={`af-lang-btn ${lang === L ? "is-active" : ""}`}
-              >
-                {L.toUpperCase()}
-              </button>
-            ))}
-          </div>
-          <h1 style={{ margin: "10px 0 0 0", fontSize: 24, fontWeight: 900 }}>Stats securisees</h1>
-          <p style={{ marginTop: 8, opacity: 0.8 }}>Entrer le code PIN</p>
-          <input
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, "").slice(0, 8))}
-            type="password"
-            autoComplete="off"
-            inputMode="numeric"
-            placeholder="PIN"
-            style={{
-              marginTop: 10,
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid #334155",
-              background: "#0f172a",
-              color: "white",
-            }}
-          />
-          {pinError ? <div style={{ marginTop: 8, color: "#fca5a5", fontWeight: 700 }}>{pinError}</div> : null}
-          <button
-            className="af-btn"
-            type="button"
-            onClick={() => {
-              if (pin === STATS_PIN) {
-                setPinError(null);
-                setIsUnlocked(true);
-              } else {
-                setPinError(lang === "fr" ? "Code incorrect" : lang === "de" ? "Falscher Code" : "Incorrect code");
-              }
-            }}
-            style={{
-              marginTop: 10,
-              width: "100%",
-              padding: "10px 14px",
-              borderRadius: 10,
-              border: "none",
-              background: "linear-gradient(135deg,#ff7a00,#ff3c00)",
-              color: "white",
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
-          >
-            {lang === "fr" ? "Valider" : lang === "de" ? "Bestatigen" : "Validate"}
-          </button>
-        </div>
-      </main>
-    );
-  }
+  if (!isUnlocked) return <main><Link href="/staff/admin">{t.back}</Link><p>{t.loading}</p><a href="/team/login">{lang === "fr" ? "Connexion Admin" : lang === "de" ? "Admin-Anmeldung" : "Admin sign in"}</a></main>;
 
   return (
     <main
@@ -557,6 +459,8 @@ export default function StatsPage() {
       }}
     >
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
+        <AdminReportingLinks lang={lang} eventId={eventFilter || undefined} />
+        <p>{lang === "fr" ? "Toutes les caisses de l’événement · Périodes Europe/Berlin · Remboursements confirmés rattachés aux ventes de la période." : lang === "de" ? "Alle Kassen des Events · Zeiträume Europe/Berlin · Bestätigte Erstattungen der Verkäufe im Zeitraum." : "All event registers · Europe/Berlin periods · Confirmed refunds for sales in the selected period."}</p>
 	        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
 	          <Link href="/staff/admin"
 	            className="af-link-btn"
@@ -655,10 +559,10 @@ export default function StatsPage() {
 	              <span>{t.period}</span>
 	              <select
                 value={period}
-                onChange={(e) => setPeriod(e.target.value as Period)}
+                onChange={(e) => { statsRequest.current?.abort(); setStats(null); setPeriod(e.target.value as Period); }}
                 style={{ borderRadius: 10, padding: "6px 10px", border: "1px solid #9ca3af" }}
               >
-                <option value="all">All</option>
+                <option value="all">{lang === "fr" ? "Événement entier" : lang === "de" ? "Gesamtes Event" : "Entire event"}</option>
                 <option value="today">{t.today}</option>
                 <option value="week">{t.week}</option>
                 <option value="month">{t.month}</option>
@@ -669,18 +573,11 @@ export default function StatsPage() {
               <span>{t.event}</span>
               <select
                 value={eventFilter}
-                onChange={(e) => setEventFilter(e.target.value)}
+                onChange={(e) => { statsRequest.current?.abort(); setStats(null); setEventFilter(e.target.value); }}
                 style={{ borderRadius: 10, padding: "6px 10px", border: "1px solid #9ca3af", minWidth: "min(170px, 100%)", maxWidth: "100%" }}
               >
-                <option value="all">{t.allEvents}</option>
-                {eventFilter !== "all" && !(stats?.availableEvents || []).includes(eventFilter) ? (
-                  <option value={eventFilter}>{eventFilter}</option>
-                ) : null}
-                {(stats?.availableEvents || []).map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
+                {!storeEvents.length ? <option value="">{lang === "fr" ? "Aucun événement" : lang === "de" ? "Kein Event" : "No events"}</option> : null}
+                {storeEvents.map(event => <option key={event.id} value={event.id}>{event.name}</option>)}
               </select>
 	            </label>
 	          </div>
@@ -1059,7 +956,7 @@ export default function StatsPage() {
                 border: "1px solid #e5e7eb",
               }}
             >
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>{t.salesTodayByHour}</h2>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>{t.salesHours}</h2>
               <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
                 {stats.salesByHour.map((row) => (
                   <div key={row.hour} style={{ display: "grid", gridTemplateColumns: "86px 1fr 60px", gap: 8 }}>

@@ -23,7 +23,7 @@ function historyServer() {
     if (q.includes('FROM app_settings')) return [{ setting_value: { events: [{ id: 'event-a' }] } }];
     if (q.includes('FROM orders')) {
       assert.match(q, /paid_register_id = \?/);
-      return rows.filter(order => order.event_id === values[0] && (!values[1] || order.paid_register_id === values[2])).slice(values[4], values[4] + values[3]);
+      return rows.filter(order => order.event_id === values[0] && (!values[1] || order.paid_register_id === values[2])).slice(values[5], values[5] + values[4]);
     }
     throw Error('Unexpected query');
   };

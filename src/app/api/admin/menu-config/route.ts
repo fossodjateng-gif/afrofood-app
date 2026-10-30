@@ -3,6 +3,7 @@ import { canAccessStaffEvent } from "@/lib/staff-permissions";
 import { validateAdminKitchenEvent } from "@/lib/admin-kitchen-context";
 import { NextResponse } from "next/server";
 import { getCatalogItemIds } from "@/lib/menu-catalog";
+import { productImagePaths } from "@/lib/product-files-metadata";
 import {
   createCustomMenuItem,
   deleteCustomMenuItem,
@@ -28,6 +29,10 @@ export async function GET(req: Request) {
     const eventId = adminKitchenEvent?.id || String(searchParams.get("eventId") || actor.cashierEventId || "").trim();
     if (actor.role !== "admin" && !canAccessStaffEvent(actor, eventId)) throw new StaffAuthError("staff_event_forbidden", 403);
     const sections = await getResolvedMenuSections(eventId || undefined);
+    const images = await productImagePaths(eventId || undefined);
+    for (const section of sections) {
+      for (const item of section.items) item.imagePath = images.get(item.id) ?? item.imagePath;
+    }
     const availability = await getItemAvailabilityMap(eventId || undefined);
     const paymentConfig = await getPaymentConfig(eventId || undefined);
     const storeConfig = await getStoreConfig();

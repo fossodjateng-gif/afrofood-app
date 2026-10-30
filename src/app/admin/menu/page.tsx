@@ -11,6 +11,7 @@ import { detectClientPlatform, type ClientPlatform } from "@/lib/payment-platfor
 import { clearSession, getSession, getStaffRoleLabel } from "@/lib/staff-auth";
 import Link from "next/link";
 import { ProductPresentation } from "@/components/pos/ProductPresentation";
+import { ProductFilesEditor } from "@/components/ProductFilesEditor";
 import productStyles from "@/components/pos/product-presentation.module.css";
 import pos from "@/components/pos/pos.module.css";
 import {
@@ -1891,6 +1892,10 @@ function AdminMenuPageContent() {
             <ProductPresentation key={item.id} id={item.id} imagePath={item.imagePath} name={item.name[lang]}
               category={sections.find(section => section.id === item.sectionId)?.title[lang]}>
               <div className={productStyles.controls}>
+                {staffRoleSession === "admin" ? <ProductFilesEditor key={item.id} productId={item.id} lang={lang}
+                  onImageChange={imagePath => setSections(previous => previous.map(section => ({ ...section,
+                    items: section.items.map(product => product.id === item.id ? { ...product, imagePath } : product),
+                  })))} /> : null}
                 <label className={productStyles.price}>
                   {lang === "fr" ? "Prix (€)" : lang === "de" ? "Preis (€)" : "Price (€)"}
                 <input

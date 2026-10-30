@@ -22,7 +22,7 @@ function server() {
     const matching = rows.filter(row => row.event_id === values[0] && (!values[1] || row.paid_register_id === values[2]));
     return Promise.resolve(q.includes('COUNT(*)')
       ? [{ day: '2026-10-30', currency: 'eur', count: String(matching.length), total_cents: String(matching.length * 1000) }]
-      : matching.slice(values[4], values[4] + values[3]));
+      : matching.slice(values[5], values[5] + values[4]));
   };
   sql.transaction = async (requests, options) => { transactions.push(options); return Promise.all(requests); };
   const api = load('src/app/api/admin/sales-history/route.ts', {

@@ -16,12 +16,13 @@ function route(rows) {
       assert.match(query, /^\s*SELECT\b/i);
       assert.doesNotMatch(query, /\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i);
       assert.match(query, /WHERE event_id = \?/);
-      assert.match(query, /UPPER\(status\) IN \('NEW', 'IN_PROGRESS', 'READY', 'DONE'\)/);
+      assert.match(query, /UPPER\(status\) = ANY\(\?::text\[\]\)/);
+      assert.deepEqual(values[3], ['NEW', 'IN_PROGRESS', 'READY', 'DONE']);
       // Financial eligibility is computed server-side, never inferred from status alone.
       assert.doesNotMatch(query, /pos_card_key|pos_cash_key/);
       assert.match(query, /ORDER BY created_at DESC, id DESC/);
       return rows.filter(row => row.event_id === values[0] && ['NEW', 'IN_PROGRESS', 'READY', 'DONE'].includes(row.status.toUpperCase()))
-        .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)).slice(values[4], values[4] + values[3]);
+        .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)).slice(values[5], values[5] + values[4]);
     } },
     '@/lib/orders-schema': { ensureOrdersSchema: () => { throw new Error('DDL forbidden'); } },
   });

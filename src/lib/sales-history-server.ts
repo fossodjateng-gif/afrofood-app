@@ -1,5 +1,7 @@
 import { sql } from "@/lib/db";
 
+export const CONFIRMED_SALE_STATUSES = ["NEW", "IN_PROGRESS", "READY", "DONE"];
+
 // Reporting must never call getStoreConfig(), which also prepares the schema.
 export async function salesHistoryEvents(): Promise<Array<{ id: string; name: string }>> {
   const rows = await sql`SELECT setting_value FROM app_settings WHERE setting_key = 'store_config' LIMIT 1`;
@@ -27,7 +29,7 @@ export function salesHistoryQuery(eventId: string, workstationId: string | null,
       FROM orders
       WHERE event_id = ${eventId}
         AND (${workstationId}::text IS NULL OR paid_register_id = ${workstationId})
-        AND UPPER(status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
+        AND UPPER(status) = ANY(${CONFIRMED_SALE_STATUSES}::text[])
       ORDER BY created_at DESC, id DESC
       LIMIT ${limit + 1} OFFSET ${offset}
     `;

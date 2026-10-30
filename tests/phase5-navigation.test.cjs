@@ -19,19 +19,27 @@ function page(file, query = '', seed = {}, extra = {}) {
   return { h, render };
 }
 function back(tree) {
-  return tree.props.back || findAll(tree, node => node.props?.children === 'Retour' && node.props?.href)[0];
+  // Contextual pages pass the return link through a nested layout/frame.
+  const link = findAll(tree, node => node.props?.back)[0]?.props.back
+    || findAll(tree, node => node.props?.children === 'Retour' && node.props?.href)[0];
+  assert.ok(link, 'The page exposes an explicit return link');
+  assert.equal(link.props.onClick, undefined, 'Functional returns use their href directly');
+  return link;
 }
 
 test('menu returns explicitly to the register or workspace without following browser history', () => {
   for (const view of ['add', 'pricing', 'payment']) {
     const register = page('src/app/admin/menu/page.tsx', `view=${view}&from=caisse`, { isUnlocked: true, staffRoleSession: 'admin' });
     const link = back(register.render());
-    assert.equal(link.props.href, '/caisse');
+    assert.equal(link.props.href, '/staff/caisse');
     assert.equal(link.type, 'a', 'Register entry retains document navigation for V3');
     const workspace = page('src/app/admin/menu/page.tsx', `view=${view}&adminEventId=testmaison`, { isUnlocked: true, staffRoleSession: 'admin' });
     const eventBack = back(workspace.render());
     assert.equal(eventBack.props.href, '/staff/admin/events?eventId=testmaison');
-    assert.equal(eventBack.type, Link);
+    assert.equal(eventBack.type, 'a');
+    const contextualRegister = page('src/app/admin/menu/page.tsx', `view=${view}&adminEventId=testmaison&returnTo=caisse`, { isUnlocked: true, staffRoleSession: 'admin' });
+    assert.equal(back(contextualRegister.render()).props.href, '/staff/caisse');
+    assert.equal(back(contextualRegister.render()).type, 'a');
   }
 });
 
@@ -41,14 +49,18 @@ test('kitchen returns preserve their entry context and display session reads are
       let reads = 0;
       const p = page(file, query, {}, { '@/lib/staff-auth': { getSession: () => { reads++; return admin; }, getStaffRoleLabel: () => 'Admin' } });
       const link = back(p.render());
-      assert.equal(link.props.href, expected);
+      const availability = file.includes('/availability/');
+      assert.equal(link.props.href, availability && query === 'adminEventId=testmaison' ? '/staff/cuisine?adminEventId=testmaison' : expected);
       assert.equal(link.type, Link);
-      assert.equal(reads, 1);
+      // Availability reads identity in its boot effect; display pages share one render-time read.
+      assert.equal(reads, availability ? 0 : 1);
     }
   }
   const entry = page('src/app/staff/cuisine/page.tsx', 'from=caisse');
   assert.equal(back(entry.render()).props.href, '/caisse');
-  assert.equal(back(entry.render()).type, 'a');
+  assert.equal(back(entry.render()).type, Link);
+  const eventEntry = page('src/app/staff/cuisine/page.tsx', 'adminEventId=testmaison');
+  assert.equal(back(eventEntry.render()).props.href, '/staff/admin/events?eventId=testmaison');
 });
 
 test('both statistics screens return directly to Administration', () => {
