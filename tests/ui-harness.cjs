@@ -32,19 +32,20 @@ function findAll(tree, predicate) {
 
 function harness(file, seed = {}, mocks = {}) {
   const names = [...fs.readFileSync(file, 'utf8').matchAll(/const \[([\w]+),[^\]]+\] = (?:React\.)?useState/g)].map(match => match[1]);
-  const state = { ...seed }, refs = [], effects = [];let cursor = 0, refCursor = 0;
+  const state = { ...seed }, refs = [], effects = [], effectDependencies = [];let cursor = 0, refCursor = 0;
   const hooks = { ...React,
     useState: initial => { const name = names[cursor++] || 'requestedOrderId';if (!(name in state)) state[name] = typeof initial === 'function' ? initial() : initial;return [state[name], next => { state[name] = typeof next === 'function' ? next(state[name]) : next; }]; },
     useRef: initial => { const index = refCursor++;return refs[index] ||= { current: initial }; },
-    useEffect: fn => { effects.push(fn); }, useCallback: fn => fn, useMemo: fn => fn(),
+    useEffect: (fn, dependencies) => { effects.push(fn); effectDependencies.push(dependencies); }, useCallback: fn => fn, useMemo: fn => fn(),
+    useEffectEvent: fn => { const index = refCursor++; const holder = refs[index] ||= {}; holder.current = fn; return holder.event ||= (...args) => holder.current(...args); },
     // The harness inspects component output without mounting a React renderer.
     useContext: context => context._currentValue,
   };
   const component = load(file, { react: hooks, ...mocks });
   // Exercise the manual cashier inside its unchanged assignment wrapper.
   const Page = file === 'src/app/caisse/manual/page.tsx' ? component.default().props.children.type : component.default;
-  const render = (fn = Page, props) => { cursor = 0;refCursor = 0;effects.length = 0;return fn(props); };
-  return { component, render, state, effects };
+  const render = (fn = Page, props) => { cursor = 0;refCursor = 0;effects.length = 0;effectDependencies.length = 0;return fn(props); };
+  return { component, render, state, effects, effectDependencies };
 }
 
 module.exports = { load, findAll, harness };

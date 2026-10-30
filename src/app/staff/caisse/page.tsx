@@ -61,7 +61,7 @@ export default function StaffCaissePage() {
           <div className={cuisine.cards}>
             <StaffNavigationCard href="/caisse/manual" icon="＋" title={txt("Caisse manuelle", "Manuelle Kasse", "Manual register")} description={txt("Composer une commande et encaisser.", "Eine Bestellung zusammenstellen und kassieren.", "Create an order and collect payment.")} />
             <StaffNavigationCard href="/caisse" icon="€" title={txt("Commandes et encaissements", "Bestellungen und Zahlungen", "Orders and payments")} description={txt("Traiter les commandes et leurs encaissements.", "Bestellungen und Zahlungen bearbeiten.", "Process orders and their payments.")} />
-            <StaffNavigationCard href="/caisse?view=history" disabled={temporary} icon="≡" title={txt("Historique des ventes", "Verkaufshistorie", "Sales history")} description={temporary ? txt("Indisponible dans le contexte Admin temporaire actuel.", "Im temporären Admin-Kontext nicht verfügbar.", "Unavailable in the current temporary Admin context.") : txt("Consulter les ventes validées et leurs reçus.", "Bestätigte Verkäufe und Belege ansehen.", "View confirmed sales and their receipts.")} />
+            <StaffNavigationCard href="/caisse?view=history" icon="≡" title={txt("Historique des ventes", "Verkaufshistorie", "Sales history")} description={temporary ? txt("Consulter les ventes de cette caisse en lecture seule.", "Verkäufe dieser Kasse schreibgeschützt ansehen.", "View this register’s sales in read-only mode.") : txt("Consulter les ventes validées et leurs reçus.", "Bestätigte Verkäufe und Belege ansehen.", "View confirmed sales and their receipts.")} />
           </div>
         </section>
         <section className={styles.kitchen} aria-labelledby="cashier-kitchen">

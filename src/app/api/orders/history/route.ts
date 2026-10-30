@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { sql } from "@/lib/db";
-import { requireAssignedCashRegister, StaffAuthError } from "@/lib/staff-session-server";
+import { salesHistoryQuery } from "@/lib/sales-history-server";
+import { requireAssignedCashRegister, staffSessionHash, StaffAuthError } from "@/lib/staff-session-server";
+import { CASHIER_CONTEXT_HEADER, resolveCashierOperationalContext } from "@/lib/cashier-operational-context";
+import { cashierLeaseGuard } from "@/lib/cashier-locks";
 
 export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
@@ -12,30 +14,32 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Invalid pagination" }, { status: 400 });
   }
   try {
-    await requireAssignedCashRegister(req, eventId);
-    const rows = await sql`
-      SELECT id, created_at, customer_name, event_id, event_name, created_by, created_by_username, register_id, register_name, paid_by, paid_by_username, paid_register_id, paid_register_name,
-        reservation_requested, reservation_time, payment, amount_cents,
-        cash_received_cents, change_given_cents, currency, paid_at,
-        UPPER(status) AS status, items,
-        (paid_at IS NOT NULL AND amount_cents > 0 AND currency = 'eur'
-          AND ((payment = 'card' AND payment_provider = 'stripe' AND stripe_payment_intent_id IS NOT NULL)
-            OR (payment = 'cash' AND payment_provider IS NULL AND stripe_payment_intent_id IS NULL))
-          AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.order_id = orders.id AND r.refund_state <> 'requested')) AS can_refund,
-        (SELECT jsonb_build_object('state', r.refund_state, 'amountCents', r.refund_amount_cents,
-          'currency', r.currency, 'refundedAt', r.refunded_at, 'paymentMethod', r.payment_method)
-          FROM order_refunds r WHERE r.order_id = orders.id) AS refund
-      FROM orders
-      WHERE event_id = ${eventId}
-        AND UPPER(status) IN ('NEW', 'IN_PROGRESS', 'READY', 'DONE')
-      ORDER BY created_at DESC, id DESC
-      LIMIT ${limit + 1} OFFSET ${offset}
-    `;
+    const temporary = req.headers.has(CASHIER_CONTEXT_HEADER);
+    let workstationId: string | null = null;
+    if (temporary) {
+      // Read-only access uses the real Admin, exact Phase 6 context and live V3
+      // owner. An invalid explicit context never falls back to an assignment.
+      const context = await resolveCashierOperationalContext(req, {
+        eventId, workstationId: params.has("workstationId") ? params.get("workstationId") : undefined,
+      });
+      if (!context.contextId || !context.instanceId) throw new StaffAuthError("cashier_context_invalid", 403);
+      try {
+        await cashierLeaseGuard({ userId: context.actor.id, username: context.actor.username,
+          sessionHash: staffSessionHash(req), eventId: context.eventId, workstationId: context.workstation.id,
+          contextId: context.contextId, instanceId: context.instanceId });
+      } catch { throw new StaffAuthError("cashier_lease_required", 423); }
+      workstationId = context.workstation.id;
+    } else {
+      const actor = await requireAssignedCashRegister(req, eventId);
+      workstationId = actor.workstationId!;
+      if (params.has("workstationId") && params.get("workstationId") !== workstationId) throw new StaffAuthError("workstation_context_mismatch", 403);
+    }
+    const rows = await salesHistoryQuery(eventId, workstationId, limit, offset);
     // Presentation capability only. The refund service independently guards creation.
     const orders = rows.slice(0, limit).map(row => ({
-      ...row, can_refund: process.env.REFUND_CREATE_ENABLED === "1" && row.can_refund === true,
+      ...row, can_refund: !temporary && process.env.REFUND_CREATE_ENABLED === "1" && row.can_refund === true,
     }));
-    return NextResponse.json({ eventId, orders, hasMore: rows.length > limit }, {
+    return NextResponse.json({ eventId, workstationId, readOnly: temporary, orders, hasMore: rows.length > limit }, {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

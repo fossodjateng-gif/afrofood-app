@@ -45,6 +45,7 @@ function ManualCaissePage() {
   const cardBusyRef = useRef(false);
   const [showReceipt, setShowReceipt] = useState(false);
   const [cashOpen, setCashOpen] = useState(false);
+  const [paymentHidden, setPaymentHidden] = useState(false);
   const [cashAttempt, setCashAttempt] = useState<CashAttempt | null>(null);
   const [cashReceipt, setCashReceipt] = useState<CashReceipt | null>(null);
   const [received, setReceived] = useState("");
@@ -97,7 +98,7 @@ function ManualCaissePage() {
       const products = new Map(sections.flatMap((section) => section.items.map((product) => [product.id, product] as const)));
       const storedCard = localStorage.getItem(cardAttemptKey(cartKey));
       const storedAttempt = localStorage.getItem(cashAttemptKey(cartKey));
-      if (session.temporaryContextId && storedCard) throw new Error("Une tentative carte existe sur ce poste. Vérifiez-la dans son parcours habituel.");
+      if (session.temporaryContextId && storedCard) throw new Error("Une tentative carte existe sur cette caisse. Vérifiez-la dans son parcours habituel.");
       if (storedCard && storedAttempt) throw new Error("Zwei gespeicherte Zahlungen: bitte zuerst den Zahlungsstatus prüfen.");
       if (storedCard) {
         const saved = JSON.parse(storedCard) as CardAttempt;
@@ -389,17 +390,24 @@ function ManualCaissePage() {
   }
 
   const labels = {
-    de: { refresh: "Menü aktualisieren", back: "Zurück / Kassenbereich", event: "Zugewiesenes Event", user: "Angemeldet als", loading: "Wird geladen…", noEvent: "Kein Event geladen", preview: "Barzahlung / Kartenzahlung", title: "Manuelle Kasse", unavailable: "Manuelle Kasse nicht verfügbar", contextError: "Bitte Konto und Arbeitsplatz prüfen und das Menü erneut laden.", storageError: "Der Warenkorb kann auf diesem Gerät nicht gespeichert werden. Beim Neuladen kann er verloren gehen." },
-    fr: { refresh: "Actualiser le menu", back: "Retour / Espace Caisse", event: "Événement affecté", user: "Connecté en tant que", loading: "Chargement…", noEvent: "Aucun événement chargé", preview: "Espèces / Carte", title: "Caisse manuelle", unavailable: "Caisse manuelle indisponible", contextError: "Vérifiez le compte et le poste, puis rechargez le menu.", storageError: "Le panier ne peut pas être enregistré sur cet appareil. Il peut être perdu au rechargement." },
-    en: { refresh: "Refresh menu", back: "Back / Cashier space", event: "Assigned event", user: "Logged in as", loading: "Loading…", noEvent: "No event loaded", preview: "Cash / Card", title: "Manual cashier", unavailable: "Manual cashier unavailable", contextError: "Check the account and workstation, then reload the menu.", storageError: "The cart cannot be saved on this device. Reloading may lose it." },
+    de: { refresh: "Menü aktualisieren", back: "Zurück / Kassenbereich", event: "Zugewiesenes Event", user: "Angemeldet als", loading: "Wird geladen…", noEvent: "Kein Event geladen", preview: "Barzahlung / Kartenzahlung", title: "Manuelle Kasse", unavailable: "Manuelle Kasse nicht verfügbar", contextError: "Bitte Konto und Event prüfen und das Menü erneut laden.", storageError: "Der Warenkorb kann auf diesem Gerät nicht gespeichert werden. Beim Neuladen kann er verloren gehen." },
+    fr: { refresh: "Actualiser le menu", back: "Retour / Espace Caisse", event: "Événement affecté", user: "Connecté en tant que", loading: "Chargement…", noEvent: "Aucun événement chargé", preview: "Espèces / Carte", title: "Caisse manuelle", unavailable: "Caisse manuelle indisponible", contextError: "Vérifiez le compte et l’événement, puis rechargez le menu.", storageError: "Le panier ne peut pas être enregistré sur cet appareil. Il peut être perdu au rechargement." },
+    en: { refresh: "Refresh menu", back: "Back / Cashier space", event: "Assigned event", user: "Logged in as", loading: "Loading…", noEvent: "No event loaded", preview: "Cash / Card", title: "Manual cashier", unavailable: "Manual cashier unavailable", contextError: "Check the account and event, then reload the menu.", storageError: "The cart cannot be saved on this device. Reloading may lose it." },
   }[lang];
+
+  const hasPayment = cashOpen || !!cardAttempt || cardBusy;
+  const paymentVisible = hasPayment && !paymentHidden;
+  const manualBack = lang === "fr" ? "Retour / Caisse manuelle" : lang === "de" ? "Zurück / Manuelle Kasse" : "Back / Manual cashier";
+  const resumePayment = lang === "fr" ? "Reprendre le paiement" : lang === "de" ? "Zahlung fortsetzen" : "Resume payment";
 
   return (
     <div className={cuisine.workspace}>
       <StaffPageFrame title={labels.title} lang={lang} wide compactContext
         context={{ name: context?.session.username || "", role: context ? getStaffRoleLabel(context.session.role, lang) : "",
           eventName: context?.eventName || (loading ? labels.loading : labels.noEvent) }}
-        back={<a className="af-link-btn" href="/staff/caisse">{labels.back}</a>}
+        back={paymentVisible
+          ? <button className="af-link-btn" type="button" onClick={() => setPaymentHidden(true)}>{manualBack}</button>
+          : <a className="af-link-btn" href="/staff/caisse">{labels.back}</a>}
         onLangChange={language => { setLang(language); saveLang(language); }}
         actions={<button className="af-link-btn" type="button" onClick={() => void loadContext()} disabled={loading || cashBusy || !!cashAttempt || cardBusy || !!cardAttempt}>{labels.refresh}</button>}
       >
@@ -407,13 +415,14 @@ function ManualCaissePage() {
         {error ? <div className={styles.error} role="alert"><strong>{labels.unavailable}</strong><p>{labels.contextError}</p><a className="af-link-btn" href="/staff/caisse">{labels.back}</a></div> : null}
         {storageError && context ? <div className={styles.error} role="alert">{labels.storageError}</div> : null}
         {loading ? <div className={styles.loading} role="status">{labels.loading}</div> : null}
-        {(cardAttempt || cardBusy) ? <CardPayment lang={lang} order={cardOrder} onCancel={() => void cancelCard()} attempt={cardAttempt} receipt={cardReceipt} busy={cardBusy} error={cardError} delayed={cardDelayed} onCheck={() => void verifyCard()} onResume={() => void resumeCard()} onNew={newCardOrder} onTicket={() => { setShowReceipt(true); }} /> : null}
+        {paymentVisible && (cardAttempt || cardBusy) ? <CardPayment lang={lang} order={cardOrder} onCancel={() => void cancelCard()} attempt={cardAttempt} receipt={cardReceipt} busy={cardBusy} error={cardError} delayed={cardDelayed} onCheck={() => void verifyCard()} onResume={() => void resumeCard()} onNew={newCardOrder} onTicket={() => { setShowReceipt(true); }} /> : null}
         {!cardAttempt && !cardBusy && cardError ? <p role="alert" className={styles.error}>{cardError}</p> : null}
-        {cashOpen ? <CashPayment lang={lang} totalCents={cashAttempt?.amountCents ?? getPosBreakdown(items).totalCents} received={received} busy={cashBusy} error={cashError} receipt={cashReceipt} locked={!!cashAttempt} onReceived={setReceived} onConfirm={() => void confirmCash()} onClose={() => setCashOpen(false)} onTicket={() => { setShowReceipt(true); }} onNew={() => { setShowReceipt(false); setCashReceipt(null); setCashOpen(false); setReceived(""); setCashError(null); }} /> : null}
-        {(cardReceipt || cashReceipt) && showReceipt ? <OrderReceipt order={(cardReceipt || cashReceipt)!} lang={lang} labels={receiptLabels[lang]} showEvent onPrint={() => window.print()} /> : null}
-        {context && !loading && !cashOpen && !cardAttempt && !cardBusy ? <div className={styles.workspace}>
+        {paymentVisible && cashOpen ? <CashPayment lang={lang} totalCents={cashAttempt?.amountCents ?? getPosBreakdown(items).totalCents} received={received} busy={cashBusy} error={cashError} receipt={cashReceipt} locked={!!cashAttempt} onReceived={setReceived} onConfirm={() => void confirmCash()} onClose={() => setCashOpen(false)} onTicket={() => { setShowReceipt(true); }} onNew={() => { setShowReceipt(false); setCashReceipt(null); setCashOpen(false); setReceived(""); setCashError(null); }} /> : null}
+        {paymentVisible && (cardReceipt || cashReceipt) && showReceipt ? <OrderReceipt order={(cardReceipt || cashReceipt)!} lang={lang} labels={receiptLabels[lang]} showEvent onPrint={() => window.print()} /> : null}
+        {paymentHidden && hasPayment ? <button className="af-btn" type="button" onClick={() => setPaymentHidden(false)}>{resumePayment}</button> : null}
+        {context && !loading && !paymentVisible ? <div className={styles.workspace}>
           <ProductGrid lang={lang} sections={context.sections} categoryId={categoryId} quantities={quantities} onCategoryChange={setCategoryId} onAdd={addProduct} />
-          <PosCart onCard={() => void startCard()} cardDisabled={!!context.session.temporaryContextId || items.length === 0 || storageError || cardBusy || !!cardAttempt || items.some((item) => !products.get(item.id) || item.qty > getProductLimit(products.get(item.id)!))} onCash={() => { if (cardRef.current || cardBusyRef.current || localStorage.getItem(cardAttemptKey(context.cartKey))) { void loadContext(); return; } setCashOpen(true); setCashError(null); setReceived(""); }} cashDisabled={items.length === 0 || storageError || items.some((item) => !products.get(item.id) || item.qty > getProductLimit(products.get(item.id)!))} lang={lang} items={items} products={products} onIncrease={addProduct} onDecrease={(id) => updateCart((current) => decreasePosProduct(current, id))} onRemove={(id) => updateCart((current) => current.filter((item) => item.id !== id))} />
+          <PosCart onCard={() => void startCard()} cardDisabled={hasPayment || !!context.session.temporaryContextId || items.length === 0 || storageError || cardBusy || !!cardAttempt || items.some((item) => !products.get(item.id) || item.qty > getProductLimit(products.get(item.id)!))} onCash={() => { if (cardRef.current || cardBusyRef.current || localStorage.getItem(cardAttemptKey(context.cartKey))) { void loadContext(); return; } setCashOpen(true); setCashError(null); setReceived(""); }} cashDisabled={hasPayment || items.length === 0 || storageError || items.some((item) => !products.get(item.id) || item.qty > getProductLimit(products.get(item.id)!))} lang={lang} items={items} products={products} onIncrease={addProduct} onDecrease={(id) => updateCart((current) => decreasePosProduct(current, id))} onRemove={(id) => updateCart((current) => current.filter((item) => item.id !== id))} />
         </div> : null}
 
       </StaffPageFrame>

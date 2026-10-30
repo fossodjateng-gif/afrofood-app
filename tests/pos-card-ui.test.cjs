@@ -40,8 +40,8 @@ test('X: existing caisse card button uses shared preparation, same terminal, no 
  try{
   globalThis.window={setTimeout:()=>1,print:()=>{throw Error('Unexpected print');}};globalThis.localStorage={getItem:()=>null};
   globalThis.fetch=async(url,options)=>{calls.push([url,options]);return url==='/api/orders?eventId=event-a'?Response.json([row]):db.request(url,options);};
-  const h=harness('src/app/caisse/page.tsx',{isUnlocked:true,staffRole:'cashier',staffSession:session,eventReady:true,activeEventName:'Event A',selectedEventId:'event-a',orders:[row],loading:false},{'@/lib/staff-auth':{getSession:()=>session,staffFetch:(...args)=>fetch(...args),getStaffRoleLabel:()=> 'Kasse'}});
-  const tree=h.render();const button=findAll(tree,e=>e.type==='button'&&String(e.props.onClick).includes('initTapToPay'))[0];assert.ok(button);assert.equal(button.props.disabled,false);
+  const h=harness('src/app/caisse/page.tsx',{isUnlocked:true,staffRole:'cashier',staffSession:session,eventReady:true,activeEventName:'Event A',selectedEventId:'event-a',orders:[row],loading:false},{'next/navigation':{useSearchParams:()=>new URLSearchParams()},'@/lib/staff-auth':{getSession:()=>session,staffFetch:(...args)=>fetch(...args),getStaffRoleLabel:()=> 'Kasse'}});
+  const tree=h.render(h.component.default().props.children.type);const button=findAll(tree,e=>e.type==='button'&&String(e.props.onClick).includes('initTapToPay'))[0];assert.ok(button);assert.equal(button.props.disabled,false);
   button.props.onClick();for(let n=0;n<8;n++)await new Promise(resolve=>setImmediate(resolve));
   assert.equal(db.stripeCreates,1);assert.equal(db.mailboxes.get('kasse').order_id,row.id);assert.equal(row.status,'PENDING_PAYMENT');assert.ok(!calls.some(([,options])=>options?.method==='PATCH'));
   assert.equal(h.state.actionError,null);assert.equal(h.state.tapToPayInfo[row.id].paymentIntentId,row.stripe_payment_intent_id);

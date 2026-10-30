@@ -267,7 +267,7 @@ test('Quitter la caisse/Admin suspends lifecycle, closes captured context, clear
   assert.equal(f.f.storage.has(storageKey), false); assert.deepEqual(f.f.identity, f.before);
 });
 
-test('Espace Caisse shows all sections, preserves allowed routes and keeps history restricted', () => {
+test('Espace Caisse shows all sections and opens register history read-only for temporary Admin', () => {
   const session = { userId: 'admin', username: 'anaclet', role: 'admin', cashierEventId: 'testmaison', workstationId: station, workstationName: 'Caisse papa', workstationType: 'cashier', temporaryContextId: id };
   const h = harness('src/app/staff/caisse/page.tsx', { session, lang: 'fr' }, {
     '@/lib/temporary-cashier-client': { hasTemporaryCashierContext: () => true },
@@ -275,7 +275,8 @@ test('Espace Caisse shows all sections, preserves allowed routes and keeps histo
   });
   const tree = h.render(), cards = findAll(tree, n => n.type.name === 'StaffNavigationCard');
   assert.equal(cards.length, 7);
-  assert.equal(cards.find(n => n.props.title === 'Historique des ventes').props.disabled, true);
+  assert.notEqual(cards.find(n => n.props.title === 'Historique des ventes').props.disabled, true);
+  assert.equal(cards.find(n => n.props.title === 'Historique des ventes').props.href, '/caisse?view=history');
   assert.equal(cards.find(n => n.props.title === 'Cuisine').props.href, '/staff/cuisine?adminEventId=testmaison');
   assert.equal(cards.find(n => n.props.title === 'Ajouter un produit').props.href, '/admin/menu?view=add&adminEventId=testmaison&returnTo=caisse');
   assert.equal(tree.props.children.props.back.type, 'button');

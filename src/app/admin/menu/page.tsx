@@ -1,4 +1,5 @@
 "use client";
+import { AdminReportingLinks } from "@/components/AdminReportingLinks";
 
 import { Suspense, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { StaffPageFrame } from "@/components/StaffPageFrame";
@@ -1352,10 +1353,8 @@ function AdminMenuPageContent() {
 
 	        {showEventSection ? (
 	              <div style={{ background: "white", border: "1px solid var(--af-border)", borderRadius: 12, padding: 12, marginTop: 12 }}>
+          <AdminReportingLinks lang={lang} eventId={adminEventId || undefined} />
 	          <div style={{ fontWeight: 900 }}>{ui.eventActive}</div>
-          <div style={{ display: "flex", gap: 12, margin: "20px 0", flexWrap: "wrap" }}>
-            <Link className="af-link-btn" href="/stats">{lang === "fr" ? "Statistiques" : lang === "de" ? "Statistiken" : "Statistics"}</Link>
-          </div>
 	          <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>
 	            {ui.eventHelp}
 	          </div>

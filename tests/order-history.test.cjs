@@ -21,7 +21,7 @@ function route(rows) {
       assert.doesNotMatch(query, /pos_card_key|pos_cash_key/);
       assert.match(query, /ORDER BY created_at DESC, id DESC/);
       return rows.filter(row => row.event_id === values[0] && ['NEW', 'IN_PROGRESS', 'READY', 'DONE'].includes(row.status.toUpperCase()))
-        .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)).slice(values[2], values[2] + values[1]);
+        .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)).slice(values[4], values[4] + values[3]);
     } },
     '@/lib/orders-schema': { ensureOrdersSchema: () => { throw new Error('DDL forbidden'); } },
   });
@@ -149,37 +149,40 @@ test('history rejects a response containing another event and suppresses late re
   } finally { global.window = oldWindow; global.fetch = oldFetch; }
 });
 
-test('manual history remains accessible with a pending card attempt and does not change that attempt', () => {
+test('manual register keeps its return to Espace Caisse and does not change a pending card attempt', () => {
   const attempt = { orderId: 'pending-two', key: 'same-attempt', published: true, items: [] };
   const h = harness('src/app/caisse/manual/page.tsx', {
     context: { eventId: 'a', eventName: 'Event A', session: { userId: 'user-a', username: 'cashier', role: 'cashier' }, sections: [] },
     cardAttempt: attempt, loading: false,
   });
   let tree = h.render();
-  const history = findAll(tree, node => node.type?.name === 'OrderHistory')[0];
-  assert.equal(history.props.eventId, 'a');
-  assert.equal(history.props.selectedOrderId, null);
-  history.props.onSelect('paid-one'); tree = h.render();
+  const frame = findAll(tree, node => node.type?.name === 'StaffPageFrame')[0];
+  assert.equal(frame.props.back.type, 'button');
+  frame.props.back.props.onClick(); tree = h.render();
+  assert.equal(findAll(tree, node => node.type?.name === 'StaffPageFrame')[0].props.back.props.href, '/staff/caisse');
+  findAll(tree, node => node.type === 'button' && node.props.children === 'Zahlung fortsetzen')[0].props.onClick(); tree = h.render();
+  assert.equal(findAll(tree, node => node.type?.name === 'OrderHistory').length, 0);
   assert.equal(h.state.cardAttempt, attempt);
   assert.equal(h.state.showReceipt, false);
-  assert.equal(findAll(tree, node => node.type?.name === 'OrderHistory')[0].props.selectedOrderId, 'paid-one');
   findAll(tree, node => node.type?.name === 'CardPayment')[0].props.onTicket();
-  assert.equal(h.state.historyReceiptOrderId, null);
   assert.equal(h.state.showReceipt, true);
   assert.equal(h.state.cardAttempt, attempt);
 });
 
-test('old caisse keeps its action journal and coordinates current/history receipts', () => {
+test('caisse keeps its action journal and coordinates receipts across its separate sales/history views', () => {
+  let query = 'view=history';
   const h = harness('src/app/caisse/page.tsx', {
     isUnlocked: true, staffRole: 'cashier', eventReady: true, selectedEventId: 'a',
     orders: [sale('current', 'a', 'NEW')], loading: false, actionLogs: ['existing action'], receiptOrderId: 'current',
-  });
-  let tree = h.render();
+  }, { 'next/navigation': { useSearchParams: () => new URLSearchParams(query) } });
+  const render = () => h.render(h.component.default().props.children.type);
+  let tree = render();
   findAll(tree, node => node.type?.name === 'OrderHistory')[0].props.onSelect('older');
-  tree = h.render();
+  tree = render();
   assert.equal(h.state.receiptOrderId, null);
   assert.equal(h.state.historyReceiptOrderId, 'older');
   assert.deepEqual(h.state.actionLogs, ['existing action']);
+  query = ''; tree = render();
   findAll(tree, node => node.type?.name === 'OnDemandOrderReceipt')[0].props.onRequest();
   assert.equal(h.state.receiptOrderId, 'current');
   assert.equal(h.state.historyReceiptOrderId, null);

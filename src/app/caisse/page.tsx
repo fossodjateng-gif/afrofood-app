@@ -4,7 +4,7 @@ import { prepareTerminalCheckout } from "@/lib/terminal-checkout";
 
 import { getOrderBreakdownEur } from "@/lib/pricing";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { Suspense, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import type { OrderRow } from "@/lib/schema";
 import { OnDemandOrderReceipt } from "@/components/OnDemandOrderReceipt";
@@ -298,6 +298,11 @@ function CaissePageContent() {
   const suspendCashierRef = useRef<(() => Promise<void>) | null>(null);
 
   const t = UI_TEXT[lang];
+  // Translated messages must not restart event validation or the V3 owner.
+  const cashierMessages = useEffectEvent(() => UI_TEXT[lang]);
+  const missingEventMessage = useEffectEvent(() => lang === "fr"
+    ? "Aucun evenement n'est assigne a cette caisse."
+    : lang === "de" ? "Kein Event zugewiesen." : "No event is assigned to this cashier.");
   const initCardPaymentLabel = getCashierInitCardPaymentLabel(lang, clientPlatform);
   const waitingWebhookLabel = paymentPresentation[lang].waiting;
   const creatingCardPaymentLabel = getCashierCreatingCardPaymentLabel(lang, clientPlatform);
@@ -333,13 +338,7 @@ function CaissePageContent() {
 
         if (!assignedEventId) {
           if (alive) {
-            setAccessError(
-              lang === "fr"
-                ? "Aucun evenement n'est assigne a cette caisse."
-                : lang === "de"
-                ? "Kein Event zugewiesen."
-                : "No event is assigned to this cashier."
-            );
+            setAccessError(missingEventMessage());
           }
           return;
         }
@@ -375,15 +374,15 @@ function CaissePageContent() {
     setActionLogs((prev) => [`${ts} ${message}`, ...prev].slice(0, 12));
   }
 
-  function txt(
+  const txt = useCallback((
     fr: string,
     de: string,
     en: string
-  ) {
+  ) => {
     if (lang === "fr") return fr;
     if (lang === "de") return de;
     return en;
-  }
+  }, [lang]);
 
   useEffect(() => {
     if (!staffRole || (staffRole === "cashier" && !cashierEventId)) return;
@@ -397,7 +396,7 @@ function CaissePageContent() {
       cache: "no-store",
     }).then(async (res) => {
       const data = await res.json();
-      if (!res.ok || !data?.ok) throw new Error(data?.error || t.unknownError);
+      if (!res.ok || !data?.ok) throw new Error(data?.error || cashierMessages().unknownError);
       const event = (data.storeConfig?.events as EventOption[] | undefined)?.find((entry) => entry.id === eventId);
       if (cashierEventId && !event) throw new Error("Das zugewiesene Event ist nicht verfügbar.");
       if (!stopped) {
@@ -405,10 +404,10 @@ function CaissePageContent() {
         setEventReady(true);
       }
     }).catch((error: unknown) => {
-      if (!stopped) setAccessError(error instanceof Error ? error.message : t.unknownError);
+      if (!stopped) setAccessError(error instanceof Error ? error.message : cashierMessages().unknownError);
     });
     return () => { stopped = true; };
-  }, [staffRole, cashierEventId, selectedEventId, t.unknownError]);
+  }, [staffRole, cashierEventId, selectedEventId]);
 
   async function leaveCashier(navigate: () => void) {
     suspendedRef.current = true;
@@ -439,10 +438,10 @@ function CaissePageContent() {
   useEffect(() => {
     if (!staffReady || !staffRole || !staffSession || !eventReady || closingRef.current) return;
     const lifecycle = startCashierLifecycle({ session: staffSession, eventId: selectedEventId,
-      lockError: t.lockError, unknownError: t.unknownError, closingRef, suspendedRef, suspendCashierRef,
+      lockError: cashierMessages().lockError, unknownError: cashierMessages().unknownError, closingRef, suspendedRef, suspendCashierRef,
       cashierLeaseRef, setIsUnlocked, setAccessError });
     return lifecycle.dispose;
-  }, [staffReady, staffRole, staffSession, selectedEventId, eventReady, t.lockError, t.unknownError]);
+  }, [staffReady, staffRole, staffSession, selectedEventId, eventReady]);
 
   const sortedOrders = useMemo(() => {
     return [...orders].sort((a, b) => {
@@ -539,7 +538,7 @@ function CaissePageContent() {
       });
     }
     refresh();
-  }, [loadOrderById, refresh, selectedEventId, lang]);
+  }, [loadOrderById, refresh, selectedEventId, txt]);
 
   useEffect(() => {
     setLang(getSavedLang());
@@ -822,8 +821,8 @@ function CaissePageContent() {
         context={{ name: staffUsername, role: staffRole ? getStaffRoleLabel(staffRole, lang) : "",
           eventName: activeEventName || selectedEventId, workstationName: staffSession?.workstationName }}
         back={<button type="button" className="af-link-btn"
-          onClick={() => temporary ? void quitTemporary() : void leaveCashier(() => { window.location.href = "/staff/caisse"; })}>
-          {t.back} / {temporary ? txt("Administration événement", "Eventverwaltung", "Event administration") : txt("Espace Caisse", "Kassenbereich", "Cashier space")}
+          onClick={() => void leaveCashier(() => { window.location.href = "/staff/caisse"; })}>
+          {t.back} / {txt("Espace Caisse", "Kassenbereich", "Cashier space")}
         </button>}
         onLangChange={language => { setLang(language); saveLang(language); }}
         actions={<>
@@ -1113,7 +1112,8 @@ function CaissePageContent() {
         })}
       </div>
         </section> : null}
-        {isHistoryView && !temporary ? <div className={pageStyles.history}><OrderHistory key={selectedEventId} eventId={selectedEventId} lang={lang}
+        {isHistoryView ? <div className={pageStyles.history}><OrderHistory key={`${selectedEventId}:${staffSession?.workstationId || ""}`} eventId={selectedEventId} lang={lang}
+          workstationId={staffSession?.workstationId} readOnly={temporary} request={staffFetch}
           selectedOrderId={historyReceiptOrderId} onSelect={(id) => { setReceiptOrderId(null); setHistoryReceiptOrderId(id); }} /></div> : null}
       </StaffPageFrame>
     </div>
