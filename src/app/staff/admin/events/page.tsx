@@ -99,6 +99,8 @@ function EventsContent() {
         </div>
       </section> : <><AdminReportingLinks lang={lang} eventId={event.id} /><section className={shared.section} aria-label={`Administration ${event.name}`}>
         <div className={cuisine.cards}>
+          <StaffNavigationCard href={`/admin/menu?view=pricing&${query}`} icon="☷" title={txt("Produits / Menu", "Produkte / Menü", "Products / Menu")}
+            description={txt("Gérer les produits, leurs images et leurs PDF.", "Produkte, Bilder und PDFs verwalten.", "Manage products, their images and PDFs.")} navigation="client" />
           <StaffNavigationCard href={`/staff/admin/users?${query}`} icon="♙" title={t.users}
             description={txt(`Gérer les utilisateurs de ${event.name}.`, `Benutzer für ${event.name} verwalten.`, `Manage users for ${event.name}.`)} navigation="client" />
           <StaffNavigationCard href={`/staff/admin/events?eventId=${encodeURIComponent(eventId)}&space=caisse`} icon="€" title={t.cashier}

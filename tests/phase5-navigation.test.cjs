@@ -27,6 +27,22 @@ function back(tree) {
   return link;
 }
 
+test('event Administration exposes product management with event context and a direct return', () => {
+  const eventId = 'fête & menu';
+  const workspace = page('src/app/staff/admin/events/page.tsx', `eventId=${encodeURIComponent(eventId)}`, {
+    events: [{ id: eventId, name: 'Event' }],
+  });
+  const card = findAll(workspace.render(), node => node.props?.title === 'Produits / Menu')[0];
+  assert.ok(card, 'Product management is visible in event Administration');
+  assert.equal(card.props.disabled, undefined);
+  assert.equal(card.props.href, `/admin/menu?view=pricing&adminEventId=${encodeURIComponent(eventId)}`);
+  const query = card.props.href.split('?')[1];
+  const editor = page('src/app/admin/menu/page.tsx', query, { isUnlocked: true, staffRoleSession: 'admin' });
+  const tree = editor.render();
+  assert.equal(editor.h.state.pricingEventId, eventId);
+  assert.equal(back(tree).props.href, `/staff/admin/events?eventId=${encodeURIComponent(eventId)}`);
+});
+
 test('menu returns explicitly to the register or workspace without following browser history', () => {
   for (const view of ['add', 'pricing', 'payment']) {
     const register = page('src/app/admin/menu/page.tsx', `view=${view}&from=caisse`, { isUnlocked: true, staffRoleSession: 'admin' });
