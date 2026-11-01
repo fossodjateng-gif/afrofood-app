@@ -274,11 +274,13 @@ test('Espace Caisse shows all sections and opens register history read-only for 
     '@/components/TemporaryCashierWorkspace': { useTemporaryCashierWorkspace: () => ({ quit: async () => {} }) },
   });
   const tree = h.render(), cards = findAll(tree, n => n.type.name === 'StaffNavigationCard');
-  assert.equal(cards.length, 7);
+  assert.equal(cards.length, 6);
   assert.notEqual(cards.find(n => n.props.title === 'Historique des ventes').props.disabled, true);
   assert.equal(cards.find(n => n.props.title === 'Historique des ventes').props.href, '/caisse?view=history');
   assert.equal(cards.find(n => n.props.title === 'Cuisine').props.href, '/staff/cuisine?adminEventId=testmaison');
-  assert.equal(cards.find(n => n.props.title === 'Ajouter un produit').props.href, '/admin/menu?view=add&adminEventId=testmaison&returnTo=caisse');
+  assert.equal(cards.find(n => n.props.title === 'Ajouter un produit'), undefined);
+  assert.equal(cards.find(n => n.props.title === 'Prix et visibilité').props.href, '/admin/menu?view=pricing&adminEventId=testmaison&returnTo=caisse');
+  for (const title of ['Caisse manuelle', 'Commandes et encaissements', 'Modes de paiement']) assert.ok(cards.find(n => n.props.title === title));
   assert.equal(tree.props.children.props.back.type, 'button');
   assert.equal(tree.props.children.props.context.workstationName, 'Caisse papa');
 });

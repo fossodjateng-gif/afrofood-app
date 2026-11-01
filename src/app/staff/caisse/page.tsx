@@ -71,7 +71,6 @@ export default function StaffCaissePage() {
         <section className={styles.kitchen} aria-labelledby="cashier-config">
           <h2 id="cashier-config">{txt("Catalogue et configuration", "Katalog und Einstellungen", "Catalog and settings")}</h2>
           <div className={cuisine.cards}>
-            <StaffNavigationCard href={menuHref("add")} icon="＋" title={txt("Ajouter un produit", "Produkt hinzufügen", "Add a product")} description={txt("Ajouter un produit au catalogue.", "Ein Produkt zum Katalog hinzufügen.", "Add a product to the catalog.")} />
             <StaffNavigationCard href={menuHref("pricing")} icon="€" title={txt("Prix et visibilité", "Preise und Sichtbarkeit", "Prices and visibility")} description={txt("Ajuster les prix et les produits affichés.", "Preise und angezeigte Produkte anpassen.", "Adjust prices and displayed products.")} />
             <StaffNavigationCard href={menuHref("payment")} icon="⚙" title={txt("Modes de paiement", "Zahlungsarten", "Payment methods")} description={txt("Consulter la configuration des paiements.", "Zahlungseinstellungen ansehen.", "View payment settings.")} />
           </div>

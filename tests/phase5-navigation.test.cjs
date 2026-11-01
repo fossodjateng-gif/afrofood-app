@@ -27,22 +27,6 @@ function back(tree) {
   return link;
 }
 
-test('event Administration exposes product management with event context and a direct return', () => {
-  const eventId = 'fête & menu';
-  const workspace = page('src/app/staff/admin/events/page.tsx', `eventId=${encodeURIComponent(eventId)}`, {
-    events: [{ id: eventId, name: 'Event' }],
-  });
-  const card = findAll(workspace.render(), node => node.props?.title === 'Produits / Menu')[0];
-  assert.ok(card, 'Product management is visible in event Administration');
-  assert.equal(card.props.disabled, undefined);
-  assert.equal(card.props.href, `/admin/menu?view=pricing&adminEventId=${encodeURIComponent(eventId)}`);
-  const query = card.props.href.split('?')[1];
-  const editor = page('src/app/admin/menu/page.tsx', query, { isUnlocked: true, staffRoleSession: 'admin' });
-  const tree = editor.render();
-  assert.equal(editor.h.state.pricingEventId, eventId);
-  assert.equal(back(tree).props.href, `/staff/admin/events?eventId=${encodeURIComponent(eventId)}`);
-});
-
 test('menu returns explicitly to the register or workspace without following browser history', () => {
   for (const view of ['add', 'pricing', 'payment']) {
     const register = page('src/app/admin/menu/page.tsx', `view=${view}&from=caisse`, { isUnlocked: true, staffRoleSession: 'admin' });
@@ -108,4 +92,19 @@ test('opening the editor reads only the edited event, without invisible summarie
     assert.equal(p.h.state.pricingEventId, 'testmaison', 'Initial load does not change context and trigger a second read');
     assert.deepEqual(calls, ['/api/admin/menu-config?eventId=testmaison']);
   }
+});
+
+
+test('event Administration keeps operational and reporting links without a product menu card', () => {
+  const p = page('src/app/staff/admin/events/page.tsx', 'eventId=testmaison', {
+    events: [{ id: 'testmaison', name: 'TestMaison' }],
+  });
+  const tree = p.render();
+  const cards = findAll(tree, node => node.type?.name === 'StaffNavigationCard');
+  assert.deepEqual(cards.map(card => card.props.title), ['Utilisateurs', 'Caisse', 'Cuisine']);
+  assert.ok(cards.every(card => !card.props.href.startsWith('/admin/menu')));
+  const reporting = findAll(tree, node => node.type?.name === 'AdminReportingLinks')[0];
+  assert.equal(reporting.props.eventId, 'testmaison');
+  const links = findAll(reporting.type(reporting.props), node => node.type === 'a');
+  assert.deepEqual(links.map(link => link.props.href), ['/stats?eventId=testmaison', '/staff/admin/history?eventId=testmaison']);
 });
