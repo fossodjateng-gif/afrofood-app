@@ -1,12 +1,10 @@
 "use client";
 
 import React from "react";
-import { clearCart } from "@/lib/cart";
+import { captureCartEventSnapshot, changeCartEvent } from "@/lib/cart";
 import { getSavedLang, saveLang, translations, type Lang } from "@/lib/translations";
 
 const EVENT_ID_KEY = "af_event_id";
-const EVENT_NAME_KEY = "af_event_name";
-const LAST_ORDER_KEY = "af_last_order_id";
 
 type EventOption = {
   id: string;
@@ -19,6 +17,10 @@ export default function Home() {
   const [events, setEvents] = React.useState<EventOption[]>([]);
   const [selectedEventId, setSelectedEventId] = React.useState("");
   const [loadingEvents, setLoadingEvents] = React.useState(true);
+  const [changingEvent, setChangingEvent] = React.useState(false);
+  const [eventError, setEventError] = React.useState<"conflict" | "unavailable" | "error" | null>(null);
+  const eventSnapshot = React.useRef<Awaited<ReturnType<typeof captureCartEventSnapshot>> | null>(null);
+  const changingEventRef = React.useRef(false);
   const t = translations[lang];
 
   React.useEffect(() => {
@@ -30,6 +32,9 @@ export default function Home() {
 
     async function loadEvents() {
       try {
+        const snapshot = await captureCartEventSnapshot();
+        if (!alive) return;
+        eventSnapshot.current = snapshot;
         const res = await fetch("/api/menu-config", { cache: "no-store" });
         const data = await res.json().catch(() => null);
         if (!alive) return;
@@ -69,19 +74,28 @@ export default function Home() {
     };
   }, []);
 
-  function continueToMenu() {
+  async function continueToMenu() {
     const chosen = events.find((event) => event.id === selectedEventId);
-    if (!chosen) return;
-
-    const previousEventId = localStorage.getItem(EVENT_ID_KEY) || "";
-    if (previousEventId && previousEventId !== chosen.id) {
-      clearCart();
-      localStorage.removeItem(LAST_ORDER_KEY);
+    if (!chosen || !eventSnapshot.current || changingEventRef.current) return;
+    changingEventRef.current = true;
+    setChangingEvent(true);
+    setEventError(null);
+    try {
+      const result = await changeCartEvent(eventSnapshot.current, chosen);
+      if (result !== "changed") {
+        setEventError(result);
+        eventSnapshot.current = await captureCartEventSnapshot();
+        // Require a fresh selection after the conflict; do not silently retry.
+        setSelectedEventId("");
+        return;
+      }
+      window.location.href = "/menu";
+    } catch {
+      setEventError("error");
+    } finally {
+      changingEventRef.current = false;
+      setChangingEvent(false);
     }
-
-    localStorage.setItem(EVENT_ID_KEY, chosen.id);
-    localStorage.setItem(EVENT_NAME_KEY, chosen.name);
-    window.location.href = "/menu";
   }
 
   return (
@@ -188,8 +202,9 @@ export default function Home() {
                 fontSize: 16,
                 color: "#111",
               }}
-              disabled={loadingEvents}
+              disabled={loadingEvents || changingEvent}
             >
+              <option value="" disabled>{lang === "fr" ? "Choisissez votre événement" : lang === "de" ? "Event auswählen" : "Choose your event"}</option>
               {events.map((event) => (
                 <option key={event.id} value={event.id}>
                   {event.name}
@@ -199,7 +214,7 @@ export default function Home() {
             <button
               type="button"
               onClick={continueToMenu}
-              disabled={!selectedEventId || loadingEvents}
+              disabled={!selectedEventId || loadingEvents || changingEvent}
               style={{
                 marginTop: 14,
                 width: "100%",
@@ -217,6 +232,15 @@ export default function Home() {
             >
               {lang === "fr" ? "Continuer vers le menu" : lang === "de" ? "Weiter zum Menu" : "Continue to menu"}
             </button>
+            {eventError ? <p role="alert" style={{ color: "#9f1239", marginTop: 12 }}>
+              {eventError === "conflict"
+                ? lang === "fr" ? "Le panier, le reçu ou l’événement a changé dans un autre onglet. Rien n’a été effacé. Vérifiez le panier puis sélectionnez à nouveau votre événement."
+                  : lang === "de" ? "Warenkorb, Beleg oder Event wurden in einem anderen Tab geändert. Nichts wurde gelöscht. Bitte Warenkorb prüfen und Event erneut auswählen."
+                  : "The cart, receipt or event changed in another tab. Nothing was cleared. Review the cart and select your event again."
+                : lang === "fr" ? "Le changement d’événement n’a pas pu être effectué en toute sécurité. Vérifiez le panier avant de réessayer."
+                  : lang === "de" ? "Das Event konnte nicht sicher gewechselt werden. Bitte Warenkorb vor einem erneuten Versuch prüfen."
+                  : "The event could not be changed safely. Review the cart before trying again."}
+            </p> : null}
           </div>
         ) : null}
 

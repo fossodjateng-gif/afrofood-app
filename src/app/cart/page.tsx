@@ -5,12 +5,17 @@ import { isQuantityZero, quantityZeroLabel } from "@/lib/quantity-policy";
 import type { ItemAvailability } from "@/lib/menu-settings";
 import { getOrderBreakdownEur } from "@/lib/pricing";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { clearConfirmedCart, rememberCartOrder } from "@/lib/paid-cart";
 import { translations, type Lang, getSavedLang, saveLang } from "@/lib/translations";
 import { makeOrderId, cartToTicketItems, type PaymentMethod, type Order } from "@/lib/order";
 import { OnDemandOrderReceipt } from "@/components/OnDemandOrderReceipt";
 import {
   getCart,
+  cartSnapshot,
+  captureCartSnapshot,
+  CART_KEY,
+  CART_CHANGED,
   clearCart,
   incrementItem,
   decrementItem,
@@ -154,6 +159,7 @@ function mapRowToOrder(row: OrderRow): Order {
 
 
 export default function CartPage() {
+  const checkingPayment = useRef(false);
   const [quantities, setQuantities] = useState<Record<string, ItemAvailability>>({});
   const [cart, setCart] = useState<CartItem[]>([]);
   const [lang, setLang] = useState<Lang>("de");
@@ -256,7 +262,8 @@ export default function CartPage() {
           }
         }
         if (priceById.size > 0) {
-          const current = getCart();
+          const repricingSnapshot = cartSnapshot();
+          const current = repricingSnapshot.items;
           let changed = false;
           const repriced = current.map((it) => {
             const nextPrice = priceById.get(it.id);
@@ -267,8 +274,8 @@ export default function CartPage() {
             return it;
           });
           if (changed) {
-            replaceCart(repriced);
-            setCart(repriced);
+            await replaceCart(repriced, repricingSnapshot);
+            setCart(getCart());
           }
         }
       } catch {
@@ -339,6 +346,7 @@ export default function CartPage() {
       setIsCreating(true);
       setApiError(null);
 
+      const submittedCart = await captureCartSnapshot();
       const payload: Order = {
         id: makeOrderId(),
         createdAt: new Date().toISOString(),
@@ -347,7 +355,7 @@ export default function CartPage() {
         eventName: eventName.trim() ? eventName.trim() : undefined,
         reservationRequested: reserveOrder,
         reservationTime: reserveOrder && reservationTime.trim() ? new Date(reservationTime).toISOString() : undefined,
-        items: cartToTicketItems(getCart()),
+        items: cartToTicketItems(submittedCart.items),
         payment: pay,
       };
 
@@ -366,6 +374,7 @@ export default function CartPage() {
       setOrder(created);
       setOrderStatus("PENDING_PAYMENT");
       localStorage.setItem(LAST_ORDER_KEY, created.id);
+      await rememberCartOrder(created, submittedCart);
     } catch (err: unknown) {
       setApiError(getErrorMessage(err, t.cart_unknown_error));
     } finally {
@@ -375,7 +384,8 @@ export default function CartPage() {
 
   const checkOrderStatus = useCallback(async (orderId?: string) => {
     const id = orderId || order?.id;
-    if (!id) return;
+    if (!id || checkingPayment.current) return;
+    checkingPayment.current = true;
 
     try {
       setIsCheckingStatus(true);
@@ -384,25 +394,47 @@ export default function CartPage() {
       const res = await fetch(`/api/orders?id=${encodeURIComponent(id)}`, { cache: "no-store" });
       const data = await res.json();
 
-      const row = Array.isArray(data) && data.length > 0 ? (data[0] as OrderRow) : null;
-      if (!row) {
+      const row = Array.isArray(data) && data.length === 1 ? (data[0] as OrderRow) : null;
+      if (!res.ok || !row || row.id !== id) {
         throw new Error(t.cart_not_found);
       }
 
+      if (localStorage.getItem(LAST_ORDER_KEY) !== id) return;
       setOrder(mapRowToOrder(row));
       setOrderStatus(row.status);
+      await clearConfirmedCart(row);
+      setCart(getCart());
     } catch (err: unknown) {
       setApiError(getErrorMessage(err, t.cart_unknown_error));
     } finally {
+      checkingPayment.current = false;
       setIsCheckingStatus(false);
     }
   }, [order?.id, t.cart_not_found, t.cart_unknown_error]);
 
   useEffect(() => {
-    const lastOrderId = localStorage.getItem(LAST_ORDER_KEY);
-    if (lastOrderId) {
-      checkOrderStatus(lastOrderId);
-    }
+    const sync = () => setCart(getCart());
+    const reconcile = () => {
+      sync();
+      const lastOrderId = localStorage.getItem(LAST_ORDER_KEY);
+      if (lastOrderId) void checkOrderStatus(lastOrderId);
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") reconcile(); };
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === CART_KEY) sync();
+      if (event.key === LAST_ORDER_KEY) reconcile();
+    };
+    reconcile();
+    window.addEventListener("pageshow", reconcile);
+    window.addEventListener(CART_CHANGED, sync);
+    window.addEventListener("storage", onStorage);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("pageshow", reconcile);
+      window.removeEventListener(CART_CHANGED, sync);
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [checkOrderStatus]);
 
   useEffect(() => {
@@ -526,16 +558,16 @@ export default function CartPage() {
                   <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: -0.2 }}>{it.name}</div>
 
 	                  <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <button type="button" className="af-btn" onClick={() => { decrementItem(it.id); refreshCart(); }} style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
+                    <button type="button" className="af-btn" onClick={async () => { await decrementItem(it.id); refreshCart(); }} style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
                       -
                     </button>
                     <div style={{ minWidth: 90, textAlign: "center", fontWeight: 800, padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.7)" }}>
                       x{it.qty}
                     </div>
-                    <button type="button" className="af-btn" onClick={() => { incrementItem(it.id); refreshCart(); }} style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
+                    <button type="button" className="af-btn" onClick={async () => { await incrementItem(it.id); refreshCart(); }} style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
                       +
                     </button>
-	                    <button type="button" className="af-btn" onClick={() => { removeItem(it.id); refreshCart(); }} style={{ marginLeft: 10, padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
+	                    <button type="button" className="af-btn" onClick={async () => { await removeItem(it.id); refreshCart(); }} style={{ marginLeft: 10, padding: "6px 12px", borderRadius: 999, border: "1px solid #111", background: "rgba(255,255,255,0.96)", cursor: "pointer", color: BRAND.black }}>
 	                      {t.cart_remove}
 	                    </button>
 	                  </div>
@@ -552,8 +584,8 @@ export default function CartPage() {
                           </div>
                           <textarea
                             value={it.unitNotes?.[noteIndex] || ""}
-                            onChange={(e) => {
-                              updateItemUnitNote(it.id, noteIndex, e.target.value);
+                            onChange={async (e) => {
+                              await updateItemUnitNote(it.id, noteIndex, e.target.value);
                               refreshCart();
                             }}
                             placeholder={t.cart_item_note_placeholder}
@@ -589,9 +621,9 @@ export default function CartPage() {
 
             <button
               className="af-btn"
-              onClick={() => {
-                clearCart();
-                setCart([]);
+              onClick={async () => {
+                await clearCart();
+                setCart(getCart());
                 setOrder(null);
                 setOrderStatus(null);
                 localStorage.removeItem(LAST_ORDER_KEY);

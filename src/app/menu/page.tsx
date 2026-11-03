@@ -5,7 +5,8 @@ import React from "react";
 import { getProductImageSource, PRODUCT_IMAGE_FALLBACK } from "@/lib/product-image";
 import { getDipPriceLabel } from "@/lib/pricing";
 import Link from "next/link";
-import { addToCart, getCart } from "@/lib/cart";
+import { addToCart, getCart, CART_CHANGED, CART_KEY } from "@/lib/cart";
+import { reconcilePaidCart } from "@/lib/paid-cart";
 import { getSavedLang, saveLang, translations, type Lang } from "@/lib/translations";
 import {
   getMenuItemImagePath,
@@ -435,9 +436,27 @@ export default function MenuPage() {
   }
 
   React.useEffect(() => {
-    const cart = getCart();
-    const count = cart.reduce((sum, it) => sum + it.qty, 0);
-    setCartCount(count);
+    const sync = () => setCartCount(getCart().reduce((sum, item) => sum + item.qty, 0));
+    let pending = false;
+    const reconcile = async () => {
+      sync();
+      if (pending) return;
+      pending = true;
+      try { await reconcilePaidCart(); } finally { pending = false; sync(); }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") void reconcile(); };
+    const onStorage = (event: StorageEvent) => { if (!event.key || event.key === CART_KEY) sync(); };
+    void reconcile();
+    window.addEventListener(CART_CHANGED, sync);
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("pageshow", reconcile);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener(CART_CHANGED, sync);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("pageshow", reconcile);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   React.useEffect(() => {
@@ -633,9 +652,9 @@ export default function MenuPage() {
 	                        className="af-btn"
 	                        style={UI.btn}
                             disabled={isBlocked}
-	                        onClick={() => {
+	                        onClick={async () => {
                               if (isBlocked) return;
-	                          addToCart({
+	                          await addToCart({
 	                            id: it.id,
                             name: it.name[lang],
                             price: it.price,

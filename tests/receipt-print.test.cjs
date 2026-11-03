@@ -7,6 +7,18 @@ const { harness, findAll } = require('./ui-harness.cjs');
 const order = { id: 'historical-paid-001', created_at: '2026-10-08T12:00:00Z', paid_at: '2026-10-12T12:00:00Z', payment: 'card', status: 'DONE', event_name: 'Test event', amount_cents: 1000, items: [{ name: 'Meal', qty: 1, price: 10 }] };
 const labels = { ticketTitle: 'Kundenbeleg', ticketSub: 'Bezahlt', order: 'Bestellung', name: 'Name', payment: 'Zahlung', total: 'Gesamt', ticketLegend: 'Allergene', ticketSent: 'Küche', thanks: 'Danke', reprint: 'Beleg drucken' };
 
+test('printing a paid server order never reads public or POS cart storage', () => {
+  const previous = global.localStorage;
+  global.localStorage = { getItem() { throw Error('Receipt must not read afrofood_cart_v1 or af_pos_cart_v1'); } };
+  const s = setup();
+  try {
+    s.click(); assert.equal(s.prints, 1);
+    const portal = findAll(s.tree, node => node.type === 'portal')[0];
+    assert.equal(portal.props.children.props['data-order-id'], order.id);
+    assert.ok(JSON.stringify(portal.props.children).includes('Meal'));
+  } finally { s.dispose(); global.localStorage = previous; }
+});
+
 function setup({ decode = () => { throw new Error('Printing must not wait for image decoding'); }, fonts = new Promise(() => {}), onPrint = () => {}, receiptOrder = order } = {}) {
   const originalDocument = global.document, originalWindow = global.window;
   const roots = [], listeners = new Map(); let prints = 0, tree, cleanup;

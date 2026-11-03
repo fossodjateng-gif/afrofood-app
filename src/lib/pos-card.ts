@@ -13,13 +13,13 @@ export async function makeCardFingerprint(input: Pick<CardAttempt, "userId" | "u
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function isPaidCardOrder(order: OrderRow, attempt: CardAttempt) {
+export function isPaidCardOrder(order: OrderRow, attempt: Pick<CardAttempt, "orderId" | "eventId" | "paymentIntentId" | "amountCents">) {
   return order.id === attempt.orderId && order.event_id === attempt.eventId && order.payment === "card" && order.payment_provider === "stripe"
     && !!order.paid_at && !!order.stripe_payment_intent_id && (!attempt.paymentIntentId || order.stripe_payment_intent_id === attempt.paymentIntentId)
     && order.amount_cents === attempt.amountCents && order.currency === "eur" && ["NEW", "IN_PROGRESS", "READY", "DONE"].includes(order.status);
 }
 
-export async function checkPosCard(attempt: CardAttempt, request: typeof fetch = staffFetch): Promise<OrderRow | null> {
+export async function checkPosCard(attempt: Pick<CardAttempt, "orderId" | "eventId">, request: typeof fetch = staffFetch): Promise<OrderRow | null> {
   if (!attempt.orderId) return null;
   const response = await request(`/api/orders?id=${encodeURIComponent(attempt.orderId)}`, { cache: "no-store" });
   const data = await response.json();

@@ -11,7 +11,18 @@ export type CartItem = {
   extraRedSauceQty: number;
 };
 
-const KEY = "afrofood_cart_v1";
+export const CART_KEY = "afrofood_cart_v1";
+const KEY = CART_KEY;
+const REVISION_KEY = "af_cart_revision_v1";
+export const CART_CHANGED = "af-cart-changed";
+export const CART_LOCK = "af-public-cart-v1";
+
+// All public-cart writers must participate. Web Locks coordinates same-origin tabs.
+// Mutations still work without it, but destructive automatic cleanup must opt out.
+export function withCartLock<T>(operation: () => T, withoutLock: () => T = operation): Promise<T> {
+  if (typeof navigator === "undefined" || !navigator.locks?.request) return Promise.resolve(withoutLock());
+  return navigator.locks.request(CART_LOCK, { mode: "exclusive" }, operation);
+}
 
 function cleanText(value: string) {
   return value
@@ -66,7 +77,6 @@ function read(): CartItem[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(KEY) || "[]");
     const items = Array.isArray(parsed) ? (parsed.map(sanitizeItem).filter(Boolean) as CartItem[]) : [];
-    localStorage.setItem(KEY, JSON.stringify(items));
     return items;
   } catch {
     return [];
@@ -74,11 +84,73 @@ function read(): CartItem[] {
 }
 
 function write(items: CartItem[]) {
+  // Every committed edit/replacement is a new revision, even with identical lines.
+  localStorage.setItem(REVISION_KEY, crypto.randomUUID());
   localStorage.setItem(KEY, JSON.stringify(items));
+  if (typeof window !== "undefined") window.dispatchEvent?.(new Event(CART_CHANGED));
 }
 
-export function replaceCart(items: CartItem[]) {
-  write(items);
+export function cartSnapshot() {
+  const items = getCart();
+  const revision = localStorage.getItem(REVISION_KEY) || "";
+  return { revision, fingerprint: JSON.stringify(items), items };
+}
+
+export function captureCartSnapshot() {
+  return withCartLock(() => {
+    if (!localStorage.getItem(REVISION_KEY)) localStorage.setItem(REVISION_KEY, crypto.randomUUID());
+    return cartSnapshot();
+  });
+}
+
+function cartEventSnapshot() {
+  return {
+    ...cartSnapshot(),
+    eventId: localStorage.getItem("af_event_id") || "",
+    eventName: localStorage.getItem("af_event_name") || "",
+    lastOrderId: localStorage.getItem("af_last_order_id"),
+  };
+}
+
+export function captureCartEventSnapshot() {
+  return withCartLock(cartEventSnapshot);
+}
+
+export function changeCartEvent(expected: Awaited<ReturnType<typeof captureCartEventSnapshot>>, next: { id: string; name: string }) {
+  const change = (locked: boolean): "changed" | "conflict" | "unavailable" => {
+    const current = cartEventSnapshot();
+    if (current.eventId !== expected.eventId || current.eventName !== expected.eventName
+      || current.revision !== expected.revision || current.fingerprint !== expected.fingerprint
+      || current.lastOrderId !== expected.lastOrderId) return "conflict";
+    const switching = !!current.eventId && current.eventId !== next.id;
+    // Without cross-tab coordination, never perform a destructive event switch.
+    if (switching && !locked) return "unavailable";
+    if (switching) {
+      write([]);
+      localStorage.removeItem("af_last_order_id");
+    }
+    localStorage.setItem("af_event_id", next.id);
+    localStorage.setItem("af_event_name", next.name);
+    return "changed";
+  };
+  return withCartLock(() => change(true), () => change(false));
+}
+
+export function replaceCart(items: CartItem[], expected?: ReturnType<typeof cartSnapshot>) {
+  return withCartLock(() => {
+    const current = cartSnapshot();
+    if (expected && (current.revision !== expected.revision || current.fingerprint !== expected.fingerprint)) return false;
+    write(items);
+    return true;
+  });
+}
+
+// Caller holds CART_LOCK. Re-read the actual stored basket immediately before writing.
+export function clearCartIfUnchanged(expected: Pick<ReturnType<typeof cartSnapshot>, "revision" | "fingerprint">) {
+  const current = cartSnapshot();
+  if (!expected.revision || current.revision !== expected.revision || current.fingerprint !== expected.fingerprint) return false;
+  write([]);
+  return true;
 }
 
 export function getCart(): CartItem[] {
@@ -86,35 +158,37 @@ export function getCart(): CartItem[] {
 }
 
 export function addToCart(payload: Omit<CartItem, "qty">) {
-  const cart = read();
-  const idx = cart.findIndex((x) => x.id === payload.id);
+  return withCartLock(() => {
+    const cart = read();
+    const idx = cart.findIndex((x) => x.id === payload.id);
 
-  if (idx >= 0) {
-    const it = cart[idx];
-    it.name = payload.name;
-    it.price = payload.price;
-    it.pricingKind = payload.pricingKind;
-    it.qty += 1;
-    it.unitNotes = normalizeUnitNotes(it.unitNotes, it.qty, it.note);
+    if (idx >= 0) {
+      const it = cart[idx];
+      it.name = payload.name;
+      it.price = payload.price;
+      it.pricingKind = payload.pricingKind;
+      it.qty += 1;
+      it.unitNotes = normalizeUnitNotes(it.unitNotes, it.qty, it.note);
 
-    if (payload.redSauce) {
-      if (!it.redSauce) {
-        it.redSauce = true;
-      } else {
-        it.extraRedSauceQty += 1;
+      if (payload.redSauce) {
+        if (!it.redSauce) {
+          it.redSauce = true;
+        } else {
+          it.extraRedSauceQty += 1;
+        }
       }
+    } else {
+      cart.push({
+        ...payload,
+        qty: 1,
+        unitNotes: normalizeUnitNotes(payload.unitNotes, 1, payload.note),
+        redSauce: payload.redSauce,
+        extraRedSauceQty: 0,
+      });
     }
-  } else {
-    cart.push({
-      ...payload,
-      qty: 1,
-      unitNotes: normalizeUnitNotes(payload.unitNotes, 1, payload.note),
-      redSauce: payload.redSauce,
-      extraRedSauceQty: 0,
-    });
-  }
 
-  write(cart);
+    write(cart);
+  });
 }
 
 export function cartTotal(cart: CartItem[]): number {
@@ -122,62 +196,70 @@ export function cartTotal(cart: CartItem[]): number {
 }
 
 export function incrementItem(id: string) {
-  const cart = getCart();
-  const next = cart.map((it) =>
-    it.id === id
-      ? {
-          ...it,
-          qty: it.qty + 1,
-          unitNotes: normalizeUnitNotes(it.unitNotes, it.qty + 1, it.note),
-        }
-      : it
-  );
-  write(next);
-}
-
-export function updateItemNote(id: string, note: string) {
-  updateItemUnitNote(id, 0, note);
-}
-
-export function updateItemUnitNote(id: string, index: number, note: string) {
-  const normalized = String(note || "").trim();
-  const cart = getCart();
-  const next = cart.map((it) => {
-    if (it.id !== id) return it;
-    const unitNotes = normalizeUnitNotes(it.unitNotes, it.qty, it.note);
-    if (index < 0 || index >= unitNotes.length) return it;
-    unitNotes[index] = normalized;
-    return {
-      ...it,
-      note: unitNotes[0] || undefined,
-      unitNotes,
-    };
-  });
-  write(next);
-}
-
-export function decrementItem(id: string) {
-  const cart = getCart();
-  const next = cart
-    .map((it) =>
+  return withCartLock(() => {
+    const cart = getCart();
+    const next = cart.map((it) =>
       it.id === id
         ? {
             ...it,
-            qty: it.qty - 1,
-            unitNotes: normalizeUnitNotes(it.unitNotes, Math.max(0, it.qty - 1), it.note),
-            note: normalizeUnitNotes(it.unitNotes, Math.max(0, it.qty - 1), it.note)[0] || undefined,
+            qty: it.qty + 1,
+            unitNotes: normalizeUnitNotes(it.unitNotes, it.qty + 1, it.note),
           }
         : it
-    )
-    .filter((it) => it.qty > 0);
-  write(next);
+    );
+    write(next);
+  });
+}
+
+export function updateItemNote(id: string, note: string) {
+  return updateItemUnitNote(id, 0, note);
+}
+
+export function updateItemUnitNote(id: string, index: number, note: string) {
+  return withCartLock(() => {
+    const normalized = String(note || "").trim();
+    const cart = getCart();
+    const next = cart.map((it) => {
+      if (it.id !== id) return it;
+      const unitNotes = normalizeUnitNotes(it.unitNotes, it.qty, it.note);
+      if (index < 0 || index >= unitNotes.length) return it;
+      unitNotes[index] = normalized;
+      return {
+        ...it,
+        note: unitNotes[0] || undefined,
+        unitNotes,
+      };
+    });
+    write(next);
+  });
+}
+
+export function decrementItem(id: string) {
+  return withCartLock(() => {
+    const cart = getCart();
+    const next = cart
+      .map((it) =>
+        it.id === id
+          ? {
+              ...it,
+              qty: it.qty - 1,
+              unitNotes: normalizeUnitNotes(it.unitNotes, Math.max(0, it.qty - 1), it.note),
+              note: normalizeUnitNotes(it.unitNotes, Math.max(0, it.qty - 1), it.note)[0] || undefined,
+            }
+          : it
+      )
+      .filter((it) => it.qty > 0);
+    write(next);
+  });
 }
 
 export function removeItem(id: string) {
-  const cart = getCart().filter((it) => it.id !== id);
-  write(cart);
+  return withCartLock(() => {
+    const cart = getCart().filter((it) => it.id !== id);
+    write(cart);
+  });
 }
 
 export function clearCart() {
-  write([]);
+  return withCartLock(() => write([]));
 }
