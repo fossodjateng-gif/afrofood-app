@@ -5,6 +5,7 @@ import {
   Linking,
   Pressable,
   RefreshControl,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -922,7 +923,7 @@ function LoginScreen({
           autoCapitalize="none"
           autoCorrect={false}
           style={styles.input}
-          placeholder="existinguser"
+          placeholder={t.username}
         />
         <Text style={styles.fieldLabel}>{t.password}</Text>
         <TextInput
@@ -930,7 +931,7 @@ function LoginScreen({
           onChangeText={setPassword}
           secureTextEntry
           style={styles.input}
-          placeholder="0603"
+          placeholder={t.password}
         />
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
         <Button label={t.openCashier} onPress={submit} />
@@ -1573,6 +1574,7 @@ export default function App() {
       }}
       logLevel="verbose"
     >
+      <SafeAreaView style={styles.safeArea}>
       {session && screen === "terminal" ? (
         <TerminalScreen
           session={session}
@@ -1623,11 +1625,16 @@ export default function App() {
       ) : (
         <LoginScreen onLogin={handleLogin} lang={lang} onLangChange={setLang} />
       )}
+      </SafeAreaView>
     </StripeTerminalProvider>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#f6efe7",
+  },
   screen: {
     flex: 1,
     backgroundColor: "#f6efe7",
