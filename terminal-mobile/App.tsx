@@ -161,6 +161,53 @@ function getTerminalStepText(lang: NativeLang) {
   };
 }
 
+// Cashier copy stays separate from SDK/server diagnostic messages.
+const CASHIER_TEXT = {
+  fr: {
+    waiting: "En attente du paiement.", preparing: "Préparation du paiement…",
+    ready: "Prêt à encaisser.", connecting: "Connexion à Tap to Pay…",
+    paying: "Paiement en cours…", confirming: "Vérification du paiement…",
+    success: "Paiement confirmé. La commande a été envoyée en cuisine.",
+    errorTitle: "Action impossible", ordersError: "Impossible de charger la commande. Vérifiez la connexion et actualisez.",
+    prepareError: "Impossible de préparer le paiement. Vérifiez la connexion et actualisez la commande avant de réessayer.",
+    connectError: "Impossible de connecter Tap to Pay. Vérifiez la connexion et la configuration de cet iPhone.",
+    paymentError: "Paiement non confirmé. Vérifiez son état dans la caisse avant de réessayer pour éviter un double paiement.",
+    setupError: "Impossible d’activer Tap to Pay. Vérifiez la connexion et réessayez. Si le problème persiste, contactez l’assistance.",
+    noOrder: "Ouvrez une commande en attente depuis la caisse.",
+    setupReady: "Tap to Pay est prêt.", setupNeeded: "Configurez Tap to Pay avant d’encaisser.",
+    guideSeen: "Guide marchand consulté.", guideNeeded: "Consultez le guide marchand avant d’encaisser.",
+  },
+  de: {
+    waiting: "Warten auf Zahlung.", preparing: "Zahlung wird vorbereitet…",
+    ready: "Bereit zum Kassieren.", connecting: "Verbindung mit Tap to Pay wird hergestellt…",
+    paying: "Zahlung läuft…", confirming: "Zahlung wird überprüft…",
+    success: "Zahlung bestätigt. Die Bestellung wurde an die Küche gesendet.",
+    errorTitle: "Aktion nicht möglich", ordersError: "Bestellung konnte nicht geladen werden. Prüfen Sie die Verbindung und aktualisieren Sie die Ansicht.",
+    prepareError: "Zahlung konnte nicht vorbereitet werden. Prüfen Sie die Verbindung und aktualisieren Sie die Bestellung vor einem erneuten Versuch.",
+    connectError: "Verbindung mit Tap to Pay fehlgeschlagen. Prüfen Sie die Verbindung und die Einrichtung dieses iPhones.",
+    paymentError: "Zahlung nicht bestätigt. Prüfen Sie vor einem erneuten Versuch den Zahlungsstatus in der Kasse, um eine doppelte Zahlung zu vermeiden.",
+    setupError: "Tap to Pay konnte nicht aktiviert werden. Prüfen Sie die Verbindung und versuchen Sie es erneut. Kontaktieren Sie bei weiteren Problemen den Support.",
+    noOrder: "Öffnen Sie eine ausstehende Bestellung in der Kasse.",
+    setupReady: "Tap to Pay ist bereit.", setupNeeded: "Richten Sie Tap to Pay vor dem Kassieren ein.",
+    guideSeen: "Händlerleitfaden gelesen.", guideNeeded: "Lesen Sie vor dem Kassieren den Händlerleitfaden.",
+  },
+  en: {
+    waiting: "Awaiting payment.", preparing: "Preparing payment…",
+    ready: "Ready to take payment.", connecting: "Connecting to Tap to Pay…",
+    paying: "Payment in progress…", confirming: "Verifying payment…",
+    success: "Payment confirmed. The order was sent to the kitchen.",
+    errorTitle: "Unable to continue", ordersError: "Unable to load the order. Check the connection and refresh.",
+    prepareError: "Unable to prepare payment. Check the connection and refresh the order before trying again.",
+    connectError: "Unable to connect Tap to Pay. Check the connection and setup on this iPhone.",
+    paymentError: "Payment not confirmed. Check its status in the cashier before trying again to avoid a duplicate payment.",
+    setupError: "Unable to enable Tap to Pay. Check the connection and try again. Contact support if the problem persists.",
+    noOrder: "Open a pending order from the cashier.",
+    setupReady: "Tap to Pay is ready.", setupNeeded: "Set up Tap to Pay before taking payments.",
+    guideSeen: "Merchant guide reviewed.", guideNeeded: "Review the merchant guide before taking payments.",
+  },
+};
+type CashierStatus = "waiting" | "preparing" | "ready" | "connecting" | "paying" | "confirming" | "success" | "ordersError" | "prepareError" | "connectError" | "paymentError";
+
 const NATIVE_TEXT: Record<
   NativeLang,
   {
@@ -687,8 +734,9 @@ function AwarenessScreen({
       setSetupStep("education");
     } catch (e: unknown) {
       const message = nativeErrorMessage(e, "Unable to start Tap to Pay on iPhone setup.");
-      setSetupLog(message);
-      Alert.alert(t.awarenessTitle, message);
+      console.warn("Tap to Pay setup failed", message);
+      setSetupLog(CASHIER_TEXT[lang].setupError);
+      Alert.alert(t.awarenessTitle, CASHIER_TEXT[lang].setupError);
     } finally {
       setBusy(false);
     }
@@ -864,7 +912,6 @@ function LoginScreen({
         subtitle={t.loginSubtitle}
         lang={lang}
         onLangChange={onLangChange}
-        meta={`${t.api}: ${API_BASE_URL}`}
       />
 
       <Section title={t.openCashier}>
@@ -934,9 +981,8 @@ function HomeScreen({
       </Section>
 
       <Section title={t.handledTitle}>
-        <Text style={styles.orderItem}>{t.setupAccepted}: {tapSetupAccepted ? "yes" : "no"}</Text>
-        <Text style={styles.orderItem}>{t.educationSeen}: {merchantEducationSeen ? "yes" : "no"}</Text>
-        <Text style={styles.orderItem}>PaymentIntent retrieval, collection, and confirmation</Text>
+        <Text style={styles.orderItem}>{tapSetupAccepted ? CASHIER_TEXT[lang].setupReady : CASHIER_TEXT[lang].setupNeeded}</Text>
+        <Text style={styles.orderItem}>{merchantEducationSeen ? CASHIER_TEXT[lang].guideSeen : CASHIER_TEXT[lang].guideNeeded}</Text>
       </Section>
       <HelpAndInformation lang={lang} />
     </ScrollView>
@@ -978,7 +1024,7 @@ function TerminalScreen({
   const [paymentIntentId, setPaymentIntentId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
-  const [statusMessage, setStatusMessage] = useState(t.ready);
+  const [cashierStatus, setCashierStatus] = useState<CashierStatus>("waiting");
   const [completedOrderId, setCompletedOrderId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -995,7 +1041,7 @@ function TerminalScreen({
   );
 
   function log(line: string) {
-    setStatusMessage(line);
+    // Keep technical details in the internal diagnostic buffer, never in cashier copy.
     setLogs((prev) => [`${new Date().toLocaleTimeString()} ${line}`, ...prev].slice(0, 40));
   }
 
@@ -1042,7 +1088,8 @@ function TerminalScreen({
       });
     } catch (e: unknown) {
       log(`Refresh failed: ${nativeErrorMessage(e, "unknown error")}`);
-      Alert.alert("Orders error", nativeErrorMessage(e, "Unable to load pending orders"));
+      setCashierStatus("ordersError");
+      Alert.alert(CASHIER_TEXT[lang].errorTitle, CASHIER_TEXT[lang].ordersError);
     } finally {
       setRefreshing(false);
     }
@@ -1119,12 +1166,13 @@ function TerminalScreen({
 
   async function loadOrCreatePaymentIntentFromSelectedOrder() {
     if (!selectedOrder) {
-      Alert.alert("No order selected", "Select a pending card order first.");
+      Alert.alert(CASHIER_TEXT[lang].errorTitle, CASHIER_TEXT[lang].noOrder);
       return null;
     }
 
     try {
       setBusy(true);
+      setCashierStatus("preparing");
       const res = await nativeStaffFetch(`${API_BASE_URL}/api/stripe/terminal/payment-intent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1136,6 +1184,7 @@ function TerminalScreen({
       }
       setPaymentIntentId(String(data.paymentIntentId || ""));
       setClientSecret(String(data.clientSecret || ""));
+      setCashierStatus("ready");
       log(
         `${data.reused ? "Existing PI loaded" : "PI created"} for ${selectedOrder.id}: ${String(
           data.paymentIntentId || ""
@@ -1145,7 +1194,8 @@ function TerminalScreen({
       return String(data.clientSecret || "");
     } catch (e: unknown) {
       log(`PI create failed: ${nativeErrorMessage(e, "unknown error")}`);
-      Alert.alert("Error", nativeErrorMessage(e, "Unable to create payment intent"));
+      setCashierStatus("prepareError");
+      Alert.alert(CASHIER_TEXT[lang].errorTitle, CASHIER_TEXT[lang].prepareError);
       return null;
     } finally {
       setBusy(false);
@@ -1155,6 +1205,7 @@ function TerminalScreen({
   async function connectTapToPay() {
     try {
       setBusy(true);
+      setCashierStatus("connecting");
       const init = await terminal.initialize();
       if (init?.error) throw init.error;
       log("Terminal initialized");
@@ -1186,7 +1237,8 @@ function TerminalScreen({
       return true;
     } catch (e: unknown) {
       log(`Connect failed: ${nativeErrorMessage(e, "unknown error")}`);
-      Alert.alert("Connect error", nativeErrorMessage(e, "Unable to connect Tap to Pay"));
+      setCashierStatus("connectError");
+      Alert.alert(CASHIER_TEXT[lang].errorTitle, CASHIER_TEXT[lang].connectError);
       return false;
     } finally {
       setBusy(false);
@@ -1195,7 +1247,7 @@ function TerminalScreen({
 
   async function startTapToPayCheckout() {
     if (!selectedOrder) {
-      Alert.alert("No order selected", "Select a pending card order first.");
+      Alert.alert(CASHIER_TEXT[lang].errorTitle, CASHIER_TEXT[lang].noOrder);
       return;
     }
 
@@ -1218,18 +1270,19 @@ function TerminalScreen({
 
   async function collectAndProcessPayment(checkoutClientSecret = clientSecret.trim()) {
     if (!selectedOrder) {
-      Alert.alert("No order selected", "Select a pending card order first.");
+      Alert.alert(CASHIER_TEXT[lang].errorTitle, CASHIER_TEXT[lang].noOrder);
       return;
     }
 
     if (!checkoutClientSecret.trim()) {
-      Alert.alert("Missing client secret", "Create PI from the selected order first.");
+      Alert.alert(CASHIER_TEXT[lang].errorTitle, CASHIER_TEXT[lang].prepareError);
       return;
     }
 
     try {
       setBusy(true);
 
+      setCashierStatus("paying");
       const retrieved = await terminal.retrievePaymentIntent(checkoutClientSecret.trim());
       if (retrieved?.error) throw retrieved.error;
       const intent = retrieved?.paymentIntent;
@@ -1265,12 +1318,14 @@ function TerminalScreen({
           ? `Payment processed by Terminal: ${confirmedPaymentIntentId}`
           : "Payment processed by Terminal"
       );
+      setCashierStatus("confirming");
       const webhookOrder = await waitForStripeWebhook(selectedOrder.id);
       if (!isVerifiedNativePayment(webhookOrder, { orderId: selectedOrder.id, paymentIntentId: confirmedPaymentIntentId, amountCents: selectedOrder.amount_cents, currency: selectedOrder.currency })) {
         throw new Error("Payment processed, but Stripe webhook has not validated the order yet");
       }
 
       log(`Payment confirmed for ${selectedOrder.id}`);
+      setCashierStatus("success");
       setCompletedOrderId(selectedOrder.id);
       await nativeStaffFetch(`${API_BASE_URL}/api/terminal-active-order`, {
         method: "POST",
@@ -1285,13 +1340,14 @@ function TerminalScreen({
         }),
       }).catch(() => null);
       if (!cashierLaunch) {
-        Alert.alert("Success", "Payment confirmed. The order was sent to the kitchen.");
+        Alert.alert(t.paymentDone, CASHIER_TEXT[lang].success);
       }
       setClientSecret("");
       await refreshOrders();
     } catch (e: unknown) {
       log(`Collect/process failed: ${nativeErrorMessage(e, "unknown error")}`);
-      Alert.alert("Payment error", nativeErrorMessage(e, "Could not complete payment"));
+      setCashierStatus("paymentError");
+      Alert.alert(CASHIER_TEXT[lang].errorTitle, CASHIER_TEXT[lang].paymentError);
     } finally {
       setBusy(false);
     }
@@ -1318,7 +1374,6 @@ function TerminalScreen({
         subtitle={t.terminalSubtitle}
         lang={lang}
         onLangChange={onLangChange}
-        meta={`${t.api}: ${API_BASE_URL} · ${t.location}: ${TERMINAL_LOCATION_ID}`}
       />
 
       {!cashierLaunch ? (
@@ -1370,7 +1425,7 @@ function TerminalScreen({
                   kind="success"
                 />
               </View>
-              <Text style={styles.helpText}>{statusMessage}</Text>
+              <Text style={styles.helpText}>{CASHIER_TEXT[lang][cashierStatus]}</Text>
             </>
           )}
         </Section>
